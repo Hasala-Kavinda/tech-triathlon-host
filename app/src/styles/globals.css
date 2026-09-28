@@ -1,0 +1,211 @@
+/* app/src/styles/globals.css - WayLink Design Tokens & Motion System */
+
+:root {
+  --bg: #F5F7FB;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --hairline: #D9DDE8;
+  --text-primary: #000000;
+  --text-secondary: #5B6480;
+  --action: #0047FF;
+  --action-text: #FFFFFF;
+  --action-ring: rgba(0, 71, 255, 0.30);
+  --success: #00C46A;
+  --success-text: #047857;
+  --attention: #FFC300;
+  --critical: #E5484D;
+  --pending: #8A91AB;
+  --gps-tint: #E0F9EE;
+  --swipe-track: rgba(11, 20, 55, 0.08);
+  --swipe-border: rgba(11, 20, 55, 0.06);
+
+  /* Motion Tokens */
+  --duration-micro: 120ms;
+  --duration-state: 200ms;
+  --duration-screen: 250ms;
+  --duration-height: 300ms;
+  --duration-draw: 400ms;
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --ease-leave: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0B1437;
+    --surface: #141D45;
+    --surface-raised: #1E2750;
+    --hairline: #2A335A;
+    --text-primary: #FFFFFF;
+    --text-secondary: #8A91AB;
+    --action: #3370FF;
+    --action-text: #FFFFFF;
+    --action-ring: rgba(51, 112, 255, 0.30);
+    --success: #00C46A;
+    --success-text: #2BD186;
+    --attention: #FFC300;
+    --critical: #FF7B7F;
+    --pending: #8A91AB;
+    --gps-tint: rgba(0, 196, 106, 0.16);
+    --swipe-track: rgba(255, 255, 255, 0.12);
+    --swipe-border: rgba(255, 255, 255, 0.08);
+  }
+}
+
+[data-mode="midnight"], .dark {
+  --bg: #0B1437;
+  --surface: #141D45;
+  --surface-raised: #1E2750;
+  --hairline: #2A335A;
+  --text-primary: #FFFFFF;
+  --text-secondary: #8A91AB;
+  --action: #3370FF;
+  --action-text: #FFFFFF;
+  --action-ring: rgba(51, 112, 255, 0.30);
+  --success: #00C46A;
+  --success-text: #2BD186;
+  --attention: #FFC300;
+  --critical: #FF7B7F;
+  --pending: #8A91AB;
+  --gps-tint: rgba(0, 196, 106, 0.16);
+  --swipe-track: rgba(255, 255, 255, 0.12);
+  --swipe-border: rgba(255, 255, 255, 0.08);
+}
+
+[data-mode="light"], .light {
+  --bg: #F5F7FB;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  --hairline: #D9DDE8;
+  --text-primary: #000000;
+  --text-secondary: #5B6480;
+  --action: #0047FF;
+  --action-text: #FFFFFF;
+  --action-ring: rgba(0, 71, 255, 0.30);
+  --success: #00C46A;
+  --success-text: #047857;
+  --attention: #FFC300;
+  --critical: #E5484D;
+  --pending: #8A91AB;
+  --gps-tint: #E0F9EE;
+  --swipe-track: rgba(11, 20, 55, 0.08);
+  --swipe-border: rgba(11, 20, 55, 0.06);
+}
+
+/* Animations */
+@keyframes pinShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.animate-pin-shake {
+  animation: pinShake 300ms ease-in-out;
+}
+
+@keyframes checkDraw {
+  0% { stroke-dashoffset: 48; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.animate-check-draw {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: checkDraw var(--duration-draw) var(--ease-enter) forwards;
+}
+
+@keyframes toastIn {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  100% { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes toastOut {
+  0% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -4px); }
+}
+
+.toast-enter {
+  animation: toastIn 200ms var(--ease-enter) forwards;
+}
+
+.toast-exit {
+  animation: toastOut 200ms var(--ease-leave) forwards;
+}
+
+/* Screen push/replace animations */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0.9; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutLeft {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-24px); opacity: 0.85; }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-24px); opacity: 0.85; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0.9; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.screen-push-enter {
+  animation: slideInRight 250ms var(--ease-enter) forwards;
+}
+
+.screen-push-exit {
+  animation: slideOutLeft 250ms var(--ease-leave) forwards;
+}
+
+.screen-pop-enter {
+  animation: slideInLeft 250ms var(--ease-enter) forwards;
+}
+
+.screen-pop-exit {
+  animation: slideOutRight 250ms var(--ease-leave) forwards;
+}
+
+.screen-replace-enter {
+  animation: fadeIn 200ms var(--ease-enter) forwards;
+}
+
+/* Stagger list animation */
+@keyframes rowFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-row-enter {
+  animation: rowFadeUp 200ms var(--ease-enter) both;
+}
+
+/* Reduced motion overrides */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 100ms !important;
+    transition-duration: 100ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .animate-pin-shake {
+    animation: fadeIn 100ms ease-in-out !important;
+  }
+  .screen-push-enter, .screen-pop-enter, .screen-replace-enter {
+    animation: fadeIn 100ms var(--ease-enter) forwards !important;
+  }
+  .screen-push-exit, .screen-pop-exit {
+    animation: fadeOut 100ms var(--ease-leave) forwards !important;
+  }
+}
