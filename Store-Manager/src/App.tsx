@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from "react"
 import { AnimatePresence, motion, useMotionValue, animate, useTransform } from "motion/react"
+import wayTrackLogo from "./assets/waytrack-logo.png"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -271,12 +272,12 @@ function FloatingNewOrder({ onClick }: { onClick: () => void }) {
 function TopBar({
   current,
   onNavigate,
-  business = "fresh",
+  business,
   afterCutoff = false,
 }: {
   current: string
   onNavigate: (label: string) => void
-  business?: "fresh" | "style" | "tech"
+  business: "fresh" | "style" | "tech"
   afterCutoff?: boolean
 }) {
   const [showNotifs, setShowNotifs] = useState(false)
@@ -306,10 +307,16 @@ function TopBar({
   }, [current])
 
   return (
-    <header className="topbar">
-      <div className="topbar-left">
+        <header className="topbar">
+      <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+        <div className="store-brand" style={{ cursor: 'pointer' }} onClick={() => onNavigate("Home")}>
+          <img alt="" src={wayTrackLogo} className="store-brand__logo" />
+          <span className="store-brand__wordmark">WayTrack</span>
+          <span className="store-brand__context">
+            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; Kandy
+          </span>
+        </div>
         <div className="topbar-desktop-nav">
-          <BrandMark onClick={() => onNavigate("Home")} />
           <nav className="top-nav" aria-label="Primary navigation">
             {["Home", "Orders", "Deliveries"].map((label) => (
               <button
@@ -323,9 +330,6 @@ function TopBar({
             ))}
           </nav>
         </div>
-        <div className="topbar-mobile">
-          <BrandMark compact onClick={() => onNavigate("Home")} />
-        </div>
       </div>
 
       <div className="topbar-right">
@@ -334,15 +338,6 @@ function TopBar({
             setShowCutoff(val)
             if (val) setShowNotifs(false)
           }} />
-        </div>
-        
-        <div className="topbar-outlet-wrapper desktop-only-flex">
-          <OutletIdentity business={business} />
-        </div>
-        <div className="topbar-outlet-wrapper mobile-only-flex">
-          <div className="compact-mobile-outlet">
-            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; Kandy
-          </div>
         </div>
 
         <div style={{ position: "relative" }} ref={notifRef}>
@@ -372,7 +367,11 @@ function TopBar({
           )}
         </AnimatePresence>
         </div>
-        <div className="avatar desktop-only-flex" />
+        <button className="desktop-only-flex" style={{ background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--white)', padding: '0 4px', margin: 0 }} type="button">
+          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>DF</span>
+          <span style={{ fontWeight: 500, fontSize: '14px' }}>Dilini F.</span>
+          <ChevronDown size={16} />
+        </button>
       </div>
     </header>
   )
@@ -670,13 +669,13 @@ function ExampleCard({
   )
 }
 
-function DeliveryCard() {
+function DeliveryCard({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
   return (
     <div className="delivery-card">
       <div className="delivery-card-top">
         <div>
           <span className="data-id">ORD-1045</span>
-          <div className="card-title">{formatOrderType("fresh", "dry")}</div>
+          <div className="card-title">{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</div>
         </div>
         <StatusPill kind="transit" />
       </div>
@@ -1108,7 +1107,7 @@ function MobileShellPreview() {
           a time.
         </p>
         <CutoffBanner />
-        <DeliveryCard />
+        <DeliveryCard business="fresh" />
       </div>
       <div className="phone-sticky-action">
         <Button size="mobile" icon={<Plus />}>
@@ -1343,7 +1342,7 @@ function FoundationsPage() {
       >
         <div className="example-grid">
           <ExampleCard title="Order / delivery card">
-            <DeliveryCard />
+            <DeliveryCard business="fresh" />
           </ExampleCard>
           <ExampleCard title="Product row" caption="Quantity is interactive">
             <ProductRow />
@@ -1453,7 +1452,7 @@ function HomeSectionHeader({
 
 
 
-function NextDeliveryHero({ onOpen }: { onOpen?: () => void }) {
+function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () => void, business?: "fresh" | "style" | "tech" }) {
   return (
     <motion.div
       className="next-delivery-card"
@@ -1470,7 +1469,7 @@ function NextDeliveryHero({ onOpen }: { onOpen?: () => void }) {
           </span>
           <StatusPill kind="scheduled" />
         </div>
-        <div className="delivery-name">{formatOrderType("fresh", "dry")}</div>
+        <div className="delivery-name">{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</div>
         <span className="order-reference">
           Order <strong className="data-id">ORD-1062</strong>
         </span>
@@ -1510,31 +1509,28 @@ type UpcomingDelivery = {
   reason?: string
 }
 
-const upcomingDeliveries: UpcomingDelivery[] = [
-  {
-    id: "ORD-1065",
-    type: "Chilled / Frozen",
-    date: "Friday, 2 October",
-    status: "deferred",
-    reason: "Refrigerated capacity",
-    eta: "New window · 06:50–07:10",
-  },
-  {
-    id: "ORD-1071",
-    type: formatOrderType("fresh", "dry"),
-    date: "Monday, 5 October",
-    status: "confirmed",
-    eta: "Not scheduled yet",
-  },
-]
 
-function UpcomingDeliveryRow({
-  delivery,
-  onOpen,
-}: {
-  delivery: UpcomingDelivery
-  onOpen?: () => void
-}) {
+function getUpcomingDeliveries(business: "fresh" | "style" | "tech") {
+  return [
+    {
+      id: "ORD-1065",
+      type: formatOrderType(business, business === "fresh" ? "chilled" : getDefaultOrderType(business)),
+      date: "Friday, 2 October",
+      status: "deferred" as const,
+      reason: business === "fresh" ? "Refrigerated capacity" : "Vehicle capacity constraints",
+      eta: "New window • 06:50-07:10",
+    },
+    {
+      id: "ORD-1071",
+      type: formatOrderType(business, getDefaultOrderType(business)),
+      date: "Monday, 5 October",
+      status: "confirmed" as const,
+      eta: "Not scheduled yet",
+    },
+  ]
+}
+
+function UpcomingDeliveryRow({ business, delivery, onOpen }: { business: "fresh" | "style" | "tech", delivery: UpcomingDelivery, onOpen?: () => void }) {
   return (
     <motion.button
       className="upcoming-row"
@@ -1642,7 +1638,7 @@ function HomePage({
   showUpcoming = true,
   onNewOrder,
   onOpenDeferred,
-  business = "fresh",
+  business,
   onOpenOrder,
   onBusinessChange,
   onNavigate,
@@ -1652,7 +1648,7 @@ function HomePage({
   showUpcoming?: boolean
   onNewOrder: () => void
   onOpenDeferred: () => void
-  business?: "fresh" | "style" | "tech"
+  business: "fresh" | "style" | "tech"
   onOpenOrder: (id: string, view: string, state: string) => void
   onBusinessChange?: (b: "fresh" | "style" | "tech") => void
   onNavigate: (label: string) => void
@@ -1695,7 +1691,7 @@ function HomePage({
 
       <motion.section className="home-section" layout transition={calmSpring}>
         <HomeSectionHeader title="Next delivery" />
-        <NextDeliveryHero onOpen={() => onOpenOrder("ORD-1062", "order-detail", "scheduled")} />
+        <NextDeliveryHero business={business} onOpen={() => onOpenOrder("ORD-1062", "order-detail", "scheduled")} />
       </motion.section>
 
 <AnimatePresence initial={false}>
@@ -1727,8 +1723,8 @@ function HomePage({
                 exit={{ opacity: 0, y: -6 }}
                 transition={calmSpring}
               >
-                {upcomingDeliveries.map((delivery) => (
-                  <UpcomingDeliveryRow
+                {getUpcomingDeliveries(business || "fresh").map((delivery) => (
+                  <UpcomingDeliveryRow business={business}
                     delivery={delivery}
                     key={delivery.id}
                     onOpen={
@@ -1784,10 +1780,13 @@ const productCatalog: Record<"fresh" | "style" | "tech", Partial<Record<OrderTyp
       { id: "t-shirts", name: "T-shirts", unit: "piece" },
       { id: "shirts", name: "Shirts", unit: "piece" },
       { id: "trousers", name: "Trousers", unit: "piece" },
+      { id: "dresses", name: "Dresses", unit: "piece" },
+      { id: "jackets", name: "Jackets", unit: "piece" },
       { id: "shoes", name: "Shoes", unit: "pair" },
+      { id: "sandals", name: "Sandals", unit: "pair" },
       { id: "bags", name: "Bags", unit: "piece" },
-      { id: "premium-leather", name: "Premium leather goods", unit: "piece" },
-      { id: "cosmetic", name: "Cosmetic / fashion-care products", unit: "carton" },
+      { id: "belts", name: "Belts", unit: "piece" },
+      { id: "caps", name: "Caps", unit: "piece" },
     ],
   },
   tech: {
@@ -1795,10 +1794,13 @@ const productCatalog: Record<"fresh" | "style" | "tech", Partial<Record<OrderTyp
       { id: "laptops", name: "Laptops", unit: "unit" },
       { id: "smartphones", name: "Smartphones", unit: "unit" },
       { id: "monitors", name: "Monitors", unit: "unit" },
+      { id: "tablets", name: "Tablets", unit: "unit" },
       { id: "keyboards", name: "Keyboards", unit: "unit" },
+      { id: "mice", name: "Mice", unit: "unit" },
       { id: "chargers", name: "Chargers", unit: "unit" },
+      { id: "headsets", name: "Headsets", unit: "unit" },
+      { id: "cables", name: "Cables", unit: "unit" },
       { id: "battery-packs", name: "Battery packs", unit: "unit" },
-      { id: "temp-sensitive", name: "Temperature-sensitive components", unit: "box" },
     ],
   },
 }
@@ -1809,10 +1811,10 @@ const mockDrafts: Record<"fresh" | "style" | "tech", Record<OrderType, Record<st
     chilled: { "fresh-milk": 12, chicken: 8 },
   },
   style: {
-    products: { "t-shirts": 30, shirts: 20, trousers: 15, shoes: 12 },
+    products: { "t-shirts": 30, shirts: 20, trousers: 15, shoes: 12, dresses: 5, jackets: 4 },
   },
   tech: {
-    products: { laptops: 6, smartphones: 12, monitors: 8, keyboards: 15 },
+    products: { laptops: 6, smartphones: 12, monitors: 8, keyboards: 15, tablets: 10 },
   },
 } as any
 
@@ -2087,7 +2089,7 @@ function SummaryItems({
   )
 }
 
-function DesktopOrderSummary({
+function DesktopOrderSummary({ business,
   type,
   items,
   totalUnits,
@@ -2100,7 +2102,7 @@ function DesktopOrderSummary({
   totalUnits: number
   onClear: () => void
   afterCutoff: boolean
-  onReview: () => void
+  onReview: () => void; business?: "fresh" | "style" | "tech"
 }) {
   const populated = items.length > 0
   return (
@@ -2114,7 +2116,7 @@ function DesktopOrderSummary({
         <span>
           <small>Order type</small>
           <strong>
-            {formatOrderType("fresh", "dry")}
+            {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}
           </strong>
         </span>
         <span>
@@ -2175,7 +2177,7 @@ function DesktopOrderSummary({
   )
 }
 
-function MobileOrderSummarySheet({
+function MobileOrderSummarySheet({ business,
   type,
   items,
   totalUnits,
@@ -2186,7 +2188,7 @@ function MobileOrderSummarySheet({
   items: Array<CatalogProduct & { quantity: number }>
   totalUnits: number
   onClose: () => void
-  onReview: () => void
+  onReview: () => void; business?: "fresh" | "style" | "tech"
 }) {
   return (
     <motion.div
@@ -2214,7 +2216,7 @@ function MobileOrderSummarySheet({
               Order summary
             </span>
             <p>
-              {formatOrderType("fresh", "dry")} ·{" "}
+              {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} ·{" "}
               {items.length} products · {totalUnits} units
             </p>
           </div>
@@ -2237,7 +2239,7 @@ function MobileOrderSummarySheet({
   )
 }
 
-function NewOrderPage({ business = "fresh", 
+function NewOrderPage({ business, 
   afterCutoff = false,
   type,
   onTypeChange,
@@ -2246,7 +2248,7 @@ function NewOrderPage({ business = "fresh",
   initialSearch = "",
   initialSummaryOpen = false,
   onReview,
-}: { business?: "fresh" | "style" | "tech", afterCutoff?: boolean
+}: { business: "fresh" | "style" | "tech", afterCutoff?: boolean
   type: OrderType
   onTypeChange: (type: OrderType) => void
   quantities: OrderDrafts
@@ -2327,7 +2329,7 @@ function NewOrderPage({ business = "fresh",
 
           <div className="product-list-heading">
             <span>
-              {formatOrderType("fresh", "dry")}
+              {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}
             </span>
             <small>{filteredProducts.length} products</small>
           </div>
@@ -2363,7 +2365,7 @@ function NewOrderPage({ business = "fresh",
           </AnimatePresence>
         </motion.section>
 
-        <DesktopOrderSummary
+        <DesktopOrderSummary business={business}
           type={type}
           items={currentItems}
           totalUnits={totalUnits}
@@ -2402,7 +2404,7 @@ function NewOrderPage({ business = "fresh",
 
       <AnimatePresence initial={false}>
         {summaryOpen && (
-          <MobileOrderSummarySheet
+          <MobileOrderSummarySheet business={business}
             type={type}
             items={currentItems}
             totalUnits={totalUnits}
@@ -2419,7 +2421,7 @@ function ReviewContext({ business,
   type,
   afterCutoff,
 
-}: { business?: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
+}: { business: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
 
 }) {
   return (
@@ -2429,7 +2431,7 @@ function ReviewContext({ business,
         <strong>{formatOutlet(business)}</strong>
       </div>
       <div>
-        <strong>{formatOrderType("fresh", "dry")}</strong>
+        <strong>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
 
       </div>
       <div>
@@ -2522,14 +2524,14 @@ function SubmissionError({
   )
 }
 
-function ReviewOrderPage({ business = "fresh", 
+function ReviewOrderPage({ business, 
   type,
   quantities,
   afterCutoff,
   forceError,
   onBack,
   onConfirmed,
-}: { business?: "fresh" | "style" | "tech"
+}: { business: "fresh" | "style" | "tech"
   type: OrderType
   quantities: OrderDrafts
   afterCutoff: boolean
@@ -2583,7 +2585,7 @@ function ReviewOrderPage({ business = "fresh",
           <div className="review-commit-heading">Ready to submit?</div>
           <p>
             WayLink will receive this{" "}
-            {formatOrderType("fresh", "dry").toLowerCase()} order for
+            {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")).toLowerCase()} order for
             delivery planning.
           </p>
 
@@ -2676,7 +2678,7 @@ function ConfirmationCard({ business,
   afterCutoff,
   items,
 
-}: { business?: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
+}: { business: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
 
   items: Array<CatalogProduct & { quantity: number }>
 }) {
@@ -2690,7 +2692,7 @@ function ConfirmationCard({ business,
     },
     {
       label: "Order type",
-      value: formatOrderType("fresh", "dry"),
+      value: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")),
     },
     {
       label: "Target planning run",
@@ -2722,13 +2724,13 @@ function ConfirmationCard({ business,
   )
 }
 
-function OrderConfirmationPage({ business = "fresh", 
+function OrderConfirmationPage({ business, 
   type,
   quantities,
   afterCutoff,
   onHome,
   onViewOrder,
-}: { business?: "fresh" | "style" | "tech"
+}: { business: "fresh" | "style" | "tech"
   type: OrderType
   quantities: OrderDrafts
   afterCutoff: boolean
@@ -2757,7 +2759,7 @@ function OrderConfirmationPage({ business = "fresh",
       </motion.div>
 
       <div className="confirmation-layout">
-        <ConfirmationCard type={type} afterCutoff={afterCutoff} items={items} />
+        <ConfirmationCard business={business} type={type} afterCutoff={afterCutoff} items={items} />
         <div className="confirmation-side">
           <div className="next-steps-card">
             <span className="next-steps-icon">
@@ -2786,7 +2788,7 @@ function OrderConfirmationPage({ business = "fresh",
   )
 }
 
-type OrderDetailState = "confirmed" | "scheduled" | "on-way" | "arrived" | "awaiting-confirmation" | "receipt-confirmed" | "receipt-issue"
+type OrderDetailState = "confirmed" | "deferred" | "scheduled" | "on-way" | "arrived" | "awaiting-confirmation" | "receipt-confirmed" | "receipt-issue"
 
 const orderDetailStages = [
   "Order confirmed",
@@ -2797,6 +2799,7 @@ const orderDetailStages = [
 ]
 
 const orderDetailTimestamps: Record<OrderDetailState, string[]> = {
+  deferred: ["Wed � 13:46", "-", "-", "-", "-", "-"],
   confirmed: ["Wed · 13:46", "-", "-", "-", "-", "-"],
   scheduled: ["Wed · 13:46", "Wed · 16:35", "-", "-", "-", "-"],
   "on-way": ["Wed · 13:46", "Wed · 16:35", "Thu · 05:48", "-", "-", "-"],
@@ -2829,6 +2832,7 @@ const orderDetailTimestamps: Record<OrderDetailState, string[]> = {
 }
 
 const orderDetailStep: Record<OrderDetailState, number> = {
+  deferred: 0,
   confirmed: 0,
   scheduled: 1,
   "on-way": 2,
@@ -2838,15 +2842,53 @@ const orderDetailStep: Record<OrderDetailState, number> = {
   "receipt-confirmed": 5,
   "receipt-issue": 5,
 }
-function OrderDetailLifecycle({ state }: { state: OrderDetailState }) {
-  const currentStep = orderDetailStep[state]
-  const timestamps = orderDetailTimestamps[state]
-  const receiptComplete =
-    state === "receipt-confirmed" || state === "receipt-issue"
+function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState, wasDeferred: boolean }) {
+  
+  const stages = wasDeferred ? [
+    "Order confirmed",
+    "Deferred",
+    "Scheduled",
+    "On the way",
+    "Arrived",
+    "Receipt confirmation",
+  ] : [
+    "Order confirmed",
+    "Scheduled",
+    "On the way",
+    "Arrived",
+    "Receipt confirmation",
+  ];
+
+  let currentStep = 0;
+  if (state === "confirmed") currentStep = 0;
+  else if (state === "deferred") currentStep = 1;
+  else if (state === "scheduled") currentStep = wasDeferred ? 2 : 1;
+  else if (state === "on-way") currentStep = wasDeferred ? 3 : 2;
+  else if (state === "arrived") currentStep = wasDeferred ? 4 : 3;
+  else currentStep = wasDeferred ? 5 : 4;
+
+  const receiptComplete = state === "receipt-confirmed" || state === "receipt-issue";
+  
+  const timestamps = stages.map((s, i) => {
+    if (i > currentStep && !receiptComplete) return "-";
+    if (s === "Order confirmed") return "Wed · 13:46";
+    if (s === "Deferred") return "Wed · 16:42";
+    if (s === "Scheduled") return "Wed · 16:35";
+    if (s === "On the way") return "Thu · 05:48";
+    if (s === "Arrived") return "Thu · 06:43";
+    if (s === "Receipt confirmation") {
+      if (state === "receipt-confirmed") return "Thu · 06:57";
+      if (state === "receipt-issue") return "Thu · 06:59";
+      if (state === "awaiting-confirmation") return "Current";
+      return "-";
+    }
+    return "-";
+  });
+
   return (
     <div className="order-detail-timeline-card">
       <div className="order-detail-lifecycle lifecycle">
-        {orderDetailStages.map((stage, index) => {
+        {stages.map((stage, index) => {
           const mode = receiptComplete
             ? "complete"
             : index < currentStep
@@ -2892,6 +2934,29 @@ function OrderDetailHero({ onConfirmArrived,
       animate={{ opacity: 1, y: 0 }}
       transition={calmSpring}
     >
+      {state === "deferred" && (
+        <>
+          <span className="order-hero-icon" style={{ background: "var(--sunburst-50)", color: "var(--sunburst-600)" }}>
+            <CalendarDays />
+          </span>
+          <div className="order-hero-copy">
+            <span className="field-label">Current state</span>
+            <div className="order-hero-title">Deferred</div>
+            <p>This order has been moved to the next planning cycle.</p>
+          </div>
+          <div className="planning-facts">
+            <span>
+              <small>Target planning run</small>
+              <strong>Friday, 2 October</strong>
+            </span>
+            <span>
+              <small>Expected arrival</small>
+              <strong>Not available yet</strong>
+            </span>
+          </div>
+        </>
+      )}
+
       {state === "confirmed" && (
         <>
           <span className="order-hero-icon">
@@ -3190,7 +3255,7 @@ function PrototypeStateControl<T extends string>({
 
 function OrderDetailPage({
   orderId = "ORD-1082",
-  business = "fresh",
+  business,
   state,
   onBack,
   onStateChange,
@@ -3200,7 +3265,7 @@ function OrderDetailPage({
   onNavigateDeferred,
 }: {
   orderId?: string
-  business?: "fresh" | "style" | "tech"
+  business: "fresh" | "style" | "tech"
   state: OrderDetailState
   onBack: () => void
   onStateChange: (state: OrderDetailState) => void
@@ -3210,8 +3275,16 @@ function OrderDetailPage({
   onSimulatePin?: () => void
   onNavigateDeferred: () => void
 }) {
+  
   const [warehouseIssue, setWarehouseIssue] = useState(false)
+  const [wasDeferred, setWasDeferred] = useState(state === "deferred")
+  
+  useEffect(() => {
+    if (state === "deferred") setWasDeferred(true)
+  }, [state])
+
   const statusKind: Record<OrderDetailState, StatusKind> = {
+    deferred: "deferred",
     confirmed: "confirmed",
     scheduled: "scheduled",
     "on-way": "transit",
@@ -3221,15 +3294,15 @@ function OrderDetailPage({
     "receipt-confirmed": "received",
     "receipt-issue": "issue",
   }
-  const items = selectedProducts(business, getDefaultOrderType(business), getDraft(mockDrafts[business], getDefaultOrderType(business)))
+  const items = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")))
   const showAction = state === "awaiting-confirmation"
     const stateOptions: Array<{
       value: string
       label: string
     }> = [
       { value: "confirmed", label: "Order confirmed" },
-      { value: "scheduled", label: "Scheduled (Normal)" },
-      { value: "deferred", label: "Deferred (Exception)" },
+      { value: "deferred", label: "Deferred" },
+      { value: "scheduled", label: "Scheduled" },
       { value: "on-way", label: "On the way" },
       { value: "on-way-issue", label: "On the way (Warehouse issue)" },
       { value: "arrived", label: "Arrived" },
@@ -3237,6 +3310,12 @@ function OrderDetailPage({
       { value: "receipt-confirmed", label: "Receipt confirmed" },
       { value: "receipt-issue", label: "Receipt confirmed with issue" },
     ]
+
+  const activeOptions = stateOptions.filter(o => {
+    if (o.value === "on-way-issue") return false;
+    if (o.value === "deferred" && state !== "confirmed" && state !== "deferred") return false;
+    return true;
+  });
 
   return (
     <div className="order-detail-page">
@@ -3246,19 +3325,16 @@ function OrderDetailPage({
           Back to Home
         </button>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
             <PrototypeStateControl
               value={state}
-              options={stateOptions.filter(o => o.value !== "on-way-issue")}
+              options={activeOptions}
               onChange={(val) => {
-                if (val === "deferred") {
-                  onNavigateDeferred && onNavigateDeferred()
-                } else {
-                  onStateChange(val as OrderDetailState)
-                }
+                onStateChange(val as OrderDetailState)
               }}
               onSimulatePin={onSimulatePin}
             />
+
             {state === "on-way" && (
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", background: "var(--slate-50)", padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border)" }}>
                 <input 
@@ -3288,15 +3364,48 @@ function OrderDetailPage({
               </motion.div>
             </AnimatePresence>
           </div>
-          <p>{formatOrderType("fresh", "dry")} · {formatOutlet(business)}</p>
+          <p>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {formatOutlet(business)}</p>
         </div>
       </div>
 
-      <OrderDetailLifecycle state={state} />
+      <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} />
 
       <div className="order-detail-layout">
         <div className="order-detail-primary">
+          
+          
+          
+
+
           <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} />
+
+{state === "deferred" && (
+            <motion.div className="delivery-update-card" style={{ marginTop: -16, marginBottom: 24 }} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={calmSpring}>
+              <div className="order-detail-section-heading">
+                <div>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <CircleAlert size={16} /> Delivery deferred
+                  </span>
+                  <small>No action required.</small>
+                </div>
+              </div>
+              <div className="delivery-update-grid">
+                <span>
+                  <small>Original plan</small>
+                  <strong>Thursday, 1 October</strong>
+                </span>
+                <span className="delivery-update-new">
+                  <small>New expected delivery</small>
+                  <strong>Friday, 2 October</strong>
+                </span>
+                <span>
+                  <small>Reason</small>
+                  <strong>{business === "fresh" ? "Refrigerated delivery capacity unavailable" : "Vehicle capacity constraints"}</strong>
+                </span>
+              </div>
+            </motion.div>
+          )}
+
 
           <AnimatePresence>
             {state === "on-way" && warehouseIssue && (
@@ -3360,7 +3469,7 @@ function OrderDetailPage({
           <div className="order-record-meta">
             <span>
               <small>Order type</small>
-              <strong>{formatOrderType("fresh", "dry")}</strong>
+              <strong>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
             </span>
             <span>
               <small>Target date</small>
@@ -3400,7 +3509,7 @@ type ReceiptIssueType = "good" | "missing" | "damaged" | "temperature" | "wrong-
 
 
 function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-  const receiptProducts = selectedProducts(business, getDefaultOrderType(business), getDraft(mockDrafts[business], getDefaultOrderType(business)))
+  const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")))
   return (
     <div className="receipt-order-summary">
       <div className="receipt-panel-heading">
@@ -3428,7 +3537,7 @@ function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fresh" | "
 }
 
 function ReceiptGoodRows({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-  const receiptProducts = selectedProducts(business, getDefaultOrderType(business), getDraft(mockDrafts[business], getDefaultOrderType(business)))
+  const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")))
   return (
     <div className="receipt-good-list">
       {receiptProducts.map((product) => (
@@ -3469,13 +3578,14 @@ function IssueChips({
   business?: "fresh" | "style" | "tech"
   orderType?: OrderType
 }) {
-  let options: Array<{ value: ReceiptIssueType; label: string }> = [
+    let options: Array<{ value: ReceiptIssueType; label: string }> = [
     { value: "good", label: "Good" },
     { value: "missing", label: "Missing" },
     { value: "damaged", label: "Damaged" },
   ]
   if (business === "style") {
     options.push({ value: "wrong-variant", label: "Wrong item / variant" })
+    options.push({ value: "condition", label: "Condition issue" })
   } else if (business === "tech") {
     options.push({ value: "wrong-item", label: "Wrong item" })
     options.push({ value: "seal", label: "Seal / package issue" })
@@ -3748,7 +3858,7 @@ function ReceiptConfirmationState({
 }
 
 function ReceiptFlowPage({ 
-  business = "fresh",
+  business,
   state,
   onStateChange,
   onBack,
@@ -3757,7 +3867,7 @@ function ReceiptFlowPage({
   onBusinessChange,
 }: {
   orderId?: string
-  business?: "fresh" | "style" | "tech"
+  business: "fresh" | "style" | "tech"
   state: ReceiptFlowState
   onStateChange: (state: ReceiptFlowState) => void
   onBack: () => void
@@ -3766,7 +3876,7 @@ function ReceiptFlowPage({
     onOpenOrder: (id: string, view: string, state: string) => void
     onBusinessChange?: (b: "fresh" | "style" | "tech") => void
 }) {
-  const receiptProducts = selectedProducts(business, getDefaultOrderType(business), getDraft(mockDrafts[business], getDefaultOrderType(business)))
+  const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")))
   const [received, setReceived] = useState<Record<string, number>>({
     rice: 20,
     "milk-powder": 28,
@@ -3819,7 +3929,7 @@ function ReceiptFlowPage({
       {!success && (
         <div className="receipt-page-header">
           <div>
-            <span className="page-kicker">ORD-1082 · {formatOrderType("fresh", "dry")}</span>
+            <span className="page-kicker">ORD-1082 · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
             <div className="page-title">
               {state === "verify"
                 ? "Verify delivery"
@@ -4088,7 +4198,6 @@ function ReceiptFlowPage({
   )
 }
 
-type DeferredOrderState = "deferred" | "rescheduled"
 
 const deferredProducts: Array<CatalogProduct & { quantity: number }> = [
   { id: "fresh-milk", name: "Fresh milk", unit: "carton", quantity: 24 },
@@ -4110,274 +4219,11 @@ const deferredStages = [
   "Delivery",
 ]
 
-function DeferredLifecycle({ state }: { state: DeferredOrderState }) {
-  const currentStep = state === "deferred" ? 1 : 3
-  const timestamps =
-    state === "deferred"
-      ? ["Wed · 13:18", "Wed · 16:42", "—", "—", "—"]
-      : ["Wed · 13:18", "Wed · 16:42", "Thu · 08:20", "Thu · 16:10", "—"]
-  return (
-    <div className="order-detail-timeline-card deferred-timeline-card">
-      <div className="order-detail-lifecycle lifecycle">
-        {deferredStages.map((stage, index) => {
-          const mode =
-            index < currentStep
-              ? "complete"
-              : index === currentStep
-                ? state === "deferred"
-                  ? "exception"
-                  : "current"
-                : "future"
-          return (
-            <motion.div
-              className={`lifecycle-step lifecycle-step--${mode}`}
-              key={stage}
-              layout
-              transition={calmSpring}
-            >
-              <motion.span className="step-marker" layout>
-                {mode === "complete" ? <Check /> : index + 1}
-              </motion.span>
-              <span className="step-label">{stage}</span>
-              <small>{timestamps[index]}</small>
-            </motion.div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
-function DeferredHero({ state }: { state: DeferredOrderState }) {
-  const rescheduled = state === "rescheduled"
-  return (
-    <motion.div
-      className={`deferred-hero ${
-        rescheduled ? "deferred-hero--rescheduled" : ""
-      }`}
-      key={state}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={calmSpring}
-    >
-      <span className="deferred-hero-icon">
-        {rescheduled ? <CalendarDays /> : <AlertTriangle />}
-      </span>
-      <div className="deferred-hero-copy">
-        <span className="field-label">
-          {rescheduled ? "Updated delivery plan" : "Planning update"}
-        </span>
-        <div className="deferred-hero-title">
-          {rescheduled ? "Delivery rescheduled" : "Delivery changed"}
-        </div>
-        <p>
-          {rescheduled
-            ? "Your order is now scheduled for Friday, 2 October."
-            : "Your order ORD-1065 cannot be delivered on Thursday because refrigerated delivery capacity is unavailable."}
-        </p>
-      </div>
 
-      <div className="deferred-date-block">
-        <span>
-          {rescheduled ? "Expected arrival" : "New expected delivery"}
-        </span>
-        <strong>{rescheduled ? "06:50–07:10" : "Friday, 2 October"}</strong>
-        <small>
-          {rescheduled
-            ? "Friday, 2 October"
-            : "Expected arrival · To be confirmed after scheduling"}
-        </small>
-      </div>
 
-      {rescheduled && (
-        <motion.div
-          className="tracking-meta deferred-tracking-meta"
-          initial={{ opacity: 0, x: 8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={calmSpring}
-        >
-          <span>
-            <small>Trip</small>
-            <strong className="data-id">PLG-07</strong>
-          </span>
-          <span>
-            <small>Vehicle</small>
-            <strong className="data-id">WP-R14</strong>
-          </span>
-        </motion.div>
-      )}
-    </motion.div>
-  )
-}
 
-function DeferredOrderPage({
-  orderId = "ORD-1065",
-  business = "fresh",
-  state,
-  onStateChange,
-  onBack,
-  onBusinessChange,
-}: {
-  orderId?: string
-  business?: "fresh" | "style" | "tech"
-  state: DeferredOrderState
-  onStateChange: (state: DeferredOrderState) => void
-  onBack: () => void
-    onOpenOrder: (id: string, view: string, state: string) => void
-    onBusinessChange?: (b: "fresh" | "style" | "tech") => void
-}) {
-  const rescheduled = state === "rescheduled"
-  const switcherOptions: Array<{
-    value: DeferredOrderState
-    label: string
-  }> = [
-    { value: "deferred", label: "Deferred" },
-    { value: "rescheduled", label: "Rescheduled" },
-  ]
-
-  return (
-    <div className="order-detail-page deferred-order-page">
-      <div className="order-detail-utility-row">
-        <button className="order-back-link" type="button" onClick={onBack}>
-          <ArrowLeft />
-          Back to Home
-        </button>
-        <PrototypeStateControl
-          value={state}
-          options={switcherOptions}
-          onChange={onStateChange}
-        />
-      </div>
-
-      <div className="order-detail-header">
-        <div>
-          <div className="order-detail-title-row">
-            <div className="page-title data-title">ORD-1065</div>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={state}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18 }}
-              >
-                <StatusPill kind={rescheduled ? "scheduled" : "deferred"} />
-              </motion.div>
-            </AnimatePresence>
-          </div>
-          <p>{formatOrderType("fresh", "chilled")} · {formatOutlet(business)}</p>
-        </div>
-      </div>
-
-      <DeferredLifecycle state={state} />
-
-      <div className="deferred-detail-layout">
-        <div className="deferred-detail-primary">
-          <DeferredHero state={state} />
-
-          <motion.div className="no-action-card" layout transition={calmSpring}>
-            <span>
-              <CheckCircle2 />
-            </span>
-            <div>
-              <strong>No action required</strong>
-              <p>
-                {rescheduled
-                  ? "The updated delivery is being prepared. You do not need to resubmit this order."
-                  : "We will continue planning this order for the next delivery run."}
-              </p>
-            </div>
-          </motion.div>
-
-          <section className="delivery-update-card">
-            <div className="order-detail-section-heading">
-              <div>
-                <span>Delivery update</span>
-                <small>The original order remains active.</small>
-              </div>
-            </div>
-            <div className="delivery-update-grid">
-              <span>
-                <small>Original plan</small>
-                <strong>Thursday, 1 October</strong>
-              </span>
-              <span className="delivery-update-new">
-                <small>New expected delivery</small>
-                <strong>Friday, 2 October</strong>
-              </span>
-              <span>
-                <small>Reason</small>
-                <strong>Refrigerated delivery capacity unavailable</strong>
-              </span>
-            </div>
-          </section>
-
-          <section className="ordered-products-panel">
-            <div className="order-detail-section-heading">
-              <div>
-                <span>Ordered products</span>
-                <small>Your original order is still intact.</small>
-              </div>
-              <span>4 products · 62 units</span>
-            </div>
-            <ReviewProductList items={deferredProducts} />
-          </section>
-        </div>
-
-        <aside className="deferred-history-panel">
-          <div className="order-detail-section-heading">
-            <div>
-              <span>Record history</span>
-              <small>Changes to this order.</small>
-            </div>
-          </div>
-          <div className="order-activity-list">
-            <div className="order-activity-row">
-              <span>
-                <PackageCheck />
-              </span>
-              <div>
-                <strong>Order confirmed</strong>
-                <small>Wed · 13:18</small>
-              </div>
-            </div>
-            <div className="order-activity-row order-activity-row--warning">
-              <span>
-                <AlertTriangle />
-              </span>
-              <div>
-                <strong>Deferred</strong>
-                <small>Wed · 16:42</small>
-              </div>
-            </div>
-            {rescheduled && (
-              <motion.div
-                className="order-activity-row"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={calmSpring}
-              >
-                <span>
-                  <CalendarDays />
-                </span>
-                <div>
-                  <strong>Delivery rescheduled</strong>
-                  <small>Thu · 16:10</small>
-                </div>
-              </motion.div>
-            )}
-          </div>
-          <div className="deferred-history-reason">
-            <small>Reason</small>
-            <strong>Refrigerated delivery capacity unavailable</strong>
-          </div>
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-function OrdersPage({ business = "fresh", onNewOrder, onOpenOrder }: { business?: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
+function OrdersPage({ business, onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
 
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("All")
@@ -4388,12 +4234,12 @@ function OrdersPage({ business = "fresh", onNewOrder, onOpenOrder }: { business?
   ]
 
   const orders = [
-    { id: "ORD-1082", type: formatOrderType("fresh", "dry"), date: "Thursday, 1 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, view: "order-detail", state: "confirmed" },
-    { id: "ORD-1065", type: "Chilled / Frozen", date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: "Refrigerated capacity", view: "deferred-detail", state: "deferred" },
-    { id: "ORD-1062", type: formatOrderType("fresh", "dry"), date: "Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", view: "order-detail", state: "scheduled" },
-    { id: "ORD-1071", type: formatOrderType("fresh", "dry"), date: "Monday, 5 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, eta: "Not scheduled yet", view: "order-detail", state: "confirmed" },
-    { id: "ORD-1045", type: formatOrderType("fresh", "dry"), date: "Today", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
-    { id: "ORD-1037", type: formatOrderType("fresh", "dry"), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" }
+    { id: "ORD-1082", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, view: "order-detail", state: "confirmed" },
+    { id: "ORD-1065", type: formatOrderType(business || "fresh", business === "fresh" ? "chilled" : getDefaultOrderType(business || "fresh")), date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: business === "fresh" ? "Refrigerated capacity" : "Vehicle capacity constraints", view: "order-detail", state: "deferred" },
+    { id: "ORD-1062", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", view: "order-detail", state: "scheduled" },
+    { id: "ORD-1071", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Monday, 5 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, eta: "Not scheduled yet", view: "order-detail", state: "confirmed" },
+    { id: "ORD-1045", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
+    { id: "ORD-1037", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" }
   ]
 
   const filtered = orders.filter(o => 
@@ -4487,14 +4333,14 @@ function OrdersPage({ business = "fresh", onNewOrder, onOpenOrder }: { business?
   )
 }
 
-function DeliveriesPage({ business = "fresh", onOpenOrder }: { business?: "fresh" | "style" | "tech", onOpenOrder: (id: string, view: string, state: string) => void }) {
+function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | "style" | "tech", onOpenOrder: (id: string, view: string, state: string) => void }) {
   const deliveries = [
     { section: "Needs attention", id: "ORD-1045", type: "", date: "", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
-    { section: "Upcoming", id: "ORD-1062", type: formatOrderType("fresh", "dry"), date: "Tomorrow · Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", subtext: "Trip PLG-03 · Vehicle WP-014", view: "order-detail", state: "scheduled" },
-    { section: "Upcoming", id: "ORD-1065", type: "Chilled / Frozen", date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: "New date Friday, 2 October", view: "deferred-detail", state: "deferred" },
-    { section: "In progress", id: "ORD-1082", type: formatOrderType("fresh", "dry"), date: "", statusLabel: "On the way", status: "transit" as StatusKind, eta: "Expected arrival 06:40–07:00", subtext: "Departed 05:48", view: "order-detail", state: "on-way" },
-    { section: "Recent", id: "ORD-1037", type: formatOrderType("fresh", "dry"), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" },
-    { section: "Recent", id: "ORD-1034", type: formatOrderType("fresh", "dry"), date: "Yesterday", statusLabel: "Receipt confirmed with issue", status: "issue" as StatusKind, view: "order-detail", state: "receipt-issue" },
+    { section: "Upcoming", id: "ORD-1062", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Tomorrow · Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", subtext: "Trip PLG-03 · Vehicle WP-014", view: "order-detail", state: "scheduled" },
+    { section: "Upcoming", id: "ORD-1065", type: formatOrderType(business || "fresh", business === "fresh" ? "chilled" : getDefaultOrderType(business || "fresh")), date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: "New date Friday, 2 October", view: "order-detail", state: "deferred" },
+    { section: "In progress", id: "ORD-1082", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "", statusLabel: "On the way", status: "transit" as StatusKind, eta: "Expected arrival 06:40–07:00", subtext: "Departed 05:48", view: "order-detail", state: "on-way" },
+    { section: "Recent", id: "ORD-1037", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" },
+    { section: "Recent", id: "ORD-1034", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Yesterday", statusLabel: "Receipt confirmed with issue", status: "issue" as StatusKind, view: "order-detail", state: "receipt-issue" },
   ]
   
   const sections = ["Needs attention", "In progress", "Upcoming", "Recent"]
@@ -4597,14 +4443,13 @@ export default function App() {
         prototypeView === "review" ||
         prototypeView === "confirmation" ||
         prototypeView === "order-detail" ||
-        prototypeView === "deferred-detail" ||
         prototypeView === "verify-delivery"
         ? (prototypeView as any)
         : "home",
     )
   const getBottomNavTab = (v: string) => {
     if (v === "home" || v === "new-order" || v === "review" || v === "confirmation") return "Home"
-    if (v === "orders" || v === "order-detail" || v === "deferred-detail") return "Orders"
+    if (v === "orders" || v === "order-detail" ) return "Orders"
     if (v === "deliveries" || v === "verify-delivery") return "Deliveries"
     return "Home"
   }
@@ -4621,10 +4466,7 @@ export default function App() {
   const [orderDetailState, setOrderDetailState] = useState<OrderDetailState>(
     initialOrderDetailState,
   )
-  const [deferredOrderState, setDeferredOrderState] =
-    useState<DeferredOrderState>(
-      prototypeState === "rescheduled" ? "rescheduled" : "deferred",
-    )
+
   const initialReceiptState: ReceiptFlowState =
     prototypeState === "full"
       ? "full"
@@ -4646,19 +4488,32 @@ export default function App() {
     setSelectedOrderId(id)
     if (state) {
       if (nextView === "order-detail") setOrderDetailState(state as OrderDetailState)
-      if (nextView === "deferred-detail") setDeferredOrderState(state as DeferredOrderState)
       if (nextView === "verify-delivery") setReceiptFlowState(state as ReceiptFlowState)
     }
     setView(nextView as any)
   }
 
+  
+  const directionRef = useRef(0)
+  const viewIndex = { home: 0, orders: 1, deliveries: 2 }
+  const pageVariants = {
+    enter: (direction: number) => ({ x: direction * 24, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (direction: number) => ({ x: direction * -24, opacity: 0 })
+  }
+
   function navigate(label: string) {
-    if (label === "Home") setView("home")
-    if (label === "Orders") setView("orders")
-    if (label === "Deliveries") setView("deliveries")
+    const nextView = label.toLowerCase() as "home" | "orders" | "deliveries"
+    const currentIndex = (viewIndex as any)[view] ?? 0
+    const nextIndex = viewIndex[nextView] ?? 0
+    if (nextIndex !== currentIndex) {
+      directionRef.current = nextIndex > currentIndex ? 1 : -1
+    }
+    setView(nextView)
   }
 
   const mainContentRef = useRef<HTMLElement>(null)
+
 
   useEffect(() => {
     // Desktop window scroll
@@ -4670,17 +4525,11 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="app-area">
-        <TopBar current={currentNav} onNavigate={navigate} afterCutoff={prototypeState === "after-cutoff" || prototypeState === "full"} />
+        <TopBar business={business} current={currentNav} onNavigate={navigate} afterCutoff={prototypeState === "after-cutoff" || prototypeState === "full"} />
         <main className="main-content" ref={mainContentRef}>
-          <AnimatePresence mode="wait" initial={false}>
+          <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
           {view === "home" && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            >
+            <motion.div key="home" custom={directionRef.current} variants={pageVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.22, ease: "easeOut" }}>
               <HomePage
                 business={business}
                 onBusinessChange={handleBusinessChange}
@@ -4689,8 +4538,8 @@ export default function App() {
                 showUpcoming={showUpcoming}
                 onNewOrder={() => setView("new-order")}
                 onOpenDeferred={() => {
-                  setDeferredOrderState("deferred")
-                  setView("deferred-detail")
+                  setOrderDetailState("deferred")
+                  setView("order-detail")
                 }}
                 onOpenOrder={handleOpenOrder}
                 onNavigate={navigate}
@@ -4698,13 +4547,7 @@ export default function App() {
             </motion.div>
           )}
           {view === "orders" && (
-            <motion.div
-              key="orders"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            >
+            <motion.div key="orders" custom={directionRef.current} variants={pageVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.22, ease: "easeOut" }}>
               <OrdersPage business={business}
                   onNewOrder={() => setView("new-order")}
                   onOpenOrder={handleOpenOrder}
@@ -4713,13 +4556,7 @@ export default function App() {
           )}
 
           {view === "deliveries" && (
-            <motion.div
-              key="deliveries"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-            >
+            <motion.div key="deliveries" custom={directionRef.current} variants={pageVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.22, ease: "easeOut" }}>
               <DeliveriesPage business={business} 
                 onOpenOrder={handleOpenOrder}
               />
@@ -4804,8 +4641,7 @@ export default function App() {
                 onStateChange={setOrderDetailState}
                 onOpenOrder={handleOpenOrder}
                 onNavigateDeferred={() => {
-                    setDeferredOrderState("deferred")
-                    setView("deferred-detail")
+                    setOrderDetailState("deferred"); setView("order-detail")
                   }}
                   onReviewDelivery={() => {
                   setReceiptFlowState("verify")
@@ -4816,24 +4652,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "deferred-detail" && (
-            <motion.div
-              key="deferred-detail"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-            >
-              <DeferredOrderPage
-                  business={business}
-                  onBusinessChange={handleBusinessChange}
-                  state={deferredOrderState}
-                  onStateChange={setDeferredOrderState}
-                  onBack={() => setView("home")}
-                  onOpenOrder={handleOpenOrder}
-                />
-            </motion.div>
-          )}
+          
 
           {view === "verify-delivery" && (
             <motion.div
