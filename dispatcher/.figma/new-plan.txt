@@ -1,0 +1,442 @@
+[/workspaces/default/code/src/imports/WayLink_Dispatcher_Implementation_Plan__3_.md#692c]
+1:# WayLink · Dispatcher — Figma Make Implementation Plan
+2:
+3:This plan tells Figma Make how to build the dispatcher web app as one clickable prototype: which pages exist, what every button does, and how each screen transitions to the next. Attach the 13 reference images (`01_…` to `13_…`) when you prompt, and paste the **WayLink Design System** file alongside this one so Make uses the right colours and type.
+4:
+5:---
+6:
+7:## 1. How to use this file in Figma Make
+8:
+9:1. Start a new **Figma Make** file.
+10:2. Attach `WayLink_Design_System.md`, this file, and the 13 screen images.
+11:3. Send the prompts in **section 9** one at a time. After each, click through the result before moving on.
+12:4. If something drifts from the images, select it and ask for a small fix rather than rebuilding.
+13:
+14:---
+15:
+16:## 2. App foundations
+17:
+18:| Item | Rule |
+19:|---|---|
+20:| App type | Single-page React app with client-side routing and local state (no backend; use the sample data in section 8). |
+21:| Viewport | Desktop, designed at 1440 × 900. Content max width 1280, 12-column grid, 24 px gutter, 32 px margin. |
+22:| Theme | Daylight mode only (dispatcher is a desk role). |
+23:| Colours | Semantic tokens from the design system: `bg` #F5F7FB, `surface` #FFFFFF, `border` #D9DDE8, `text-primary` #0B1437, `text-secondary` #5B6480, `action` #0047FF, `success` #00C46A (text #047857), `warning` #FFC300 (text #6B5000), `critical` #E5484D. |
+24:| Type | Headings Poppins 600/700; body Inter; IDs, times, weights and counts in JetBrains Mono with tabular numbers. Sentence case everywhere. |
+25:| Shape | Cards 12 px radius, chips 8 px, pills fully rounded, modals 16 px. Soft navy shadows only. |
+26:| Buttons | Primary (cobalt fill, white label), Secondary (navy outline), Confirm (emerald fill, navy label — final "done" actions only), Destructive (critical outline), Disabled (navy-100 fill, grey label). Min height 44 px. |
+27:| Shop tags | Fresh = emerald-100 / emerald-900 · Style = cobalt-100 / cobalt-900 · Tech = navy-100 / navy-900. |
+28:
+29:### AI suggestion style (applies across the whole product)
+30:Anything the system suggests must look clearly "AI" and always the same way:
+31:- **Lightning border:** a 3 px gradient border, `linear-gradient(120deg, #0047FF, #00C46A 55%, #FFC300)` (cobalt → emerald → sunburst), 16 px outer radius, with a soft glow `0 0 24px rgba(0,71,255,.30), 0 0 12px rgba(0,196,106,.25)`. Inner fill is cobalt-50 (#F2F5FF). Build it as an outer div with the gradient and 3 px padding around an inner div with the fill.
+32:- **Lightning icon** (cobalt) and the label **"AI suggested"** in cobalt-900 (#00227A).
+33:- **Where it is used:** the suggested vehicle card, the suggested order pack banner, the Review pop-up (whole window gets the lightning border), and the Lightning icon on each suggested order row.
+34:- **Motion:** on first appear, the glow fades in over 250 ms. An optional slow shimmer may move along the border (one pass, 1.2 s, then stops); disable it for reduced motion.
+35:- Once the dispatcher accepts a suggestion, it becomes normal content (plain border, no glow).
+36:
+37:### App shell (on every page)
+38:- **Top bar** (56 px, Navy 900): WayLink logo · depot switch "Galle ▾" · date · "● Synced" · user avatar.
+39:- **Side nav** (240 px, white): Home, Schedule, Live, Remarks. The active item uses the cobalt-50 background with a cobalt left bar.
+40:- Clicking **Home** goes to `/home`, and clicking **Schedule** goes to `/schedule`. Clicking the logo also goes to `/home`.
+41:
+42:---
+43:
+44:## 3. Motion system
+45:
+46:Use these values for every transition. Never animate longer than 300 ms, and respect `prefers-reduced-motion` by switching to instant cross-fades.
+47:
+48:| Token | Duration | Easing | Used for |
+49:|---|---|---|---|
+50:| `hover` | 150 ms | ease-out | Button and row hover, icon hover cards |
+51:| `state` | 200 ms | ease-out | Filter on/off, pill toggles, checkbox mark, list re-filter |
+52:| `panel` | 250 ms | ease-out | Page slide, panel expand/collapse, modal open |
+53:| `exit` | 150 ms | ease-in | Modal close, hover card close, row removal |
+54:
+55:Transition types:
+56:- **Page change** (Home → Schedule, Home → Monitor): new page slides in 24 px from the right and fades in (`panel`). Back navigation slides from the left.
+57:- **In-page state change**: cross-fade + height auto-animate (`state`).
+58:- **Overlay** (modals): background dims to Navy 900 at 45 % with 8 px backdrop blur; modal scales from 96 % to 100 % and fades in (`panel`). Closing reverses with `exit`.
+59:- **Hover card**: fades in and rises 4 px above the icon (`hover`), closes on pointer leave (`exit`).
+60:- **List item removed** (Drop): row fades out and collapses its height (`exit`), the list closes the gap (`state`).
+61:
+62:---
+63:
+64:## 4. Page map
+65:
+66:```
+67:/home                     Dispatcher home (today's plan, or ?date= another day)
+68:  ├─ filter: none | fresh | tech | style
+69:  ├─ overlay: calendar ──"Open day plan"──▶ /home?date=…  ──"Back to today"──▶ /home
+70:  ├─ click completed route ────────▶ /monitor/:vehicleId?state=completed
+71:  ├─ click route bar ──────────────▶ /monitor/:vehicleId
+72:  └─ click "Schedule route" ───────▶ /schedule
+73:
+74:/schedule                 Route scheduling
+75:  ├─ step: start → search → selected → packed
+76:  ├─ overlay: Review pack
+77:  └─ overlay: Check sheet ──"Schedule"──▶ /home (toast)
+78:
+79:/monitor/:vehicleId       Route monitoring
+80:  ├─ remarks: collapsed | open
+81:  ├─ hover card: person details
+82:  └─ "Approve" (when all remarks marked) ──▶ /home (toast)
+83:```
+84:
+85:| # | Reference image | Route / state |
+86:|---|---|---|
+87:| 01 | `01_home_today.png` | `/home`, today's plan, no filter |
+88:| 01b | `01b_home_calendar-open.png` | Calendar overlay, today selected |
+89:| 01e | `01e_home_calendar-date-selected.png` | Calendar overlay, Mon 28 selected |
+90:| 01f | `01f_home_day-plan.png` | `/home` showing Mon 28's plan, Back to today |
+91:| 01c | `01c_schedule_from-calendar.png` | `/schedule?due=…`, AI suggested vehicle |
+92:| 01d | `01d_schedule_calendar-vehicle-picked.png` | Calendar flow, vehicle picked, due orders locked, more orders on route |
+93:| 02 | `02_home_fresh-filter.png` | `/home`, filter = fresh |
+94:| 03 | `03_schedule_start.png` | `/schedule`, step = start |
+95:| 04 | `04_schedule_vehicle-search.png` | `/schedule`, tags = [Lorry] |
+96:| 05 | `05_schedule_vehicle-selected.png` | `/schedule`, vehicle selected, 0 orders |
+97:| 06 | `06_schedule_review-popup.png` | Review pack overlay |
+98:| 07 | `07_schedule_orders-packed.png` | `/schedule`, suggested pack added |
+99:| 08 | `08_schedule_check-sheet.png` | Check sheet overlay |
+100:| 09 | `09_monitor_collapsed.png` | `/monitor/WP-LB-4521`, remarks collapsed |
+101:| 10 | `10_monitor_person-hover.png` | Hover card over a stock manager icon |
+102:| 11 | `11_monitor_remarks-open.png` | Remarks open, 1 of 5 marked |
+103:| 12 | `12_monitor_remark-author-hover.png` | Hover card over a remark author |
+104:| 13 | `13_monitor_all-marked.png` | All remarks marked, Approve active |
+105:| 14 | `14_monitor_completed.png` | `/monitor/:id?state=completed`, read only |
+106:
+107:---
+108:
+109:## 5. Page 1 — Dispatcher home (`/home`)
+110:
+111:The home page is the dispatcher's **plan for a day**. By default it is **today's plan** (live). Picking another date in the calendar turns it into that day's plan until the dispatcher goes back to today.
+112:
+113:### Layout (image `01_home_today.png`)
+114:- **Title row:** "Dispatcher home" with a cobalt-50 pill **"Today's plan · Sun 27 Sep"**.
+115:- **Top row:** three shop-type filter buttons (Waypoint Fresh, Waypoint Tech, Waypoint Style), each with a sunburst count badge showing its active routes.
+116:- **Left column (640 px), scheduling first:**
+117:  - **Calendar card**, highlighted green (emerald-100 fill, emerald-500 border, soft emerald glow):
+118:    - Date tile: day small ("Sun"), date large ("27"), month small ("Sep").
+119:    - **Live clock** in JetBrains Mono ("10:42 AM") with a pulsing green "● Live" dot. It updates every minute.
+120:    - "Open calendar →" link.
+121:    - **Orders due soon**, two tiles: **Due today** (large red number, "2 not scheduled yet" under it) and **Due next 3 days** (count, date range).
+122:    - **Week strip**: the next 7 days; each day shows a red count badge when orders are due that day. Today is outlined in cobalt.
+123:  - **Schedule orders** button (Primary, full width) with a hint line: "2 orders due today not scheduled".
+124:- **Right column:**
+125:  - **Active routes** (scrollable): vehicle ID, shop tags, route, shops-covered bar, bell with remark count when remarks exist, chevron.
+126:  - **Completed today**: routes finished today with a green border, full green bar and a "Done 13:40" pill. "Show all" expands the list.
+127:- The old dark Scheduling status card is **removed**; its numbers now live in the calendar card.
+128:
+129:### State
+130:```
+131:viewDate:  Date                 (default today; home shows that day's plan)
+132:filter:    null | "Fresh" | "Tech" | "Style"
+133:overlay:   null | "calendar"
+134:calSelected: Date               (date highlighted inside the calendar overlay)
+135:```
+136:
+137:### Interactions
+138:
+139:| Element | Trigger | Result | Transition |
+140:|---|---|---|---|
+141:| Filter button | Click | Turns the filter on (dark button with ✕); active routes, completed routes, the calendar card's due counts and the Schedule hint all follow it (image 02). Click again or **Clear filter** to turn it off. One filter at a time. | `state` |
+142:| Calendar card / Open calendar | Click | Opens the **Calendar overlay** (image 01b). | overlay `panel` |
+143:| Day in the week strip | Click | Opens the Calendar overlay with that day already selected (image 01e). | overlay `panel` |
+144:| Schedule orders | Click | Opens `/schedule` filtered to orders due on `viewDate` that are not scheduled; if there are none, opens the normal scheduling start. | `panel` page slide |
+145:| Active route bar | Click | Opens `/monitor/:vehicleId` (live). | `panel` |
+146:| Bell on a route bar | Click | Opens `/monitor/:vehicleId` with remarks open. | `panel` |
+147:| **Completed route bar** | Click | Opens `/monitor/:vehicleId?state=completed` — the same monitoring window in a **completed, read-only** sense (image 14). | `panel` |
+148:| Show all (completed) | Click | Expands the completed list. | `state` height animate |
+149:| Live clock | Every minute | Time ticks over; at midnight the page rolls over to the new day's plan. | fade 150 ms |
+150:
+151:### Calendar overlay (images 01b, 01e)
+152:- Opens over the blurred, dimmed home page. Header: month name, ‹ ›, a green **"10:42 AM · live"** chip, **Today**, ✕.
+153:- Month grid Mon–Sun. **Today** is outlined in cobalt; the **selected** date is solid cobalt. A red dot marks each date with orders due.
+154:- Right side: **orders due** on the selected date (ID, shop tag, shop, weight, Scheduled / Not scheduled pill; emergency orders red).
+155:- When the selected date is today: link **Schedule 2 remaining →** (opens the calendar scheduling flow, image 01c).
+156:- When another date is selected: Primary **Open Mon 28 plan →** plus **Schedule 2 →**.
+157:
+158:| Element | Trigger | Result | Transition |
+159:|---|---|---|---|
+160:| A date | Click | Selects it; the right side lists that day's orders due. | `state` |
+161:| ‹ / › | Click | Previous / next month. | `state` slide 16 px |
+162:| Today | Click | Selects today. | `state` |
+163:| **Open [day] plan →** | Click | Closes the overlay and sets `viewDate` to that day: home becomes that day's plan (image 01f). | overlay `exit` → `state` cross-fade |
+164:| Schedule N remaining → / Schedule N → | Click | Opens `/schedule` for that date's unscheduled orders with an AI suggested vehicle (images 01c, 01d). | overlay `exit` → `panel` |
+165:| ✕ / Esc / dimmed area | Click | Closes. | overlay `exit` |
+166:
+167:### Another day's plan (image `01f_home_day-plan.png`)
+168:- Title pill turns amber: **"Planning ahead · Mon 28 Sep"**, and a **← Back to today** button appears at the top right.
+169:- Calendar card shows the chosen date in the tile; the clock stays live ("Live · today Sun 27"). Tiles show **Due Mon 28** and **Route scheduled** for that day; the week strip highlights Mon 28.
+170:- Filter badges count **routes scheduled** for that day.
+171:- Right column shows that day's scheduling details: **Scheduled routes** (Scheduled status, start time) and **Due Mon 28, not scheduled** (order rows with amber border and "Not scheduled" pill). Completed shows "none yet · future day". For a past date it shows that day's completed routes instead.
+172:- Schedule button reads **"Schedule orders for Mon 28"**.
+173:
+174:| Element | Trigger | Result | Transition |
+175:|---|---|---|---|
+176:| ← Back to today | Click | Resets `viewDate` to today; live plan returns. | `state` cross-fade |
+177:| Scheduled route bar | Click | Opens that route's plan in `/schedule` (review / edit before it starts). | `panel` |
+178:| Order row (not scheduled) | Click | Opens `/schedule` with that order highlighted. | `panel` |
+179:
+180:## 6. Page 2 — Route scheduling (`/schedule`)
+181:
+182:### Layout
+183:- **Left (5 cols): Orders panel.** Header "Orders · 24 open · 2 emergency". Filter pills: All (default), Fresh, Tech, Style. Scrollable order rows. **Emergency orders always sort to the top** with a light-critical background, critical border and a red "!" badge.
+184:- **Right (7 cols): Vehicle panel.** "Vehicles available · 5" shown as icons per type (van ×2, lorry ×2, refrigerated ×1). A **tag search bar**, suggested tag chips, and vehicle cards drawn to size (bigger capacity = bigger icon).
+185:
+186:### State
+187:```
+188:orderFilter:  "All" | "Fresh" | "Tech" | "Style"    (default "All")
+189:tags:         string[]                              (default [])
+190:vehicle:      Vehicle | null                        (default null)
+191:added:        orderId[]                             (default [])
+192:overlay:      null | "review" | "check"
+193:reviewPack:   orderId[]   (copy of suggestion while the Review popup is open)
+194:checked:      orderId[]   (rows ticked in the Check sheet)
+195:```
+196:
+197:### Entry from the calendar (image 01c)
+198:| Element | Trigger | Result | Transition |
+199:|---|---|---|---|
+200:| Use this vehicle | Click | Selects the suggested vehicle and opens the **calendar vehicle-picked** state (image `01d_schedule_calendar-vehicle-picked.png`, described below). | `panel` |
+201:| Choose another | Click | Goes to Step B (vehicle search) keeping the due-date filter. | `panel` |
+202:| Other vehicle card | Click | Selects that vehicle instead (Step C). | `panel` |
+203:| Show all ✕ | Click | Clears the due-date filter; all 24 open orders show. | `state` |
+204:
+205:### Calendar flow — vehicle picked (image 01d)
+206:Same arrangement as Step C (orders left, vehicle card + map right), with these differences:
+207:- **Due orders are already added and locked.** They sit at the top under "🔒 Due today · added, can't be removed", with an emerald border and an emerald "✓ Added" button that does nothing when clicked (tooltip "Due today, can't be removed").
+208:- **AI: also on this route.** Below them, an AI-style banner (lightning border) lists other open orders that lie along this route and still fit: "3 orders · +380 kg · load 650 / 800 kg", with **Review** (opens the Review pop-up with those 3 orders and Drop buttons). Each of those orders shows the Lightning icon and **+ Add**.
+209:- **Vehicle card keeps the AI lightning border** (the system picked it) and has a **Suggest another** button inside it. **Change** opens the normal vehicle search.
+210:- **Map** shows the route from Galle depot through the added shops (green pins) and the shops that can be added (outlined pins). The shop list marks added ✓ and can-add ○.
+211:- **Check** is active straight away because orders are already on the route.
+212:
+213:| Element | Trigger | Result | Transition |
+214:|---|---|---|---|
+215:| Suggest another | Click | Swaps in the next-best vehicle; the card, load bar, map reach and the "also on this route" list all recalculate. Locked orders stay. | card cross-fade `state`, glow re-fades in |
+216:| ✓ Added (locked row) | Click | No change; tooltip "Due today, can't be removed". | `hover` |
+217:| + Add (route order) | Click | Adds it: row becomes "✓ Added" (cobalt, removable), load bar grows, its map pin fills, banner count drops. | `state` |
+218:| Review (AI banner) | Click | Opens the Review pop-up for the route orders. | overlay `panel` |
+219:| Check | Click | Opens the Check sheet; locked orders show a lock instead of Drop. | overlay `panel` |
+220:
+221:### Step A — Start (image 03)
+222:
+223:| Element | Trigger | Result | Transition |
+224:|---|---|---|---|
+225:| Order filter pill | Click | Sets `orderFilter`; list shows only that shop type (emergency still on top). Click All to reset. | `state` |
+226:| Suggested tag chip (+ Van, + Lorry, + Refrigerated, + Tail lift) | Click | Adds the tag into the search bar as a dark chip "Lorry ✕". | `state` |
+227:| Search bar | Type + Enter | Adds the typed word as a tag, or filters by vehicle ID. | `state` |
+228:| Vehicle card | Hover | Cobalt border, "Select →" appears. | `hover` |
+229:| Vehicle card | Click | Selects the vehicle (go to Step C). | `panel` |
+230:
+231:### Step B — Vehicle search (image 04)
+232:
+233:| Element | Trigger | Result | Transition |
+234:|---|---|---|---|
+235:| Tag chip ✕ | Click | Removes that tag; results widen again. | `state` |
+236:| Tags | Change | Results show vehicles matching **all** tags ("2 vehicles match"). Cards enlarge when there are few results. | `state` — non-matching cards fade out |
+237:| Vehicle card | Click | Sets `vehicle` → Step C. | `panel` |
+238:
+239:### Step C — Vehicle selected (image 05)
+240:
+241:What changes on selection:
+242:- Vehicle panel swaps the card grid for a **selected-vehicle card**: large icon with length, ID and type, **Change** link, capacity bar "Load 0 / 2,000 kg".
+243:- Below it, a **map** with the vehicle's reach zone (dashed cobalt), depot square and shop pins, next to **Shops in reach · 5**. Out-of-reach shops (Akuressa) are greyed.
+244:- Orders panel: every order gets a **+ Add** button. Orders the system suggests show a **star** and sort right after emergencies. Out-of-reach orders drop to the bottom, greyed with "Out of reach" instead of Add.
+245:- A cobalt-50 **suggestion banner** appears: "Suggested: 5 orders · 1,260 kg, fits reach" with a **Review** button.
+246:- Footer: "0 orders · 0 kg" and a Disabled **Check** button.
+247:
+248:| Element | Trigger | Result | Transition |
+249:|---|---|---|---|
+250:| + Add (on an order) | Click | Adds the order: button becomes "✓ Added" (Primary style), capacity bar grows, the shop's map pin fills, footer totals update. | `state` — bar width animates |
+251:| ✓ Added | Click | Removes the order again (toggle). | `state` |
+252:| + Add | When it would exceed capacity | Button disabled with tooltip "Over capacity". | — |
+253:| Capacity bar | ≥ 90 % | Turns sunburst; at 100 % turns critical. | `state` |
+254:| Review | Click | Opens the **Review pack** overlay. | overlay `panel` |
+255:| Change | Click | Clears `vehicle` and `added`, returns to Step A/B. | `panel` |
+256:| Check | Click (enabled once ≥ 1 order added) | Opens the **Check sheet** overlay. | overlay `panel` |
+257:
+258:### Overlay — Review pack (image 06)
+259:
+260:- Small centred window (760 px) over the blurred, dimmed page.
+261:- Lists the 5 suggested orders, emergency ones in critical style, each with a **✕ Drop** button.
+262:- Footer: "Drop any order you don't want", **Cancel**, and Primary **Add N orders** (N = orders still in the list).
+263:
+264:| Element | Trigger | Result | Transition |
+265:|---|---|---|---|
+266:| ✕ Drop | Click | Removes that order from `reviewPack`; count on the Add button drops (Add 5 → Add 4). | row `exit` collapse |
+267:| Add N orders | Click | Adds all remaining orders to `added`, closes the overlay, banner changes to "Pack added · N of 5 · X kg loaded" with **Undo**. → Step D. | overlay `exit`, then `state` on the page |
+268:| Cancel / ✕ / Esc / click on dimmed area | Click | Closes without changes. | overlay `exit` |
+269:
+270:### Step D — Orders packed (image 07)
+271:
+272:- Added rows show "✓ Added". Capacity bar at 1,260 / 2,000 kg (63 %).
+273:- Map draws a solid cobalt route line through the added shops; shop list shows check icons ("Shops covered · 5").
+274:- Footer "5 orders · 1,260 kg"; **Check** is now Primary and active.
+275:
+276:| Element | Trigger | Result | Transition |
+277:|---|---|---|---|
+278:| Undo (banner) | Click | Removes the pack, back to Step C. | `state` |
+279:| Check | Click | Opens the **Check sheet**. | overlay `panel` |
+280:
+281:### Overlay — Check sheet (image 08)
+282:
+283:- Wide window (1200 px), spreadsheet style: chips summary (vehicle · orders & shops · load % · emergencies), a formula-bar strip, and a table with sticky header, 48 px rows, zebra rows, emergency rows in light critical.
+284:- Columns: ✓ checkbox · # · Order · Shop · Location · Type · Items · kg · Priority · ✕ Drop. Rows are in **stop order**; a totals row closes the table.
+285:- Footer: "N of N checked", Secondary **Back to edit**, Confirm **Schedule** (emerald).
+286:
+287:| Element | Trigger | Result | Transition |
+288:|---|---|---|---|
+289:| Row checkbox | Click | Toggles `checked` for that order; footer text updates. | `state` |
+290:| Header ✓ | Click | Checks / unchecks all rows. | `state` |
+291:| ✕ Drop | Click | Removes the order from the route (back to open orders); totals and map update. | row `exit` collapse |
+292:| Row | Drag handle | Reorders stops (optional, nice to have). | `state` |
+293:| Schedule | Enabled only when every row is checked | Closes the sheet, shows toast "Route WP LC-8870 scheduled", navigates to `/home` where "Already scheduled" goes from 3 → 4 and orders to schedule drop by 5. | overlay `exit` → `panel` page slide |
+294:| Back to edit / ✕ / Esc | Click | Closes the sheet, stays on Step D. | overlay `exit` |
+295:
+296:---
+297:
+298:## 7. Page 3 — Route monitoring (`/monitor/:vehicleId`)
+299:
+300:### Layout (image 09)
+301:One large card:
+302:- **Left:** truck icon beside the vehicle ID (large mono) and route name. Stop timeline with column headers **Shop · Time · Stock manager**. Visited stops use an emerald check badge, emerald rail and green time, plus a **person icon** in the Stock manager column. Not-visited stops use a navy-300 outline badge, "—" and "Not visited".
+303:- **Right, top:** **Route status** panel: In progress pill, "3/4 shops covered", 75 % bar, "1 shop left to cover · Matara City Mart".
+304:- **Right, middle:** **Crew** — three person icons labelled Driver, Loader, Loader (roles only, no names).
+305:- **Right, bottom:** **Remarks bar** ("Remarks" + sunburst count badge + "0 of 5 marked" + ▾) and a Disabled **Approve** button.
+306:
+307:### State
+308:```
+309:remarksOpen:  boolean        (default false; true if opened from the bell on Home)
+310:marked:       remarkId[]     (default [])
+311:showAll:      boolean        (default false — first 3 remarks visible)
+312:hoverPerson:  personId|null
+313:```
+314:
+315:### Interactions
+316:
+317:| Element | Trigger | Result | Transition |
+318:|---|---|---|---|
+319:| Any person icon (stock manager, crew member, remark author) | Hover | Shows a dark **hover card** above the icon with photo, full name, role and phone number (image 10, 12). | `hover` fade-up |
+320:| Person icon | Pointer leave | Hover card closes. | `exit` |
+321:| Phone number in hover card | Click | Opens `tel:` link (call). | — |
+322:| Remarks bar (collapsed) | Click | Opens remarks: **Crew section slides out**, remark list slides in (image 11). Bar shows ▴ and cobalt border. | `panel` — height auto-animate + cross-fade |
+323:| Remarks bar (open) | Click | Collapses back; crew returns. | `panel` |
+324:| Remark checkbox | Click | Toggles `marked`; row turns cobalt-50; counter "X of 5 marked" updates. | `state` |
+325:| Show 2 more remarks ▾ | Click | Reveals the remaining remarks; link becomes "Show less ▴". | `state` height animate |
+326:| Approve (disabled) | Hover | Tooltip "Mark all remarks to approve". | `hover` |
+327:| Approve | When `marked` = all remarks | Turns **Confirm** (emerald, navy label) (image 13). | `state` colour cross-fade |
+328:| Approve (active) | Click | Toast "Route WP LB-4521 approved", bell disappears from that route bar, navigate to `/home`. | `panel` page slide |
+329:| Back (browser or side nav Home) | Click | Returns to `/home`, keeping the previous filter. | `panel` reverse slide |
+330:
+331:### Completed state (image 14)
+332:Opened from **Completed today** on the home page. Same layout, read only:
+333:- Every stop has a green tick, emerald rail and its visit time; the stock manager icon shows on every stop.
+334:- Route status pill **✓ Done** (emerald), "4/4 shops covered", full green bar, "Completed 13:40 · all 4 shops covered".
+335:- Remarks bar shows "5 of 5 marked" with an emerald badge; the list can still be opened to read, but checkboxes are disabled.
+336:- Approve is replaced by a stamp **"✓ Approved · 14:05"** (emerald-100 fill, emerald border).
+337:- Hover cards still work. Back returns to home with the same `viewDate` and filter.
+338:
+339:### Remarks (sample)
+340:1. Driver — "Matara City Mart closed early."
+341:2. Loader — "2 cartons damaged at Coastal Traders."
+342:3. Stock manager — "3 crates short of the invoice."
+343:4. Stock manager — "Delivery note not signed at Sunrise Mart." *(hidden until Show more)*
+344:5. Driver — "Fuel stop at Ahangama, 15 min delay." *(hidden until Show more)*
+345:
+346:---
+347:
+348:## 8. Sample data (paste into Make)
+349:
+350:```json
+351:{
+352:  "routes": [
+353:    {"id":"WP LB-4521","route":"Galle → Matara · Southern 03","tags":["Fresh","Tech"],"done":3,"total":4,"remarks":5},
+354:    {"id":"WP CAB-7810","route":"Galle → Hikkaduwa · Coastal 01","tags":["Fresh"],"done":2,"total":5,"remarks":0},
+355:    {"id":"WP KD-3301","route":"Galle → Elpitiya · Inland 01","tags":["Style","Tech"],"done":4,"total":5,"remarks":2},
+356:    {"id":"SP LC-2290","route":"Galle → Baddegama · Inland 02","tags":["Fresh","Style"],"done":5,"total":6,"remarks":1},
+357:    {"id":"SP ND-4417","route":"Galle → Ambalangoda · Coastal 04","tags":["Fresh"],"done":1,"total":4,"remarks":0},
+358:    {"id":"WP GH-5520","route":"Galle → Karapitiya · City 02","tags":["Style"],"done":2,"total":3,"remarks":0}
+359:  ],
+360:  "vehicles": [
+361:    {"id":"WP PH-2210","type":"Van","capacityKg":800,"length":"3.4 m"},
+362:    {"id":"WP PK-7741","type":"Van","capacityKg":800,"length":"3.4 m"},
+363:    {"id":"WP LC-8870","type":"Lorry","capacityKg":2000,"length":"6.1 m"},
+364:    {"id":"WP LE-1123","type":"Lorry","capacityKg":3500,"length":"7.2 m"},
+365:    {"id":"WP LR-5006","type":"Refrigerated","capacityKg":1500,"length":"5.8 m"}
+366:  ],
+367:  "orders": [
+368:    {"id":"ORD-1045","shop":"Matara City Mart","town":"Matara","type":"Fresh","items":"8 crates","kg":320,"emergency":true,"inReach":true,"suggested":true,"stop":5},
+369:    {"id":"ORD-1052","shop":"Coastal Traders","town":"Weligama","type":"Tech","items":"3 boxes","kg":90,"emergency":true,"inReach":true,"suggested":true,"stop":3},
+370:    {"id":"ORD-1038","shop":"Sunrise Mart","town":"Galle Fort","type":"Fresh","items":"14 crates","kg":410,"emergency":false,"inReach":true,"suggested":true,"stop":1},
+371:    {"id":"ORD-1041","shop":"Lanka Super Stores","town":"Unawatuna","type":"Style","items":"6 boxes","kg":260,"emergency":false,"inReach":true,"suggested":true,"stop":2},
+372:    {"id":"ORD-1049","shop":"Mirissa Mart","town":"Mirissa","type":"Tech","items":"4 boxes","kg":180,"emergency":false,"inReach":true,"suggested":true,"stop":4},
+373:    {"id":"ORD-1047","shop":"Hill View Stores","town":"Akuressa","type":"Fresh","items":"10 crates","kg":150,"emergency":false,"inReach":false,"suggested":false}
+374:  ],
+375:  "people": {
+376:    "stockManagers": [
+377:      {"shop":"Sunrise Mart","name":"Ruwan Perera","phone":"+94 71 234 5678"},
+378:      {"shop":"Lanka Super Stores","name":"Kavindi Fernando","phone":"+94 71 456 7890"},
+379:      {"shop":"Coastal Traders","name":"Sanjeewa Silva","phone":"+94 77 345 6789"}
+380:    ],
+381:    "crew": [
+382:      {"role":"Driver","name":"Nimal Perera","phone":"+94 70 111 2233"},
+383:      {"role":"Loader","name":"Kasun Rathnayake","phone":"+94 77 123 4567"},
+384:      {"role":"Loader","name":"Saman Dissanayake","phone":"+94 75 987 6543"}
+385:    ]
+386:  }
+387:}
+388:```
+389:
+390:All names, numbers and phone numbers are sample data.
+391:
+392:---
+393:
+394:## 9. Prompt sequence for Figma Make
+395:
+396:Send these one at a time, with the matching images attached.
+397:
+398:**Prompt 1 — Foundations**
+399:> Build a desktop React web app for "WayLink · Dispatcher" using the attached WayLink Design System (Daylight mode) and the attached implementation plan. Set up the colour tokens, fonts (Poppins, Inter, JetBrains Mono), button variants, shop tags, count badge, person icon, capacity bar and checkbox from section 2, the motion tokens from section 3, the app shell (top bar + side nav) and client-side routes `/home`, `/schedule`, `/monitor/:vehicleId`. Load the sample data from section 8.
+400:
+401:**Prompt 2 — Dispatcher home** (attach images 01, 01b, 01e, 01f, 02)
+402:> Build `/home` exactly as section 5 describes and as images 01 and 02 show. Put scheduling first on the left (green calendar card with live clock, due-today and due-next-3-days tiles, week strip with red counts, and the Schedule orders button) and routes on the right (active routes, then completed today). Label the page Today's plan. Implement viewDate so picking a date in the calendar and choosing Open day plan shows that day's plan with a Back to today button, plus the filter toggle and every interaction in section 5.
+403:
+404:**Prompt 3 — Scheduling: orders and vehicle search** (attach images 03, 04)
+405:> Build `/schedule` Steps A and B from section 6 and images 03–04: orders panel with shop-type pills and emergency-first sorting, vehicle availability icons per type, tag search with suggested chips, tag filtering, and vehicle cards sized by capacity.
+406:
+407:**Prompt 4 — Scheduling: selected vehicle and packing** (attach images 05, 07)
+408:> Add Steps C and D from section 6: selected-vehicle card with capacity bar, reach map with shop pins and route line, Add / Added toggles on orders, suggestion banner with Review and Undo, capacity colour rules, and the Check button enable rule.
+409:
+410:**Prompt 5 — Review pop-up** (attach image 06)
+411:> Add the Review pack overlay from section 6: blurred, dimmed background, Drop buttons that remove rows with a collapse animation, "Add N orders" count that updates, Cancel/Esc/backdrop to close.
+412:
+413:**Prompt 6 — Check sheet** (attach image 08)
+414:> Add the Check sheet overlay from section 6: spreadsheet table in stop order with row checkboxes, header check-all, Drop per row, totals row, Schedule enabled only when all rows are checked, then toast + navigate to /home with updated counts.
+415:
+416:**Prompt 7 — Route monitoring** (attach images 09–14)
+417:> Build `/monitor/:vehicleId` from section 7 and images 09–13: timeline with Shop / Time / Stock manager columns, route status panel, crew as role-only person icons, hover cards with photo, name, role and phone for every person icon, remarks bar that swaps the crew section for the remark list, mark checkboxes with counter, Show more, and Approve that turns emerald only when all remarks are marked, then toast + back to /home. Also build the completed, read-only state from section 7 (image 14), opened from Completed today on home.
+418:
+419:**Prompt 8 — Polish and check**
+420:> Check every transition against section 3 (durations, easing, reduced motion). Make all buttons keyboard-reachable with a 2 px cobalt focus ring, Esc closes overlays, and focus returns to the button that opened them. Verify text contrast and that no colour is the only signal of a state.
+421:
+422:---
+423:
+424:## 10. Acceptance checklist
+425:
+426:- [ ] Home is labelled "Today's plan"; calendar card shows date, live clock, due today, due next 3 days and the week strip.
+427:- [ ] Scheduling (calendar card + Schedule orders) is on the left; routes and completed routes on the right; no dark status card.
+428:- [ ] Completed route opens monitoring in the completed, read-only state.
+429:- [ ] Picking another date → Open day plan shows that day's routes and due orders; Back to today returns.
+430:- [ ] Filters toggle on and off; no filter shows all routes; counts follow the filter.
+431:- [ ] Route bar → monitor page; Schedule route → scheduling page; back keeps the filter.
+432:- [ ] Emergency orders always on top in red.
+433:- [ ] Tags filter vehicles; selected vehicle shows size, capacity, reach map and shops.
+434:- [ ] Add / Added toggles update load, map and footer; capacity turns sunburst ≥ 90 %.
+435:- [ ] Review pop-up: page blurred behind, Drop removes rows, Add N adds the rest.
+436:- [ ] Check sheet: rows checkable, Drop works, Schedule only when all checked, returns home with updated numbers.
+437:- [ ] Hover any person icon → card with photo, name, role, phone.
+438:- [ ] Remarks open hides the crew; Approve turns emerald only when all remarks are marked.
+439:- [ ] All transitions 150–250 ms, ease-out; reduced motion respected.
+
+(End of file — 439 lines.)
