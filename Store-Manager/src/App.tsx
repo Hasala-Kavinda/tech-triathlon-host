@@ -29,6 +29,7 @@ import {
   UserRound,
   X,
   KeyRound,
+  LogOut,
 } from "lucide-react"
 
 const calmSpring = {
@@ -282,8 +283,10 @@ function TopBar({
 }) {
   const [showNotifs, setShowNotifs] = useState(false)
   const [showCutoff, setShowCutoff] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   const cutoffRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
+  const profileRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleOutsidePointer = (event: PointerEvent) => {
@@ -294,16 +297,20 @@ function TopBar({
       if (showNotifs && notifRef.current && !notifRef.current.contains(target)) {
         setShowNotifs(false)
       }
+      if (showProfile && profileRef.current && !profileRef.current.contains(target)) {
+        setShowProfile(false)
+      }
     }
     document.addEventListener("pointerdown", handleOutsidePointer)
     return () => {
       document.removeEventListener("pointerdown", handleOutsidePointer)
     }
-  }, [showCutoff, showNotifs])
+  }, [showCutoff, showNotifs, showProfile])
 
   useEffect(() => {
     setShowCutoff(false)
     setShowNotifs(false)
+    setShowProfile(false)
   }, [current])
 
   return (
@@ -336,7 +343,10 @@ function TopBar({
         <div className="topbar-cutoff-wrapper" ref={cutoffRef}>
           <GlobalCutoff closed={afterCutoff} open={showCutoff} setOpen={(val) => {
             setShowCutoff(val)
-            if (val) setShowNotifs(false)
+            if (val) {
+              setShowNotifs(false)
+              setShowProfile(false)
+            }
           }} />
         </div>
 
@@ -344,7 +354,10 @@ function TopBar({
           <IconButton label="Notifications" onClick={() => {
             const val = !showNotifs
             setShowNotifs(val)
-            if (val) setShowCutoff(false)
+            if (val) {
+              setShowCutoff(false)
+              setShowProfile(false)
+            }
           }}>
             <Bell />
           </IconButton>
@@ -367,11 +380,49 @@ function TopBar({
           )}
         </AnimatePresence>
         </div>
-        <button className="desktop-only-flex" style={{ background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--white)', padding: '0 4px', margin: 0 }} type="button">
-          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>DF</span>
-          <span style={{ fontWeight: 500, fontSize: '14px' }}>Dilini F.</span>
-          <ChevronDown size={16} />
-        </button>
+        <div style={{ position: "relative" }} ref={profileRef}>
+          <button 
+            className="desktop-only-flex" 
+            style={{ background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--white)', padding: '0 4px', margin: 0 }} 
+            type="button"
+            onClick={() => {
+              const val = !showProfile
+              setShowProfile(val)
+              if (val) {
+                setShowCutoff(false)
+                setShowNotifs(false)
+              }
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>DF</span>
+            <span style={{ fontWeight: 500, fontSize: '14px' }}>Dilini F.</span>
+            <ChevronDown size={16} />
+          </button>
+
+          <AnimatePresence>
+            {showProfile && (
+              <motion.div className="profile-dropdown" 
+                initial={{ opacity: 0, y: 4, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                style={{ position: "absolute", top: 48, right: 0, width: 200, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 8 }}>
+                <div 
+                  onClick={() => {
+                    const loginUrl = import.meta.env.VITE_LOGIN_URL || "/login";
+                    window.location.href = loginUrl;
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--navy-50)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <LogOut size={18} />
+                  Sign out
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </header>
   )

@@ -306,6 +306,10 @@ export function LoaderIdentity() {
             className="identity-menu__action"
             role="menuitem"
             type="button"
+            onClick={() => {
+              const loginUrl = import.meta.env.VITE_LOGIN_URL || "/login";
+              window.location.href = loginUrl;
+            }}
           >
             <LogOut aria-hidden="true" />
             <span>Sign out</span>
