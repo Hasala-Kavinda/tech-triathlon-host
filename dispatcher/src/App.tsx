@@ -14,6 +14,7 @@ import {
   Home,
   LayoutDashboard,
   Lock,
+  LogOut,
   MessageSquareText,
   Phone,
   Search,
@@ -23,7 +24,7 @@ import {
   UserRound,
   X,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import wayTrackLogo from "./assets/waytrack-logo.png"
 import { CalendarModal } from "./components/CalendarModal"
 import { CheckModal } from "./components/CheckModal"
@@ -69,6 +70,72 @@ function getInitialPath() {
     : "/home"
 }
 
+function ProfileMenu({ navigate }: { navigate: (path: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    document.addEventListener("keydown", handleKey)
+    return () => {
+      document.removeEventListener("mousedown", handleClick)
+      document.removeEventListener("keydown", handleKey)
+    }
+  }, [open])
+
+  function signOut() {
+    // If you added AuthContext from the plan, replace these two lines with:
+    //   await auth.signOut()   (from useAuth())
+    try {
+      sessionStorage.removeItem("waytrack.session")
+    } catch { }
+    setOpen(false)
+    navigate("/login")
+  }
+
+  return (
+    <div className="profile-menu" ref={menuRef}>
+      <UnstyledButton
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="profile"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="profile__avatar">NP</span>
+        <span>Nuwan P.</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={open ? "profile__chevron profile__chevron--open" : "profile__chevron"}
+          size={15}
+        />
+      </UnstyledButton>
+      {open ? (
+        <div className="profile-menu__panel" role="menu">
+          <div className="profile-menu__user">
+            <strong>Nuwan Perera</strong>
+            <span>Dispatcher · <span className="data-text">DSP-1001</span></span>
+          </div>
+          <UnstyledButton
+            className="profile-menu__item"
+            onClick={signOut}
+            role="menuitem"
+          >
+            <LogOut aria-hidden="true" size={17} />
+            <span>Sign out</span>
+          </UnstyledButton>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function AppShell({
   path,
   navigate,
@@ -92,11 +159,7 @@ function AppShell({
         <div className="sync-state">
           <span /> Synced
         </div>
-        <UnstyledButton className="profile">
-          <span className="profile__avatar">NP</span>
-          <span>Nuwan P.</span>
-          <ChevronDown aria-hidden="true" size={15} />
-        </UnstyledButton>
+        <ProfileMenu navigate={navigate} />
       </header>
       <aside className="sidebar" aria-label="Primary navigation">
         <nav className="sidebar__nav">
