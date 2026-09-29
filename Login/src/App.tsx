@@ -7,7 +7,7 @@ import { VerifyCodePage } from "./pages/auth/VerifyCodePage"
 import { PlaceholderPage } from "./pages/placeholder/PlaceholderPage"
 
 function getPath() {
-  return window.location.pathname || "/login"
+  return window.location.pathname || "/"
 }
 
 export default function App() {
@@ -28,12 +28,12 @@ export default function App() {
   const isPublic = PUBLIC_ROUTES.includes(path)
 
   useEffect(() => {
-    if (!user && !isPublic) navigate("/login")
+    if (!user && !isPublic) navigate("/")
     else if (user && isPublic) navigate(ROLE_HOME[user.role])
     else if (user && !canAccess(user.role, path)) navigate(ROLE_HOME[user.role])
   }, [user, path, isPublic])
 
-  if (path === "/login") return <LoginPage navigate={navigate} />
+  if (path === "/" || path === "/login") return <LoginPage navigate={navigate} />
   if (path === "/forgot-password") return <ForgotPasswordPage navigate={navigate} />
   if (path === "/verify-code") return <VerifyCodePage navigate={navigate} />
   if (!user) return null

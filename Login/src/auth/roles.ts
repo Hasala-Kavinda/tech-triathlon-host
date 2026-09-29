@@ -7,7 +7,7 @@ export const ROLE_HOME: Record<Role, string> = {
   store_manager: "/store",
 }
 
-export const PUBLIC_ROUTES = ["/login", "/forgot-password", "/verify-code"]
+export const PUBLIC_ROUTES = ["/", "/login", "/forgot-password", "/verify-code"]
 
 const ROLE_ACCESS: Record<Role, string[]> = {
   dispatcher: ["/home", "/schedule", "/live", "/orders"],
