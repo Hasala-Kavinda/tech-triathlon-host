@@ -231,7 +231,7 @@ svg {
 }
 
 .waylink-mark__word.text {
-  color: var(--white);
+  color: var(--waytrack-yellow);
   font-family: var(--font-heading);
 }
 
