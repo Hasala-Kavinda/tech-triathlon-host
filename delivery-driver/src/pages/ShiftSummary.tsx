@@ -6,7 +6,7 @@ import { CompletionMark } from '../components/CompletionMark';
 import { KeyFigures } from '../components/KeyFigures';
 import { SyncStatus, SyncState } from '../components/SyncStatus';
 import { OutletSummaryList } from '../components/OutletSummaryList';
-import { EndShiftSheet } from '../components/EndShiftSheet';
+import { EndShiftSheet, SignOutSheet, LogOutIcon } from '../components/EndShiftSheet';
 import { NavTab } from '../components/BottomNav';
 
 export interface ShiftSummaryProps {
@@ -50,6 +50,7 @@ export const ShiftSummary: React.FC<ShiftSummaryProps> = ({
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSheetOpen, setIsSheetOpen] = useState(overrideState === 'sheet');
+  const [isSignOutOpen, setIsSignOutOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncState>(() => {
     if (overrideState === 'syncing') return 'syncing';
     if (overrideState === 'pending') return 'pending';
@@ -287,6 +288,18 @@ export const ShiftSummary: React.FC<ShiftSummaryProps> = ({
             End shift
           </button>
         )}
+
+        {/* Quiet text Sign Out Button */}
+        <button
+          type="button"
+          onClick={() => setIsSignOutOpen(true)}
+          aria-label="Sign out"
+          data-testid="sign-out-button"
+          className="w-full min-h-[44px] text-secondary hover:text-black dark:hover:text-white active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action rounded-lg text-[14px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
+        >
+          <LogOutIcon className="w-4 h-4 text-current shrink-0" />
+          <span>Sign out</span>
+        </button>
       </footer>
 
       {/* End Shift Bottom Sheet */}
@@ -295,6 +308,17 @@ export const ShiftSummary: React.FC<ShiftSummaryProps> = ({
         onClose={() => setIsSheetOpen(false)}
         onConfirmEndShift={handleConfirmEndShift}
         unsyncedCount={pendingCount}
+      />
+
+      {/* Sign Out Confirmation Sheet */}
+      <SignOutSheet
+        isOpen={isSignOutOpen}
+        onClose={() => setIsSignOutOpen(false)}
+        pendingSyncCount={pendingCount}
+        isOffline={typeof navigator !== 'undefined' && !navigator.onLine}
+        isRouteInProgress={routes.some((r) => r.status === 'in_progress')}
+        onSyncNow={handleSyncNow}
+        isSyncing={syncStatus === 'syncing'}
       />
     </main>
   );

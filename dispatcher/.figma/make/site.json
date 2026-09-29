@@ -1,4 +1,5 @@
 {
+  "title": "Kraken-Dispatcher",
   "description": "This web application helps users enhance their skills through interactive design plans, providing tailored resources and tools for effective learning.",
   "robots": {
     "index": false

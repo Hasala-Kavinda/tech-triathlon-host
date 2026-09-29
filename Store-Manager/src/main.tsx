@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client"
 import "./index.css"
 
 async function start() {
+  document.title = "Kraken-Store-Manager"
   // The Figma Make HTML shell does not inject Vite's usual React refresh preamble.
   if (import.meta.env.MODE === "development") {
     const refreshPath = "/@react-refresh"

@@ -59,6 +59,10 @@ export const CANONICAL_DRIVER: DriverProfile = {
   plateNumber: 'LK-4821'
 };
 
+export const LOGIN_URL: string =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_LOGIN_URL) ||
+  'https://kraken-login-a.vercel.app/';
+
 export const DEFAULT_PRODUCTS_LIST: OutletProduct[] = [
   { id: 'p-1', name: 'Fresh vegetables', quantity: 12, unit: 'cases', checked: false },
   { id: 'p-2', name: 'Dairy', quantity: 8, unit: 'cases', chilled: true, checked: false },

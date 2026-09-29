@@ -1,10 +1,9 @@
-// app/src/components/screens/Login.tsx - Screen 1: Driver Profile & Today's Plan
-
 import React, { useState } from 'react';
 import { useStore } from '../../state/store';
 import { TopBar } from '../shared/TopBar';
 import { SignalIndicator } from '../shared/SignalIndicator';
 import { SwipeBar } from '../shared/SwipeBar';
+import { SignOutSheet, LogOutIcon } from '../EndShiftSheet';
 
 export const Login: React.FC = () => {
   const {
@@ -20,10 +19,23 @@ export const Login: React.FC = () => {
     updateCondition,
     showToast,
     meterPhotos,
+    syncPendingOutlets,
+    isSyncing,
+    resetDemo,
     track
   } = useStore();
 
   const [isLocatingGps, setIsLocatingGps] = useState(false);
+  const [isSignOutOpen, setIsSignOutOpen] = useState(false);
+
+  const pendingOutletsCount = routes.flatMap((r) => r.outlets).filter((o) => o.syncStatus === 'pending').length;
+  const pendingPhotosCount = Object.values(meterPhotos).reduce(
+    (acc, p) => acc + (p?.start?.syncStatus === 'pending' ? 1 : 0) + (p?.end?.syncStatus === 'pending' ? 1 : 0),
+    0
+  );
+  const pendingSyncCount = pendingOutletsCount + pendingPhotosCount;
+  const isOffline = conditions.networkStatus === 'offline' || (typeof navigator !== 'undefined' && !navigator.onLine);
+  const isRouteInProgress = routes.some((r) => r.status === 'in_progress');
 
   // L03 GPS Pill tap
   const handleGpsTap = () => {
@@ -97,7 +109,7 @@ export const Login: React.FC = () => {
               </p>
             </div>
 
-            {/* GPS Status Pill */}
+            {/* GPS Status Pill & Sign out */}
             <div className="flex flex-col items-end shrink-0 pt-0.5">
               <div className="min-h-[44px] min-w-[44px] flex items-center justify-end">
                 <button
@@ -137,6 +149,18 @@ export const Login: React.FC = () => {
                   </span>
                 </button>
               </div>
+
+              {/* Sign out button */}
+              <button
+                type="button"
+                onClick={() => setIsSignOutOpen(true)}
+                aria-label="Sign out"
+                data-testid="sign-out-button"
+                className="min-h-[44px] min-w-[44px] px-2 -mr-2 flex items-center gap-1.5 text-secondary hover:text-black dark:hover:text-white active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action rounded-lg text-[13px] font-medium transition-colors cursor-pointer select-none"
+              >
+                <LogOutIcon className="w-4 h-4 text-current shrink-0" />
+                <span>Sign out</span>
+              </button>
             </div>
           </div>
 
@@ -351,6 +375,18 @@ export const Login: React.FC = () => {
           </button>
         </div>
       </footer>
+
+      {/* Sign Out Confirmation Sheet */}
+      <SignOutSheet
+        isOpen={isSignOutOpen}
+        onClose={() => setIsSignOutOpen(false)}
+        pendingSyncCount={pendingSyncCount}
+        isOffline={isOffline}
+        isRouteInProgress={isRouteInProgress}
+        onSyncNow={syncPendingOutlets}
+        isSyncing={isSyncing}
+        onPerformReset={resetDemo}
+      />
     </div>
   );
 };

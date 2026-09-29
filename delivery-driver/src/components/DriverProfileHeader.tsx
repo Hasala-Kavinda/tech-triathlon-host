@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDriver, GpsStatus } from '../state/driverContext';
+import { SignOutSheet, LogOutIcon } from './EndShiftSheet';
 
 export interface DriverProfileHeaderProps {
   overrideStatus?: GpsStatus;
@@ -9,6 +10,7 @@ export const DriverProfileHeader: React.FC<DriverProfileHeaderProps> = ({
   overrideStatus
 }) => {
   const { name, driverId, vehicleInfo, gpsStatus: contextGpsStatus, setGpsStatus } = useDriver();
+  const [isSignOutOpen, setIsSignOutOpen] = useState(false);
 
   // Use override if provided (for state demonstrations), otherwise use context state
   const activeGpsStatus: GpsStatus = overrideStatus || contextGpsStatus || 'off';
@@ -168,6 +170,18 @@ export const DriverProfileHeader: React.FC<DriverProfileHeaderProps> = ({
             )}
           </div>
 
+          {/* Sign out button */}
+          <button
+            type="button"
+            onClick={() => setIsSignOutOpen(true)}
+            aria-label="Sign out"
+            data-testid="sign-out-button"
+            className="min-h-[44px] min-w-[44px] px-2 -mr-2 flex items-center gap-1.5 text-secondary hover:text-black dark:hover:text-white active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action rounded-lg text-[13px] font-medium transition-colors cursor-pointer select-none"
+          >
+            <LogOutIcon className="w-4 h-4 text-current shrink-0" />
+            <span>Sign out</span>
+          </button>
+
           {/* Blocked helper text line */}
           {activeGpsStatus === 'blocked' && (
             <p className="text-[11px] text-secondary mt-1 text-right leading-tight max-w-[136px] font-normal">
@@ -205,6 +219,13 @@ export const DriverProfileHeader: React.FC<DriverProfileHeaderProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Sign Out Confirmation Sheet */}
+      <SignOutSheet
+        isOpen={isSignOutOpen}
+        onClose={() => setIsSignOutOpen(false)}
+        isOffline={typeof navigator !== 'undefined' && !navigator.onLine}
+      />
     </section>
   );
 };

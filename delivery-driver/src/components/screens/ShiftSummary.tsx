@@ -7,7 +7,7 @@ import { CompletionMark } from '../CompletionMark';
 import { KeyFigures } from '../KeyFigures';
 import { SyncStatus, SyncState } from '../SyncStatus';
 import { OutletSummaryList } from '../OutletSummaryList';
-import { EndShiftSheet } from '../EndShiftSheet';
+import { EndShiftSheet, SignOutSheet, LogOutIcon } from '../EndShiftSheet';
 
 // Canonical Route 2 outlets matching specification
 export const CANONICAL_ROUTE_2_OUTLETS = [
@@ -43,6 +43,7 @@ export const ShiftSummary: React.FC = () => {
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isSignOutOpen, setIsSignOutOpen] = useState(false);
   const [animationStep, setAnimationStep] = useState(0);
 
   // Active or finished route: default to Route 2 as per specification
@@ -256,6 +257,18 @@ export const ShiftSummary: React.FC = () => {
             End shift
           </button>
         )}
+
+        {/* Quiet text Sign Out Button */}
+        <button
+          type="button"
+          onClick={() => setIsSignOutOpen(true)}
+          aria-label="Sign out"
+          data-testid="sign-out-button"
+          className="w-full min-h-[44px] text-secondary hover:text-black dark:hover:text-white active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action rounded-lg text-[14px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
+        >
+          <LogOutIcon className="w-4 h-4 text-current shrink-0" />
+          <span>Sign out</span>
+        </button>
       </footer>
 
       {/* End Shift Bottom Sheet (16px top radius, handle) */}
@@ -264,6 +277,18 @@ export const ShiftSummary: React.FC = () => {
         onClose={() => setIsSheetOpen(false)}
         onConfirmEndShift={handleConfirmEndShift}
         unsyncedCount={pendingCount}
+      />
+
+      {/* Sign Out Confirmation Sheet */}
+      <SignOutSheet
+        isOpen={isSignOutOpen}
+        onClose={() => setIsSignOutOpen(false)}
+        pendingSyncCount={pendingCount}
+        isOffline={isOffline}
+        isRouteInProgress={routes.some((r) => r.status === 'in_progress')}
+        onSyncNow={handleSyncNow}
+        isSyncing={isSyncing}
+        onPerformReset={resetDemo}
       />
     </div>
   );
