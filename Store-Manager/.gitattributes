@@ -144,3 +144,6 @@
 *.stl                filter=lfs diff=lfs merge=lfs -text
 *.nc                 filter=lfs diff=lfs merge=lfs -text
 *.mat                filter=lfs diff=lfs merge=lfs -text
+
+# Disable LFS for the logo so it can be deployed on Vercel without LFS limits
+src/assets/waytrack-logo.png binary -filter
