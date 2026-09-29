@@ -39,6 +39,7 @@ import {
   type ReactNode,
 } from "react"
 import type { LoadTiming } from "../data/mock-data"
+import wayTrackLogo from "../assets/waytrack-logo.png"
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ")
@@ -68,12 +69,10 @@ export function Text({
 
 export function WayLinkMark() {
   return (
-    <div className="waylink-mark" aria-label="WayLink">
-      <div className="waylink-mark__symbol" aria-hidden="true">
-        <Waypoints />
-      </div>
+    <div className="waylink-mark" aria-label="WayTrack">
+      <img alt="" className="brand__mark" src={wayTrackLogo} />
       <Text as="span" variant="h3" className="waylink-mark__word">
-        WayLink
+        WayTrack
       </Text>
     </div>
   )
@@ -1270,7 +1269,7 @@ export function LoaderShell({
           <div className="app-header__location">
             <Warehouse aria-hidden="true" />
             <Text as="span" variant="label">
-              Warehouse · Bay 03
+              Warehouse - Peliyagoda
             </Text>
           </div>
           <div className="app-header__tools">
