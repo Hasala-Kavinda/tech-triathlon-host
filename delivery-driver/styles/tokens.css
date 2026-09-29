@@ -16,52 +16,16 @@
   --pending: #8A91AB;
   --gps-tint: #E0F9EE;
   --swipe-track: rgba(11, 20, 55, 0.08);
-  --swipe-border: rgba(11, 20, 55, 0.06);
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0B1437;
-    --surface: #141D45;
-    --surface-raised: #1E2750;
-    --hairline: #2A335A;
-    --text-primary: #FFFFFF;
-    --text-secondary: #8A91AB;
-    --action: #3370FF;
-    --action-text: #FFFFFF;
-    --action-ring: rgba(51, 112, 255, 0.30);
-    --success: #00C46A;
-    --success-text: #2BD186;
-    --attention: #FFC300;
-    --critical: #FF7B7F;
-    --pending: #8A91AB;
-    --gps-tint: rgba(0, 196, 106, 0.16);
-    --swipe-track: rgba(255, 255, 255, 0.12);
-    --swipe-border: rgba(255, 255, 255, 0.08);
-  }
+:root, html, body {
+  color-scheme: light !important;
 }
 
+/* Dark mode blocked - strictly enforce light tokens */
 [data-mode="midnight"],
-.dark {
-  --bg: #0B1437;
-  --surface: #141D45;
-  --surface-raised: #1E2750;
-  --hairline: #2A335A;
-  --text-primary: #FFFFFF;
-  --text-secondary: #8A91AB;
-  --action: #3370FF;
-  --action-text: #FFFFFF;
-  --action-ring: rgba(51, 112, 255, 0.30);
-  --success: #00C46A;
-  --success-text: #2BD186;
-  --attention: #FFC300;
-  --critical: #FF7B7F;
-  --pending: #8A91AB;
-  --gps-tint: rgba(0, 196, 106, 0.16);
-  --swipe-track: rgba(255, 255, 255, 0.12);
-  --swipe-border: rgba(255, 255, 255, 0.08);
-}
-
+.dark,
 [data-mode="light"],
 .light {
   --bg: #F5F7FB;
@@ -91,22 +55,6 @@
 }
 
 .leaflet-tile-pane {
-  filter: saturate(0.7) contrast(0.95);
-}
-
-@media (prefers-color-scheme: dark) {
-  .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6);
-  }
-}
-
-[data-mode="midnight"] .leaflet-tile-pane,
-.dark .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6);
-}
-
-[data-mode="light"] .leaflet-tile-pane,
-.light .leaflet-tile-pane {
   filter: saturate(0.7) contrast(0.95);
 }
 
