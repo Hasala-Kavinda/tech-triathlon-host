@@ -34,7 +34,9 @@ export function LoginPage({ navigate }: LoginPageProps) {
       }
       const externalUrl = EXTERNAL_URLS[redirectPath]
       if (externalUrl) {
-        window.location.href = externalUrl
+        sessionStorage.removeItem('waytrack.session')
+        window.location.replace(externalUrl)
+        return
       } else {
         navigate(redirectPath)
       }

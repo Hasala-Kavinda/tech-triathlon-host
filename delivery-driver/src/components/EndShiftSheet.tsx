@@ -177,7 +177,9 @@ export const SignOutSheet: React.FC<SignOutSheetProps> = ({
     }
 
     // 3. Full-page redirect without adding to history
-    window.location.replace(LOGIN_URL);
+    const urlObj = new URL(LOGIN_URL, window.location.origin);
+    urlObj.searchParams.set('logged_out', '1');
+    window.location.replace(urlObj.toString());
   };
 
   return (

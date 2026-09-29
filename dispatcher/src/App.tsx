@@ -90,14 +90,21 @@ function ProfileMenu({ navigate }: { navigate: (path: string) => void }) {
     }
   }, [open])
 
+  const LOGIN_URL = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   function signOut() {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     // If you added AuthContext from the plan, replace these two lines with:
     //   await auth.signOut()   (from useAuth())
     try {
       sessionStorage.removeItem("waytrack.session")
     } catch { }
     setOpen(false)
-    window.location.href = "https://kraken-hack-login.vercel.app/"
+    const urlObj = new URL(LOGIN_URL, window.location.origin);
+    urlObj.searchParams.set("logged_out", "1");
+    window.location.replace(urlObj.toString());
   }
 
   return (

@@ -35,12 +35,22 @@ export default function App() {
   }
 
   useEffect(() => {
+    // FIX B: Guard against redirect loops after logout
+    if (window.location.search.includes('logged_out=1')) {
+      try { sessionStorage.removeItem('waytrack.session') } catch {}
+      const newUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, "", newUrl);
+      return; // Stay on login screen
+    }
+
+    // Normal auto-redirect behavior
     if (!user && !isPublic) navigate("/")
     else if (user && (isPublic || !canAccess(user.role, path))) {
       const rolePath = ROLE_HOME[user.role]
       const externalUrl = EXTERNAL_URLS[rolePath]
       if (externalUrl) {
-        window.location.href = externalUrl
+        sessionStorage.removeItem('waytrack.session')
+        window.location.replace(externalUrl)
       } else {
         navigate(rolePath)
       }

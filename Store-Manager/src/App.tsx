@@ -284,6 +284,7 @@ function TopBar({
   const [showNotifs, setShowNotifs] = useState(false)
   const [showCutoff, setShowCutoff] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const cutoffRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
@@ -409,7 +410,13 @@ function TopBar({
                 style={{ position: "absolute", top: 48, right: 0, width: 200, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 8 }}>
                 <div 
                   onClick={() => {
-                    window.location.href = "https://kraken-hack-login.vercel.app/";
+                    if (isLoggingOut) return;
+                    setIsLoggingOut(true);
+                    try { sessionStorage.removeItem("waytrack.session"); } catch {}
+                    const loginUrl = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
+                    const urlObj = new URL(loginUrl, window.location.origin);
+                    urlObj.searchParams.set("logged_out", "1");
+                    window.location.replace(urlObj.toString());
                   }}
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "var(--navy-50)")}

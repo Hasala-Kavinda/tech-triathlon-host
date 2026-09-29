@@ -25,8 +25,17 @@ function readSession(): Session | null {
   }
 }
 
+function initialSession(): Session | null {
+  const path = window.location.pathname
+  if (path === '/' || path === '/login') {
+    try { sessionStorage.removeItem(KEY) } catch {}
+    return null
+  }
+  return readSession()
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(readSession)
+  const [session, setSession] = useState<Session | null>(initialSession)
 
   function signIn({ token, user, redirectTo }: AuthSuccess) {
     const next = { token, user }
