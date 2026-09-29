@@ -101,7 +101,9 @@ export const DriverProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [name, setName] = useState(persisted?.name || CANONICAL_DRIVER.name);
   const [vehicleType, setVehicleType] = useState(persisted?.vehicleType || CANONICAL_DRIVER.vehicleType);
   const [plateNumber, setPlateNumber] = useState(persisted?.plateNumber || CANONICAL_DRIVER.plateNumber);
-  const [session, setSession] = useState(persisted?.session || { signedIn: false });
+  const [session, setSession] = useState(
+    persisted?.session ? { ...persisted.session, signedIn: true } : { signedIn: true }
+  );
   const [gpsStatus, setGpsStatusState] = useState<GpsStatus>(persisted?.gpsStatus || getInitialGpsStatus());
   const [driverPosition, setDriverPositionState] = useState<DriverPosition | null>(
     (persisted?.gpsStatus || getInitialGpsStatus()) === 'on' ? DEFAULT_MOCK_DRIVER_POSITION : null
