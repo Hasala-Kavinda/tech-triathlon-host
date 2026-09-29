@@ -27,17 +27,11 @@ const PrototypeCanvas: React.FC = () => {
     return 'screen-replace-enter';
   };
 
-  const isMapScreen = currentScreen === 'map';
-
   return (
     <div className="relative flex flex-col items-center justify-start sm:justify-center min-h-[100vh] min-h-[100dvh] w-full bg-bg py-0 sm:py-6 px-3 sm:pb-20 selection:bg-primary-container">
       {/* Desktop Viewport Warning (Simple, clean notification outside the mobile frame) */}
       {showDesktopWarning && (
-        <div
-          className={`hidden sm:flex items-center justify-between gap-3 px-4 py-2.5 mb-3 w-full bg-surface/90 dark:bg-surface/80 border border-hairline rounded-2xl shadow-sm backdrop-blur-md text-[13px] text-secondary select-none transition-all ${
-            isMapScreen ? 'max-w-[1180px]' : 'max-w-[440px]'
-          }`}
-        >
+        <div className="hidden sm:flex items-center justify-between gap-3 px-4 py-2.5 mb-3 w-full max-w-[440px] bg-surface/90 dark:bg-surface/80 border border-hairline rounded-2xl shadow-sm backdrop-blur-md text-[13px] text-secondary select-none transition-all">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="material-symbols-outlined text-[20px] text-amber-500 shrink-0">
               phone_iphone
@@ -63,13 +57,9 @@ const PrototypeCanvas: React.FC = () => {
       )}
 
       {/* Viewport: on phones (< sm / 640px) fills 100% width and height edge-to-edge.
-          On desktop / tablet (sm: and above) centers as preview container (max-w-[440px] or max-w-[1180px] for map). */}
+          On desktop / tablet (sm: and above) centers with consistent width across all screens. */}
       <div
-        className={`w-full transition-all duration-300 overflow-hidden relative bg-bg flex flex-col justify-between ${
-          isMapScreen
-            ? 'w-full max-w-[1180px] h-[100vh] h-[100dvh] sm:h-[844px] sm:rounded-[32px] sm:border sm:border-hairline sm:shadow-2xl'
-            : 'w-full h-[100vh] h-[100dvh] sm:h-[844px] sm:max-w-[440px] sm:rounded-[36px] sm:border sm:border-hairline sm:shadow-2xl'
-        }`}
+        className="w-full h-[100vh] h-[100dvh] sm:h-[844px] sm:max-w-[440px] sm:rounded-[36px] sm:border sm:border-hairline sm:shadow-2xl overflow-hidden relative bg-bg flex flex-col justify-between"
         style={{
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, sans-serif'
