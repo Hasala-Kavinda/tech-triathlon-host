@@ -307,7 +307,7 @@ export function LoaderIdentity() {
             role="menuitem"
             type="button"
             onClick={() => {
-              const loginUrl = import.meta.env.VITE_LOGIN_URL || "/login";
+              const loginUrl = import.meta.env.VITE_LOGIN_URL || "https://kraken-login-a.vercel.app/";
               window.location.href = loginUrl;
             }}
           >

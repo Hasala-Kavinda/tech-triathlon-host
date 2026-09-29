@@ -25,7 +25,19 @@ export function LoginPage({ navigate }: LoginPageProps) {
     setLoading(true)
     try {
       const result = await authApi.login(employeeId.toUpperCase(), password)
-      navigate(signIn(result))
+      const redirectPath = signIn(result)
+      const EXTERNAL_URLS: Record<string, string> = {
+        '/home':   'https://kraken-dispatcher.vercel.app',
+        '/loader': 'https://kraken-loader.vercel.app',
+        '/driver': 'https://kraken-driver.vercel.app',
+        '/store':  'https://kraken-store.vercel.app',
+      }
+      const externalUrl = EXTERNAL_URLS[redirectPath]
+      if (externalUrl) {
+        window.location.href = externalUrl
+      } else {
+        navigate(redirectPath)
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.")
     } finally {
