@@ -27,6 +27,8 @@
   --critical-50: #fff4f4;
   --critical-100: #ffe5e6;
   --critical-500: #e5484d;
+  --waytrack-blue: #14549c;
+  --waytrack-yellow: #f3c122;
   --white: #ffffff;
   --bg: var(--navy-50);
   --surface: var(--white);
@@ -275,13 +277,39 @@ textarea:focus-visible {
   top: 0;
   z-index: 15;
   display: flex;
-  min-height: 72px;
+  min-height: 58px;
   align-items: center;
   justify-content: space-between;
   padding: 0 clamp(var(--space-5), 3vw, var(--space-7));
-  border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(8px);
+  box-shadow: inset 0 -3px 0 var(--waytrack-yellow);
+  background: var(--waytrack-blue);
+  color: var(--white);
+}
+
+.store-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.store-brand__logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 22%);
+}
+
+.store-brand__wordmark {
+  color: var(--waytrack-yellow);
+  font-family: "Poppins", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.store-brand__context {
+  color: var(--white);
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .outlet-identity {
@@ -399,7 +427,7 @@ textarea:focus-visible {
 .main-content {
   width: min(1180px, calc(100% - 64px));
   margin: 0 auto;
-  padding: 40px 0 104px;
+  padding: 16px 0 104px;
 }
 
 .page-header {
@@ -1885,9 +1913,9 @@ textarea:focus-visible {
 
 /* Store Manager Home */
 .home-page {
-  padding-top: var(--space-6);
-  padding-bottom: var(--space-6);
-}
+    padding-top: 0;
+    padding-bottom: var(--space-6);
+  }
 
 .home-page-header {
   display: flex;
@@ -4792,11 +4820,11 @@ textarea:focus-visible {
 
   .main-content {
     width: 100%;
-    padding: var(--space-5) var(--space-4) var(--space-7);
+    padding: 12px var(--space-4) var(--space-7);
   }
 
   .home-page {
-    padding-top: var(--space-5);
+    padding-top: 0;
     padding-bottom: var(--space-6);
   }
 
@@ -6027,21 +6055,52 @@ textarea:focus-visible {
   }
 }
 
+.topbar .brand-name {
+  color: var(--white) !important;
+}
+
+
+
+.topbar .icon-button {
+  color: var(--white);
+}
+.topbar .icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.topbar .manager-name {
+  color: var(--white);
+}
+.topbar .outlet-identity strong {
+  color: var(--white);
+}
+.topbar .outlet-identity .outlet-label,
+.topbar .outlet-identity .outlet-location {
+  color: rgba(255, 255, 255, 0.7);
+}
+.topbar .avatar {
+  color: var(--cobalt-600);
+  background: var(--white);
+}
+
+.global-cutoff-pill {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: var(--white) !important;
+  border-color: transparent !important;
+}
+.global-cutoff-pill--closed {
+  background: var(--red-500) !important;
+  color: var(--white) !important;
+}
+
 /* PHASE 9: TOP NAV OVERRIDES */
 @media (min-width: 1025px) {
-  .topbar {
-    background: var(--cobalt-600);
-    border-bottom: none;
-    color: var(--white);
-  }
+  
   .topbar-desktop-nav {
     display: flex;
     align-items: center;
     gap: var(--space-8);
   }
-  .topbar-desktop-nav .brand-name {
-    color: var(--white);
-  }
+  
   .top-nav {
     display: flex;
     align-items: center;
@@ -6066,30 +6125,13 @@ textarea:focus-visible {
     color: var(--white);
     background: rgba(255, 255, 255, 0.15);
   }
-  .topbar-desktop-outlet .outlet-identity strong {
-    color: var(--white);
-  }
-  .topbar-desktop-outlet .outlet-identity .outlet-label,
-  .topbar-desktop-outlet .outlet-identity .outlet-location {
-    color: rgba(255, 255, 255, 0.7);
-  }
-  .topbar-desktop-outlet .outlet-icon {
-    background: rgba(255, 255, 255, 0.15);
-    color: var(--white);
-  }
-  .topbar-actions .icon-button {
-    color: var(--white);
-  }
-  .topbar-actions .icon-button:hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
-  .topbar-actions .manager-name {
-    color: var(--white);
-  }
-  .topbar-actions .avatar {
-    color: var(--cobalt-600);
-    background: var(--white);
-  }
+  
+  
+  
+  
+  
+  
+  
   .app-shell {
     flex-direction: column;
   }
@@ -6416,11 +6458,11 @@ textarea:focus-visible {
 .compact-mobile-outlet {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
-  background: var(--slate-100);
+  color: white;
+  background: rgba(255, 255, 255, 0.15);
   padding: 4px 10px;
   border-radius: 100px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 @media (max-width: 1024px) {
@@ -6444,6 +6486,7 @@ textarea:focus-visible {
   }
   
   .home-page {
+    padding-top: 0;
     padding-bottom: 96px !important;
   }
 }
