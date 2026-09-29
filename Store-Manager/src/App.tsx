@@ -409,7 +409,7 @@ function TopBar({
                 style={{ position: "absolute", top: 48, right: 0, width: 200, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 8 }}>
                 <div 
                   onClick={() => {
-                    window.location.href = "https://kraken-login-a.vercel.app/";
+                    window.location.href = "https://kraken-hack-login.vercel.app/";
                   }}
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "var(--navy-50)")}

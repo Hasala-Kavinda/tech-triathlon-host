@@ -97,7 +97,7 @@ function ProfileMenu({ navigate }: { navigate: (path: string) => void }) {
       sessionStorage.removeItem("waytrack.session")
     } catch { }
     setOpen(false)
-    window.location.href = "https://kraken-login-a.vercel.app/"
+    window.location.href = "https://kraken-hack-login.vercel.app/"
   }
 
   return (

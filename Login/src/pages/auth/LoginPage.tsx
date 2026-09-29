@@ -27,10 +27,10 @@ export function LoginPage({ navigate }: LoginPageProps) {
       const result = await authApi.login(employeeId.toUpperCase(), password)
       const redirectPath = signIn(result)
       const EXTERNAL_URLS: Record<string, string> = {
-        '/home':   'https://kraken-dispatcher.vercel.app',
-        '/loader': 'https://kraken-loader.vercel.app',
-        '/driver': 'https://kraken-driver.vercel.app',
-        '/store':  'https://kraken-store.vercel.app',
+        '/home':   'https://hackathon-host-dispatcher.vercel.app',
+        '/loader': 'https://hackathon-host-loader.vercel.app',
+        '/driver': 'https://kraken-hack-driver.vercel.app',
+        '/store':  'https://hackathon-host-store.vercel.app',
       }
       const externalUrl = EXTERNAL_URLS[redirectPath]
       if (externalUrl) {

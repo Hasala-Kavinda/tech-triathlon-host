@@ -61,7 +61,7 @@ export const CANONICAL_DRIVER: DriverProfile = {
 
 export const LOGIN_URL: string =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_LOGIN_URL) ||
-  'https://kraken-login-a.vercel.app/';
+  'https://kraken-hack-login.vercel.app/';
 
 export const DEFAULT_PRODUCTS_LIST: OutletProduct[] = [
   { id: 'p-1', name: 'Fresh vegetables', quantity: 12, unit: 'cases', checked: false },

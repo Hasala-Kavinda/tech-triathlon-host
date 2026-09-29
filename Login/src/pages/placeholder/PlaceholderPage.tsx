@@ -17,7 +17,7 @@ export function PlaceholderPage({ navigate }: PlaceholderPageProps) {
 
   async function handleSignOut() {
     await signOut()
-    window.location.href = "https://kraken-login-a.vercel.app/"
+    window.location.href = "https://kraken-hack-login.vercel.app/"
   }
 
   return (

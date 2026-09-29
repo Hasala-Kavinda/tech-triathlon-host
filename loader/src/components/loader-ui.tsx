@@ -307,7 +307,7 @@ export function LoaderIdentity() {
             role="menuitem"
             type="button"
             onClick={() => {
-              window.location.href = "https://kraken-login-a.vercel.app/";
+              window.location.href = "https://kraken-hack-login.vercel.app/";
             }}
           >
             <LogOut aria-hidden="true" />
