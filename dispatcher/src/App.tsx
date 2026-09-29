@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  LogOut,
   Clock,
   Clock3,
   Home,
@@ -16,15 +17,16 @@ import {
   Lock,
   MessageSquareText,
   Phone,
+  Route,
   Search,
   Settings,
   Snowflake,
   Truck,
   UserRound,
+  Warehouse,
   X,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import wayTrackLogo from "./assets/waytrack-logo.png"
 import { CalendarModal } from "./components/CalendarModal"
 import { CheckModal } from "./components/CheckModal"
 import { DeferModal } from "./components/DeferModal"
@@ -69,21 +71,101 @@ function getInitialPath() {
     : "/home"
 }
 
+function ProfileMenu({ onSignOut }: { onSignOut: () => void }) {
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".profile-menu")) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false)
+    document.addEventListener("mousedown", close)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
+
+  return (
+    <div className="profile-menu">
+      <UnstyledButton
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="profile"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="profile__avatar">NP</span>
+        <span>Nuwan P.</span>
+        <ChevronDown aria-hidden="true" size={15} />
+      </UnstyledButton>
+      {open ? (
+        <div className="profile-menu__panel" role="menu">
+          <div className="profile-menu__who">
+            <span className="profile__avatar">NP</span>
+            <span>
+              <strong>Nuwan Perera</strong>
+              <small>Dispatcher · Galle depot</small>
+            </span>
+          </div>
+          <UnstyledButton
+            className="profile-menu__item profile-menu__item--danger"
+            onClick={() => {
+              setOpen(false)
+              onSignOut()
+            }}
+            role="menuitem"
+          >
+            <LogOut aria-hidden="true" size={18} />
+            <span>Sign out</span>
+          </UnstyledButton>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function SignedOutScreen({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <div className="signed-out">
+      <div className="signed-out__card">
+        <span className="brand__mark">
+          <Route aria-hidden="true" size={26} />
+        </span>
+        <h1>You've signed out</h1>
+        <p>Sign in again to open the WayLink dispatcher.</p>
+        <Button onClick={onSignIn} variant="primary">
+          Sign in as Nuwan P.
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function AppShell({
   path,
   navigate,
+  onSignOut,
   children,
 }: {
   path: string
   navigate: (path: string) => void
+  onSignOut: () => void
   children: React.ReactNode
 }) {
   return (
     <div className="app-shell">
       <header className="topbar">
         <UnstyledButton className="brand" onClick={() => navigate("/home")}>
-          <img alt="" className="brand__mark" src={wayTrackLogo} />
-          <span>WayTrack</span>
+          <span className="brand__mark">
+            <Route aria-hidden="true" size={22} />
+          </span>
+          <span>WayLink</span>
+        </UnstyledButton>
+        <UnstyledButton className="depot-switch">
+          <Warehouse aria-hidden="true" size={17} />
+          <span>Galle depot ▾</span>
         </UnstyledButton>
         <div className="topbar__spacer" />
         <div className="topbar__date">
@@ -92,11 +174,7 @@ function AppShell({
         <div className="sync-state">
           <span /> Synced
         </div>
-        <UnstyledButton className="profile">
-          <span className="profile__avatar">NP</span>
-          <span>Nuwan P.</span>
-          <ChevronDown aria-hidden="true" size={15} />
-        </UnstyledButton>
+        <ProfileMenu onSignOut={onSignOut} />
       </header>
       <aside className="sidebar" aria-label="Primary navigation">
         <nav className="sidebar__nav">
@@ -745,7 +823,7 @@ function VehicleGraphic({
 }
 
 /** Open the store order details pop-up from anywhere in the app. */
-const OPEN_ORDER_EVENT = "waytrack:open-order"
+const OPEN_ORDER_EVENT = "waylink:open-order"
 function openOrderDetails(order: Order) {
   window.dispatchEvent(new CustomEvent<Order>(OPEN_ORDER_EVENT, { detail: order }))
 }
@@ -2333,6 +2411,7 @@ export default function App() {
   const [path, setPath] = useState(getInitialPath)
   const [search, setSearch] = useState(() => window.location.search)
   const [toast, setToast] = useState("")
+  const [signedOut, setSignedOut] = useState(false)
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
   const [orderNotices, setOrderNotices] = useState<
     Record<string, { text: string; shareWithCrew: boolean }>
@@ -2441,8 +2520,19 @@ export default function App() {
     setToast("Weekly quota updated")
   }
 
+  if (signedOut) {
+    return (
+      <SignedOutScreen
+        onSignIn={() => {
+          setSignedOut(false)
+          navigate("/home")
+        }}
+      />
+    )
+  }
+
   return (
-    <AppShell navigate={navigate} path={path}>
+    <AppShell navigate={navigate} onSignOut={() => setSignedOut(true)} path={path}>
       {path === "/schedule" &&
         ["immediate", "due"].includes(
           new URLSearchParams(search).get("mode") ?? "",
