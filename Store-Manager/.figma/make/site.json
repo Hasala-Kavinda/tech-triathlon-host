@@ -1,0 +1,10 @@
+{
+  "description": "Streamlines UI/UX design by providing a comprehensive system style guide to ensure consistent, efficient, and user-focused app development.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
