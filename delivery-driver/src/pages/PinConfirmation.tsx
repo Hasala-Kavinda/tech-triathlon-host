@@ -353,12 +353,18 @@ export const PinConfirmation: React.FC<PinConfirmationProps> = ({
             {/* PIN boxes + Message Line (centered in available space) */}
             <div className="my-auto flex flex-col items-center justify-center">
               {/* Current store indicator in green */}
-              <div className="flex items-center gap-1.5 mb-3 text-[14px] leading-tight select-none">
+              <div className="flex items-center gap-1.5 mb-2 text-[14px] leading-tight select-none">
                 <span className="text-secondary">Current store:</span>
                 <span className="font-semibold text-success dark:text-[#2BD186] flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-success shrink-0" aria-hidden="true" />
                   {outlet.city} ({route?.brandName || 'Waypoint'})
                 </span>
+              </div>
+
+              {/* Demo UI Driver PIN Banner */}
+              <div className="mb-3 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[12px] flex items-center gap-1.5 select-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                <span>Demo UI · Driver PIN: <strong className="font-mono font-bold text-[13px] text-black dark:text-white">4821</strong></span>
               </div>
 
               {/* 5. PIN Boxes */}
