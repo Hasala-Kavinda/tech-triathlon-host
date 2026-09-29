@@ -87,22 +87,14 @@ export const Login: React.FC<LoginProps> = ({ onSuccess }) => {
         />
 
         {/* Auxiliary Emergency & Support Link */}
-        <div className="flex justify-between items-center text-[13px] pt-0.5 px-6">
+        <div className="flex justify-center items-center text-[13px] pt-0.5 px-6">
           <button
-            className="text-action hover:underline flex items-center gap-1 transition-colors"
+            className="text-action hover:underline flex items-center gap-1 transition-colors cursor-pointer"
             type="button"
             onClick={() => alert('Dispatch Support Line: +1 (800) 555-0199')}
           >
             <span className="material-symbols-outlined text-[16px]">help_outline</span>
             Terminal Dispatch Support
-          </button>
-          <button
-            className="text-critical font-medium hover:underline flex items-center gap-1 transition-colors"
-            type="button"
-            onClick={() => alert('Account reset requested. Re-authenticating terminal.')}
-          >
-            <span className="material-symbols-outlined text-[16px]">lock_reset</span>
-            Switch Account
           </button>
         </div>
       </footer>

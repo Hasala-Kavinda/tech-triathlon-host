@@ -160,7 +160,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const currentScreen: ScreenName = historyStack[historyStack.length - 1] || 'login';
   const [transitionType, setTransitionType] = useState<TransitionType>('replace');
   const [returnTo, setReturnTo] = useState<'dashboard' | 'map'>('dashboard');
-  const [loginStage, setLoginStage] = useState<'stageA' | 'stageB'>('stageA');
+  const [loginStage, setLoginStage] = useState<'stageA' | 'stageB'>('stageB');
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -515,7 +515,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setExpandedRouteId(null);
     setActiveOutletId(null);
     setSelectedMapOutletId(null);
-    setLoginStage('stageA');
+    setLoginStage('stageB');
     setHistoryStack(['login']);
     setTransitionType('replace');
     setConditions({

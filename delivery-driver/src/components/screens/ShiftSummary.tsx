@@ -34,7 +34,6 @@ export const ShiftSummary: React.FC = () => {
     selectedRouteId,
     selectRoute,
     replaceScreen,
-    setLoginStage,
     syncPendingOutlets,
     isSyncing,
     conditions,
@@ -132,7 +131,6 @@ export const ShiftSummary: React.FC = () => {
 
   const handleBackToPlan = () => {
     track('S04');
-    setLoginStage('stageB');
     replaceScreen('login');
   };
 
@@ -144,7 +142,6 @@ export const ShiftSummary: React.FC = () => {
   const handleConfirmEndShift = () => {
     setIsSheetOpen(false);
     resetDemo();
-    setLoginStage('stageA');
     replaceScreen('login');
   };
 
