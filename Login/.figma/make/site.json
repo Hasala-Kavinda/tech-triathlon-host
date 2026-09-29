@@ -1,0 +1,10 @@
+{
+  "description": "Create detailed high-fidelity prototypes from implementation plans and images to streamline design validation and enhance project communication.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
