@@ -27,10 +27,24 @@ export default function App() {
 
   const isPublic = PUBLIC_ROUTES.includes(path)
 
+  const EXTERNAL_URLS: Record<string, string> = {
+    '/home':   'https://hackathon-host-dispatcher.vercel.app',
+    '/loader': 'https://hackathon-host-loader.vercel.app',
+    '/driver': 'https://kraken-hack-driver.vercel.app',
+    '/store':  'https://hackathon-host-store.vercel.app',
+  }
+
   useEffect(() => {
     if (!user && !isPublic) navigate("/")
-    else if (user && isPublic) navigate(ROLE_HOME[user.role])
-    else if (user && !canAccess(user.role, path)) navigate(ROLE_HOME[user.role])
+    else if (user && (isPublic || !canAccess(user.role, path))) {
+      const rolePath = ROLE_HOME[user.role]
+      const externalUrl = EXTERNAL_URLS[rolePath]
+      if (externalUrl) {
+        window.location.href = externalUrl
+      } else {
+        navigate(rolePath)
+      }
+    }
   }, [user, path, isPublic])
 
   if (path === "/" || path === "/login") return <LoginPage navigate={navigate} />
