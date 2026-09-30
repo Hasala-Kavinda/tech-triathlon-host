@@ -118,7 +118,7 @@ export const SyncQueueProvider: React.FC<{
   }, [flushQueue]);
 
   return (
-    <SyncQueueContext.Provider
+    <SyncQueueContext
       value={{
         queue,
         isSyncing,
@@ -129,7 +129,7 @@ export const SyncQueueProvider: React.FC<{
       }}
     >
       {children}
-    </SyncQueueContext.Provider>
+    </SyncQueueContext>
   );
 };
 

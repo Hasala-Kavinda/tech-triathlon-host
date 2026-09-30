@@ -240,7 +240,7 @@ export const DriverProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }, []);
 
   return (
-    <DriverContext.Provider
+    <DriverContext
       value={{
         driverId,
         name,
@@ -267,7 +267,7 @@ export const DriverProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }}
     >
       {children}
-    </DriverContext.Provider>
+    </DriverContext>
   );
 };
 

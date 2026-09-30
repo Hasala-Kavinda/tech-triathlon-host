@@ -340,7 +340,7 @@ export const AppRouter: React.FC<{ children?: ReactNode }> = () => {
       : '';
 
   return (
-    <RouterContext.Provider
+    <RouterContext
       value={{
         pathname,
         params: routeParams,
@@ -440,6 +440,6 @@ export const AppRouter: React.FC<{ children?: ReactNode }> = () => {
           </button>
         </div>
       </div>
-    </RouterContext.Provider>
+    </RouterContext>
   );
 };

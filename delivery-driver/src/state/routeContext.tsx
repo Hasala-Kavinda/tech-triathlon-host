@@ -677,7 +677,7 @@ export const RouteProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [currentOutlets]);
 
   return (
-    <RouteContext.Provider
+    <RouteContext
       value={{
         routes,
         selectedRouteId,
@@ -724,7 +724,7 @@ export const RouteProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }}
     >
       {children}
-    </RouteContext.Provider>
+    </RouteContext>
   );
 };
 
