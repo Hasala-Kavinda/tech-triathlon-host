@@ -6,6 +6,7 @@ import { TopBar, SignalIndicator, SwipeBar, SignOutSheet } from '@/shared/compon
 import { isDemoMode } from '@/shared/lib/demo';
 import { DriverProfileHeader } from './DriverProfileHeader';
 import { RoutePlanCard } from './RoutePlanCard';
+import { driverApi } from '@/api/driver';
 
 export const LoginScreen: React.FC = () => {
   const {
@@ -16,6 +17,7 @@ export const LoginScreen: React.FC = () => {
     selectRoute,
     toggleExpandRoute,
     startRoute,
+    setRouteVersion,
     pushScreen,
     conditions,
     updateCondition,
@@ -91,10 +93,26 @@ export const LoginScreen: React.FC = () => {
   const selectedRoute = routes.find((r) => r.id === selectedRouteId);
   const inProgressRoute = routes.find((r) => r.status === 'in_progress');
 
-  const handleStartOrClear = (routeId: number) => {
+  const handleStartOrClear = async (routeId: number) => {
     if (selectedRouteId === routeId) {
       selectRoute(null);
     } else {
+      if (isOffline) {
+        showToast("Reconnect before claiming a route");
+        return;
+      }
+      if (!window.confirm("Are you sure you really need to claim this load?")) return;
+      const route = routes.find((candidate) => candidate.id === routeId);
+      if (route?.apiId && route.version !== undefined && route.vehicleId) {
+        try {
+          const bootstrap = await driverApi.claimAndBootstrap(route.apiId, route.vehicleId, route.version);
+          setRouteVersion(route.id, bootstrap.bootstrapVersion);
+          showToast('Route claimed, vehicle confirmed, and saved for offline use');
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Unable to claim this route');
+          return;
+        }
+      }
       selectRoute(routeId);
     }
   };

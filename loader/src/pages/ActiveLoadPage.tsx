@@ -57,6 +57,8 @@ interface ActiveLoadPageProps {
   activeLoad?: LoadCase
   /** Triggered the exact moment the load becomes fully accounted. */
   onLoadCompleted?: (completionTime: number) => void
+  onMarkItemLoaded?: (item: LoadItemData) => Promise<void>
+  onSaveException?: (item: LoadItemData, exception: LoadItemException) => Promise<void>
 }
 
 export default function ActiveLoadPage({
@@ -66,6 +68,8 @@ export default function ActiveLoadPage({
   onStopsChange,
   activeLoad,
   onLoadCompleted,
+  onMarkItemLoaded,
+  onSaveException,
 }: ActiveLoadPageProps) {
   const [connectivity] = useConnectivity(forcedConnectivity)
   const [visibleStopIndex, setVisibleStopIndex] = useState(0)
@@ -183,7 +187,9 @@ export default function ActiveLoadPage({
     )
   }
 
-  function markItemLoaded(itemId: string) {
+  async function markItemLoaded(itemId: string) {
+    const current = allItems.find((item) => item.id === itemId)
+    if (current && onMarkItemLoaded) await onMarkItemLoaded(current)
     updateItems((item) =>
       item.id === itemId
         ? { ...item, exception: undefined, status: "loaded" }
@@ -191,8 +197,11 @@ export default function ActiveLoadPage({
     )
   }
 
-  function saveException(exception: LoadItemException) {
+  async function saveException(exception: LoadItemException) {
     if (!exceptionItemId) return
+
+    const current = allItems.find((item) => item.id === exceptionItemId)
+    if (current && onSaveException) await onSaveException(current, exception)
 
     updateItems((item) =>
       item.id === exceptionItemId

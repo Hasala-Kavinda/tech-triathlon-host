@@ -310,7 +310,7 @@ export function LoaderIdentity() {
             onClick={() => {
               if (isLoggingOut) return;
               setIsLoggingOut(true);
-              try { sessionStorage.removeItem("waytrack.session"); } catch {}
+              try { sessionStorage.removeItem("waylink.role.session"); } catch {}
               const loginUrl = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
               const urlObj = new URL(loginUrl, window.location.origin);
               urlObj.searchParams.set("logged_out", "1");

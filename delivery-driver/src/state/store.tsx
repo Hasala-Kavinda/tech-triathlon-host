@@ -1,6 +1,6 @@
 // src/state/store.tsx - Unified prototype store composed of modular state slices
 
-import React, { createContext, useContext, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, ReactNode } from 'react';
 import {
   ScreenName,
   TransitionType,
@@ -23,6 +23,8 @@ import {
 import { useTrackingSlice } from './slices/trackingSlice';
 import { useConditionsSlice, DEFAULT_CONDITIONS } from './slices/conditionsSlice';
 import { useRoutesSlice } from './slices/routesSlice';
+import { driverApi } from '@/api/driver';
+import { queueLocation } from '@/offline/db';
 
 // Re-export domain types for backward compatibility
 export type {
@@ -65,10 +67,11 @@ export interface StoreContextType {
   toggleExpandRoute: (id: number) => void;
   startRoute: (id: number) => void;
   finishRoute: (id: number) => void;
+  setRouteVersion: (id: number, version: number) => void;
   setActiveOutletId: (id: string | null) => void;
   setSelectedMapOutletId: (id: string | null) => void;
   toggleProductCheck: (outletId: string, productId: string) => void;
-  markUnpackingComplete: (outletId: string, complete?: boolean) => void;
+  markUnpackingComplete: (outletId: string, complete?: boolean) => Promise<void>;
   completeOutlet: (outletId: string, isOffline?: boolean) => void;
   syncPendingOutlets: () => Promise<void>;
   isSyncing: boolean;
@@ -112,6 +115,70 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const navSlice = useNavigationSlice(trackingSlice.track);
   const conditionsSlice = useConditionsSlice(trackingSlice.track);
   const routesSlice = useRoutesSlice(trackingSlice.track, conditionsSlice.markMeterPhotosSynced);
+
+  useEffect(() => {
+    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === 'true') return;
+    void driverApi.routesToday().then(async (trips) => {
+      const details = await Promise.all(trips.map((trip) => driverApi.tripDetail(trip._id)));
+      routesSlice.setRoutes(details.map((trip, index) => ({
+        apiId: trip._id,
+        version: trip.version,
+        vehicleId: trip.vehicleId,
+        id: index + 1,
+        routeNumber: index + 1,
+        brandName: trip.tripNumber,
+        distanceKm: trip.distanceKm,
+        status: trip.status === 'in_transit' ? 'in_progress' : trip.status === 'completed' ? 'completed' : 'pending',
+        outlets: trip.stops.map((stop) => {
+          const order = trip.orders.find((candidate) => candidate._id === String((stop as unknown as { orderId?: string }).orderId)) ?? trip.orders.find((candidate) => candidate.outletId === stop.outletId);
+          return {
+            id: stop.stopId,
+            city: stop.outletId,
+            lat: 0,
+            lng: 0,
+            visitOrder: stop.sequence,
+            managerName: 'Store Manager',
+            managerPhone: '',
+            itemCount: order?.items.length ?? 0,
+            status: stop.status === 'completed' ? 'completed' : stop.status === 'arrived' ? 'in_progress' : 'pending',
+            unpackingComplete: false,
+            syncStatus: 'synced',
+            products: (order?.items ?? []).map((item) => ({ id: item.sku, name: item.name, quantity: item.quantity, unit: item.unit, checked: false })),
+            confirmation: { approvalStatus: 'waiting', attemptsLeft: 5, locked: false, expired: false },
+          };
+        }),
+      })));
+    }).catch((error) => {
+      console.error('Driver route bootstrap list failed', error);
+      routesSlice.setRoutes([]);
+    });
+  }, []);
+
+  useEffect(() => {
+    const activeTrip = routesSlice.routes.find((route) => route.status === 'in_progress' && route.apiId);
+    if (!activeTrip?.apiId || !navigator.geolocation) return;
+    let sequence = Date.now();
+    const flush = () => { if (navigator.onLine) void driverApi.flushLocations(activeTrip.apiId!).catch((error) => console.error('Location upload failed', error)); };
+    const watchId = navigator.geolocation.watchPosition((position) => {
+      const point = {
+        key: `${activeTrip.apiId}:${sequence}`,
+        tripId: activeTrip.apiId!,
+        sequence: sequence++,
+        recordedAt: new Date(position.timestamp).toISOString(),
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        ...(position.coords.heading == null ? {} : { heading: position.coords.heading }),
+        ...(position.coords.speed == null ? {} : { speed: position.coords.speed }),
+      };
+      void queueLocation(point).then(flush);
+    }, (error) => {
+      console.error('Mandatory active-trip GPS gap', { code: error.code, message: error.message });
+    }, { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 });
+    window.addEventListener('online', flush);
+    const interval = window.setInterval(flush, 30_000);
+    return () => { navigator.geolocation.clearWatch(watchId); window.removeEventListener('online', flush); window.clearInterval(interval); };
+  }, [routesSlice.routes]);
 
   const resetDemo = useCallback(() => {
     routesSlice.setRoutes(createInitialRoutes());

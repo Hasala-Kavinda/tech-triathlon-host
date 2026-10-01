@@ -1,23 +1,19 @@
 export type Role = "dispatcher" | "loader" | "driver" | "store_manager"
 
 export type User = {
+  id?: string
   employeeId: string
+  email: string
   name: string
   role: Role
+  outletId?: string
+  depot?: string
 }
 
-export type AuthSuccess = {
-  token: string
-  user: User
-  redirectTo?: string
-}
-
-export type ForgotPasswordResult = {
-  resetId: string
-  maskedPhone: string
-  maskedEmail: string
-  expiresInSeconds: number
-  resendInSeconds: number
+export type LoginSuccess = {
+  handoffCode: string
+  redirectUrl: string
+  expiresIn: number
 }
 
 export class AuthError extends Error {

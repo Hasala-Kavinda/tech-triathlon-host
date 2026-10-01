@@ -19,6 +19,7 @@ import {
 } from "../components/loader-ui"
 import type { LoadCase } from "../data/mock-data"
 import { useConnectivity } from "../hooks/useConnectivity"
+import { loadApi } from "../api/loads"
 
 // Prototype URL overrides
 const requestedView = new URLSearchParams(window.location.search).get("view")
@@ -61,8 +62,11 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
     }, 850)
   }
 
-  function handleClaim(vehicle: string) {
+  function handleClaim(loadCase: LoadCase) {
     if (!isOnline) return
+    if (!window.confirm("Are you sure you really need to claim this load?")) return
+
+    const vehicle = loadCase.vehicle
 
     setLoadCases((current) =>
       current.map((loadCase) =>
@@ -71,6 +75,16 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
           : loadCase,
       ),
     )
+
+    if (loadCase.tripId && loadCase.version !== undefined) {
+      void loadApi.claim(loadCase.tripId, loadCase.version).then((record) => {
+        setLoadCases((current) => current.map((item) => item.tripId === loadCase.tripId ? { ...item, state: "claimed", version: record.version } : item))
+      }).catch((error) => {
+        console.error("Load claim failed", error)
+        setLoadCases((current) => current.map((item) => item.tripId === loadCase.tripId ? { ...item, state: "unavailable" } : item))
+      })
+      return
+    }
 
     window.setTimeout(() => {
       setLoadCases((current) =>
@@ -223,7 +237,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
                       ? "Checking the latest assignment…"
                       : undefined
                 }
-                onClaim={() => handleClaim(loadCase.vehicle)}
+                onClaim={() => handleClaim(loadCase)}
                 onOpen={() => onOpenLoad(loadCase.vehicle)}
               />
             ))}

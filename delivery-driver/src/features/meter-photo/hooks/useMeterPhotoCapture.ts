@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '@/state/store';
 import { MeterPhotoRecord } from '@/shared/types';
 import { useReducedMotion } from '@/shared/hooks/useReducedMotion';
+import { driverApi } from '@/api/driver';
 
 export interface UseMeterPhotoCaptureProps {
   moment: 'start' | 'end';
@@ -15,6 +16,8 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
     routes,
     meterPhotos,
     setRouteMeterPhoto,
+    setRouteVersion,
+    finishRoute,
     replaceScreen,
     popScreen,
     conditions,
@@ -110,6 +113,18 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
     setState('processing');
 
     try {
+      let fileAssetId: string | undefined;
+      if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true') {
+        if (!currentRoute?.apiId || currentRoute.version === undefined) throw new Error('The live route is not ready for evidence upload.');
+        if (conditions.networkStatus === 'offline') throw new Error('Reconnect before uploading required meter evidence.');
+        fileAssetId = await driverApi.uploadEvidence(currentRoute.apiId, moment === 'start' ? 'start_meter' : 'end_meter', file);
+        const capturedAt = new Date().toISOString();
+        const updated = moment === 'start'
+          ? await driverApi.startTrip(currentRoute.apiId, currentRoute.version, fileAssetId, capturedAt)
+          : await driverApi.finishTrip(currentRoute.apiId, currentRoute.version, fileAssetId, capturedAt);
+        setRouteVersion(currentRoute.id, updated.version);
+        if (moment === 'end') finishRoute(currentRoute.id);
+      }
       const objectUrl = URL.createObjectURL(file);
       activeObjectUrlRef.current = objectUrl;
 
@@ -146,6 +161,7 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
 
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const record: MeterPhotoRecord = {
+        fileAssetId,
         photoUri: compressedDataUri,
         capturedAt: timeStr,
         rawFile: file,
@@ -177,8 +193,8 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
           advanceToNext();
         }, 1250);
       }
-    } catch {
-      setErrorMessage('Could not process photo. Please try again.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not process photo. Please try again.');
       setState('empty');
     }
   };

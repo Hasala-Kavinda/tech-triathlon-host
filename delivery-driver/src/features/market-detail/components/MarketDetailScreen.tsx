@@ -61,11 +61,15 @@ export const MarketDetailScreen: React.FC = () => {
     showToast(`Calling ${activeOutlet.managerName}…`);
   };
 
-  const handleProceedToPin = () => {
+  const handleProceedToPin = async () => {
     if (!isAllChecked) return;
-    markUnpackingComplete(activeOutlet.id, true);
-    track('M07');
-    pushScreen('pin_confirmation');
+    try {
+      await markUnpackingComplete(activeOutlet.id, true);
+      track('M07');
+      pushScreen('pin_confirmation');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to record arrival.');
+    }
   };
 
   return (

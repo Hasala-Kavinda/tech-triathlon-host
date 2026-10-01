@@ -26,6 +26,9 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import wayTrackLogo from "./assets/waytrack-logo.png"
+import { planningApi, type DriverReference, type TripInput } from "./api/planning"
+import { apiRequest } from "./api/client"
+import { clearSession } from "./auth/session"
 import { CalendarModal } from "./components/CalendarModal"
 import { CheckModal } from "./components/CheckModal"
 import { DeferModal } from "./components/DeferModal"
@@ -93,14 +96,11 @@ function ProfileMenu({ navigate }: { navigate: (path: string) => void }) {
   const LOGIN_URL = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  function signOut() {
+  async function signOut() {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
-    // If you added AuthContext from the plan, replace these two lines with:
-    //   await auth.signOut()   (from useAuth())
-    try {
-      sessionStorage.removeItem("waytrack.session")
-    } catch { }
+    await apiRequest<void>("/auth/logout", { method: "POST", body: "{}" }).catch(() => undefined)
+    clearSession()
     setOpen(false)
     const urlObj = new URL(LOGIN_URL, window.location.origin);
     urlObj.searchParams.set("logged_out", "1");
@@ -971,7 +971,7 @@ function SchedulePage({
   onOpenManageVehicles,
   onOpenDefer,
 }: {
-  navigateHome: (message: string) => void
+  navigateHome: (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => void | Promise<void>
   vehicles: Vehicle[]
   setVehicles: React.Dispatch<React.SetStateAction<Vehicle[]>>
   orders: Order[]
@@ -1415,7 +1415,7 @@ function SchedulePage({
           onSchedule={() => {
             setOverlay(null)
             recordTurn(vehicle)
-            navigateHome(`Route ${vehicle.id} scheduled`)
+            void navigateHome(`Route ${vehicle.id} scheduled`, addedOrders, vehicle, routeDate, departsTime)
           }}
           pack={addedOrders}
           setChecked={setChecked}
@@ -1606,7 +1606,7 @@ function DueSchedulePage({
   onOpenManageVehicles: () => void
   onOpenDefer: () => void
   onOpenNormal: () => void
-  onScheduled: (message: string, scheduled: Order[], day: number) => void
+  onScheduled: (message: string, scheduled: Order[], day: number, vehicle: Vehicle, departureTime: string) => void | Promise<void>
 }) {
   const isToday = day === TODAY
   const label = dayLabel(day)
@@ -2076,12 +2076,14 @@ function DueSchedulePage({
           onSchedule={() => {
             setOverlay(null)
             recordTurn(vehicle)
-            onScheduled(
+            void onScheduled(
               isToday
                 ? `Route ${vehicle.id} scheduled · ${pack.length} orders, leaving now`
                 : `Route ${vehicle.id} scheduled for ${label.short} · departs ${departs}`,
               pack,
               day,
+              vehicle,
+              departs,
             )
           }}
           pack={pack}
@@ -2420,9 +2422,47 @@ export default function App() {
   )
 
   const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles)
+  const [drivers, setDrivers] = useState<DriverReference[]>([])
   const [orders, setOrders] = useState<Order[]>(initialOrders)
   const [routes, setRoutes] = useState<RouteRecord[]>(initialRoutes)
   const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
+
+  useEffect(() => {
+    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true") return
+    const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
+    void Promise.all([planningApi.orders(serviceDate), planningApi.vehicles(serviceDate), planningApi.drivers()])
+      .then(([apiOrders, apiVehicles, apiDrivers]) => {
+        setOrders(apiOrders.map((order) => ({
+          apiId: order._id,
+          id: order.orderNumber,
+          shop: order.outletId,
+          town: order.outletId,
+          type: order.brand,
+          items: `${order.items.reduce((sum, item) => sum + item.quantity, 0)} units`,
+          kg: order.totalWeightKg,
+          emergency: order.cutoffBucket === "after_cutoff",
+          inReach: true,
+          suggested: true,
+        })))
+        setVehicles(apiVehicles.map((vehicle) => ({
+          id: vehicle.vehicleId,
+          type: vehicle.temperatureClass === "reefer" ? "Refrigerated" : vehicle.type.toLowerCase() === "van" ? "Van" : "Lorry",
+          capacityKg: vehicle.weightCapacityKg,
+          length: "Reference fleet",
+          turns: 0,
+          turnQuota: 2,
+          km: 0,
+          kmQuota: Math.round(vehicle.weeklyFuelQuotaL * vehicle.kmPerL),
+          fuel: 100,
+        })))
+        setDrivers(apiDrivers)
+      })
+      .catch((error) => {
+        console.error("Dispatcher planning data request failed", error)
+        setOrders([])
+        setVehicles([])
+      })
+  }, [])
 
   const [manageVehiclesOpen, setManageVehiclesOpen] = useState(false)
   const [deferOpen, setDeferOpen] = useState(false)
@@ -2448,21 +2488,48 @@ export default function App() {
     setToast("")
   }
 
-  const completeSchedule = (message: string) => {
-    window.history.pushState({}, "", "/home")
-    setPath("/home")
-    setToast(message)
-    // Decrement open orders count by 5
-    setOrders((prev) => prev.slice(5))
+  const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
+  const prototypeMode = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
+
+  const datePlusDays = (date: string, days: number) => {
+    const value = new Date(`${date}T00:00:00Z`)
+    value.setUTCDate(value.getUTCDate() + days)
+    return value.toISOString().slice(0, 10)
   }
 
-  const completeImmediate = (message: string, scheduled: Order[], day: number) => {
+  const publishSchedule = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string) => {
+    if (prototypeMode) return
+    const liveOrders = scheduled.filter((order): order is Order & { apiId: string } => Boolean(order.apiId))
+    if (liveOrders.length !== scheduled.length) throw new Error("One or more selected orders are not backed by the planning service.")
+    const driver = drivers[0]
+    if (!driver) throw new Error("No active Driver is available for this route.")
+    const departureAt = new Date(`${targetDate}T${departureTime}:00+05:30`)
+    const input: TripInput = {
+      serviceDate: targetDate,
+      departureAt: departureAt.toISOString(),
+      plannedEndAt: new Date(departureAt.getTime() + (liveOrders.length + 1) * 30 * 60_000).toISOString(),
+      vehicleId: vehicle.id,
+      driverId: driver._id,
+      distanceKm: Math.max(10, liveOrders.length * 12),
+      stops: liveOrders.map((order, index) => ({
+        orderId: order.apiId,
+        plannedArrivalAt: new Date(departureAt.getTime() + (index + 1) * 20 * 60_000).toISOString(),
+      })),
+    }
+    const draft = await planningApi.createTrip(input)
+    const validation = await planningApi.validateTrip(draft._id)
+    if (!validation.valid) {
+      const failures = validation.rules.filter((rule) => !rule.passed).map((rule) => rule.message).join(" ")
+      throw new Error(failures || "The route failed planning validation.")
+    }
+    await planningApi.publishTrip(draft._id, validation.version)
+  }
+
+  const finishSchedule = (message: string, scheduled: Order[], day?: number) => {
     window.history.pushState({}, "", "/home")
     setPath("/home")
     setSearch("")
     setToast(message)
-    // Mark the orders as scheduled (they show "Scheduled" in the calendar).
-    // Route orders that were not in sampleData yet are added.
     setOrders((prev) => {
       const ids = scheduled.map((o) => o.id)
       const updated = prev.map((o) =>
@@ -2475,6 +2542,26 @@ export default function App() {
     })
   }
 
+  const completeSchedule = async (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => {
+    try {
+      const targetDate = routeDate.includes("28") ? datePlusDays(serviceDate, 1) : serviceDate
+      await publishSchedule(scheduled, vehicle, targetDate, departureTime)
+      finishSchedule(message, scheduled)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "The route could not be published.")
+    }
+  }
+
+  const completeImmediate = async (message: string, scheduled: Order[], day: number, vehicle: Vehicle, departureTime: string) => {
+    try {
+      const targetDate = datePlusDays(serviceDate, Math.max(0, day - TODAY))
+      await publishSchedule(scheduled, vehicle, targetDate, departureTime)
+      finishSchedule(message, scheduled, day)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "The route could not be published.")
+    }
+  }
+
   const completeApproval = (message: string) => {
     setApproved(true)
     window.history.pushState({}, "", "/home")
@@ -2482,12 +2569,27 @@ export default function App() {
     setToast(message)
   }
 
-  const handleDeferOrders = (
+  const handleDeferOrders = async (
     selectedIds: string[],
     deferTo: string,
     reasons: string[],
     notice: string,
   ) => {
+    const selected = orders.filter((order) => selectedIds.includes(order.id))
+    try {
+      if (!prototypeMode) {
+        const apiIds = selected.map((order) => order.apiId).filter((id): id is string => Boolean(id))
+        if (apiIds.length !== selected.length) throw new Error("One or more selected orders are not backed by the planning service.")
+        const offset = deferTo.startsWith("Wed") ? 3 : deferTo.startsWith("Tue") ? 2 : 1
+        const reasonCode = (reasons[0] ?? "dispatcher_deferral").toLowerCase().replaceAll(/[^a-z0-9]+/g, "_").replaceAll(/^_|_$/g, "")
+        const results = await planningApi.deferBatch(apiIds, datePlusDays(serviceDate, offset), reasonCode, [reasons.join(", "), notice].filter(Boolean).join(" — "))
+        const conflicts = results.filter((result) => result.result === "conflict").length
+        if (conflicts) throw new Error(`${conflicts} order${conflicts === 1 ? "" : "s"} changed before deferral. Refresh and try again.`)
+      }
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "The orders could not be deferred.")
+      return
+    }
     setOrders((prev) =>
       prev.map((o) =>
         selectedIds.includes(o.id)
@@ -2502,7 +2604,7 @@ export default function App() {
       ),
     )
     setDeferOpen(false)
-    setToast(`${selectedIds.length} orders deferred to Mon 28`)
+    setToast(`${selectedIds.length} orders deferred to ${deferTo.split(" · ")[0]}`)
   }
 
   const handleUpdateVehicles = (updated: Vehicle[]) => {

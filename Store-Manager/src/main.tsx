@@ -1,6 +1,10 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 import "./index.css"
+import { AuthBoundary } from "./auth/AuthBoundary"
+import { registerPwa } from "./pwa/register"
+
+registerPwa()
 
 async function start() {
   document.title = "Kraken-Store-Manager"
@@ -18,7 +22,7 @@ async function start() {
   const { default: App } = await import("./App")
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <App />
+      <AuthBoundary expectedRole="store_manager"><App /></AuthBoundary>
     </React.StrictMode>,
   )
 }

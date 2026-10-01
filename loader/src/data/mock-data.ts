@@ -7,6 +7,8 @@ export type LoadTiming = {
 }
 
 export type LoadCase = {
+  tripId?: string
+  version?: number
   departure: string
   items: number
   priority: "normal" | "urgent"

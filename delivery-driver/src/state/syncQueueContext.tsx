@@ -1,15 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { MockApiService } from '../services/mockApi';
+import { apiRequest } from '../api/client';
+import { clearMutations, deleteMutation, listMutations, putMutation, type StoredMutation } from '../offline/db';
 
 export interface SyncQueueItem {
   id: string;
   type: 'outlet_progress' | 'pin_submission' | 'route_start' | 'route_finish';
-  payload: any;
+  payload: Record<string, unknown>;
   recordedAt: string;
   attempts: number;
 }
-
-const STORAGE_KEY = 'waylink.v1.syncQueue';
 
 export interface SyncQueueContextType {
   queue: SyncQueueItem[];
@@ -26,47 +25,31 @@ export const SyncQueueProvider: React.FC<{
   children: ReactNode;
   onItemSynced?: (item: SyncQueueItem) => void;
 }> = ({ children, onItemSynced }) => {
-  const [queue, setQueue] = useState<SyncQueueItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // Discard and start clean if invalid
-    }
-    return [];
-  });
+  const [queue, setQueue] = useState<SyncQueueItem[]>([]);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const isSyncingRef = useRef(false);
 
-  // Persist queue to localStorage on changes
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-    } catch (err) {
-      console.error('Failed to persist syncQueue:', err);
-    }
-  }, [queue]);
+    void listMutations().then((items) => setQueue(items)).catch((error) => console.error('Failed to restore IndexedDB sync queue:', error));
+  }, []);
 
   const enqueue = useCallback((type: SyncQueueItem['type'], payload: any) => {
-    const item: SyncQueueItem = {
-      id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const item: StoredMutation = {
+      id: crypto.randomUUID(),
       type,
       payload,
-      recordedAt: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-      attempts: 0
+      recordedAt: new Date().toISOString(),
+      attempts: 0,
+      state: 'pending'
     };
     setQueue((prev) => [...prev, item]);
+    void putMutation(item);
   }, []);
 
   const clearQueue = useCallback(() => {
     setQueue([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    void clearMutations();
   }, []);
 
   const flushQueue = useCallback(async () => {
@@ -78,24 +61,35 @@ export const SyncQueueProvider: React.FC<{
       const currentQueue = [...queue];
       const remaining: SyncQueueItem[] = [];
 
+      const mutations = currentQueue.filter((item) => item.attempts < 3).map((item) => ({
+        clientMutationId: item.id,
+        entityType: String(item.payload.entityType ?? 'trip'),
+        entityId: String(item.payload.tripId ?? item.payload.routeId ?? 'unknown'),
+        operation: item.type,
+        baseVersion: Number(item.payload.baseVersion ?? 0),
+        clientRecordedAt: item.recordedAt,
+        payload: item.payload,
+      }));
+      const deviceId = localStorage.getItem('waylink.deviceId') ?? crypto.randomUUID();
+      localStorage.setItem('waylink.deviceId', deviceId);
+      const batch = await apiRequest<{ results: Array<{ clientMutationId: string; result: 'applied' | 'duplicate' | 'conflict' | 'rejected' }> }>("/sync/batch", { method: 'POST', body: JSON.stringify({ deviceId, mutations }) });
+
       for (const item of currentQueue) {
         if (item.attempts >= 3) {
           remaining.push(item);
           continue;
         }
-
-        const res = await MockApiService.flushQueueItem(item);
-        if (res.success) {
+        const result = batch.results.find((candidate) => candidate.clientMutationId === item.id);
+        if (result?.result === 'applied' || result?.result === 'duplicate') {
           // Notify subscriber that item synced
           if (onItemSynced) {
             onItemSynced(item);
           }
-          // Delete sensitive PIN payload digits if any immediately per security rules
-          if (item.type === 'pin_submission' && item.payload) {
-            delete item.payload.pin;
-          }
+          await deleteMutation(item.id);
         } else {
-          remaining.push({ ...item, attempts: item.attempts + 1 });
+          const updated: StoredMutation = { ...item, attempts: item.attempts + 1, state: result?.result === 'conflict' ? 'conflict' : result?.result === 'rejected' ? 'rejected' : 'pending' };
+          remaining.push(updated);
+          await putMutation(updated);
         }
       }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, type ReactNode } from "react"
+import { getCatalogue, submitStoreOrder, storeDeliveryApi, type StoreDelivery } from "./api/store"
 import { AnimatePresence, motion, useMotionValue, animate, useTransform } from "motion/react"
 import wayTrackLogo from "./assets/waytrack-logo.png"
 import {
@@ -412,7 +413,7 @@ function TopBar({
                   onClick={() => {
                     if (isLoggingOut) return;
                     setIsLoggingOut(true);
-                    try { sessionStorage.removeItem("waytrack.session"); } catch {}
+                    try { sessionStorage.removeItem("waylink.role.session"); } catch {}
                     const loginUrl = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
                     const urlObj = new URL(loginUrl, window.location.origin);
                     urlObj.searchParams.set("logged_out", "1");
@@ -2316,6 +2317,25 @@ function NewOrderPage({ business,
 }) {
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen)
+  const [, setCatalogueVersion] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    void getCatalogue(business, type)
+      .then((rows) => {
+        if (!active) return
+        productCatalog[business][type] = rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit }))
+        setCatalogueVersion((version) => version + 1)
+      })
+      .catch((error) => {
+        if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== "true") {
+          productCatalog[business][type] = []
+          setCatalogueVersion((version) => version + 1)
+        }
+        console.error("Catalogue request failed", error)
+      })
+    return () => { active = false }
+  }, [business, type])
 
   const products = getCatalog(business, type)
   const filteredProducts = products.filter((product) =>
@@ -2601,15 +2621,16 @@ function ReviewOrderPage({ business,
   const items = selectedProducts(business, type, getDraft(quantities, type))
   const totalUnits = items.reduce((total, item) => total + item.quantity, 0)
 
-  function submitOrder() {
+  async function submitOrder() {
     setSubmissionState("submitting")
-    window.setTimeout(() => {
-      if (forceError) {
-        setSubmissionState("error")
-      } else {
-        onConfirmed()
-      }
-    }, 850)
+    if (forceError) { setSubmissionState("error"); return }
+    try {
+      await submitStoreOrder({ business, type, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
+      onConfirmed()
+    } catch (error) {
+      console.error("Order submission failed", error)
+      setSubmissionState("error")
+    }
   }
 
   return (
@@ -4391,6 +4412,36 @@ function OrdersPage({ business, onNewOrder, onOpenOrder }: { business: "fresh" |
 }
 
 function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | "style" | "tech", onOpenOrder: (id: string, view: string, state: string) => void }) {
+  const [liveDeliveries, setLiveDeliveries] = useState<StoreDelivery[]>([])
+  const [issuedPin, setIssuedPin] = useState<{ deliveryId: string; pin: string; expiresAt: string } | null>(null)
+  const [liveError, setLiveError] = useState("")
+  const prototypeMode = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
+
+  useEffect(() => {
+    if (prototypeMode) return
+    void storeDeliveryApi.list().then(setLiveDeliveries).catch((error) => setLiveError(error instanceof Error ? error.message : "Unable to load deliveries."))
+  }, [prototypeMode])
+
+  async function issuePin(delivery: StoreDelivery) {
+    try {
+      const result = await storeDeliveryApi.issuePin(delivery._id)
+      setIssuedPin({ deliveryId: delivery._id, ...result })
+      setLiveError("")
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "Unable to issue a PIN.")
+    }
+  }
+
+  async function confirmReceipt(delivery: StoreDelivery) {
+    if (!window.confirm("Confirm that the full delivery was received with no issues?")) return
+    try {
+      const updated = await storeDeliveryApi.confirmFullReceipt(delivery)
+      setLiveDeliveries((current) => current.map((item) => item._id === updated._id ? updated : item))
+      setLiveError("")
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : "Unable to confirm the receipt.")
+    }
+  }
   const deliveries = [
     { section: "Needs attention", id: "ORD-1045", type: "", date: "", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
     { section: "Upcoming", id: "ORD-1062", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Tomorrow · Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", subtext: "Trip PLG-03 · Vehicle WP-014", view: "order-detail", state: "scheduled" },
@@ -4412,7 +4463,30 @@ function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | "style"
       </div>
 
       <div style={{ marginTop: "var(--space-6)", display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
-        {sections.map(section => {
+        {!prototypeMode ? (
+          <section>
+            <span className="eyebrow" style={{ display: "block", marginBottom: "var(--space-3)" }}>Live deliveries</span>
+            {liveError ? <div className="work-alert" role="alert">{liveError}</div> : null}
+            {issuedPin ? (
+              <div className="work-alert" role="status">
+                Delivery PIN <strong className="data-id" style={{ fontSize: 22 }}>{issuedPin.pin}</strong> · expires {new Date(issuedPin.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </div>
+            ) : null}
+            <div className="upcoming-list">
+              {liveDeliveries.map((delivery) => (
+                <div className="upcoming-row" key={delivery._id}>
+                  <span className="upcoming-record"><strong className="data-id">{delivery._id.slice(-8).toUpperCase()}</strong><span>{delivery.items.length} products</span></span>
+                  <span className="upcoming-date">{delivery.arrivedAt ? new Date(delivery.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Scheduled"}</span>
+                  <span className="upcoming-status"><strong>{delivery.status.replaceAll("_", " ")}</strong></span>
+                  {delivery.status === "arrived" ? <Button onClick={() => void issuePin(delivery)}>Issue PIN</Button> : null}
+                  {delivery.status === "completed" && !delivery.receipt ? <Button onClick={() => void confirmReceipt(delivery)}>Confirm receipt</Button> : null}
+                </div>
+              ))}
+              {!liveDeliveries.length && !liveError ? <p>No live deliveries for this outlet.</p> : null}
+            </div>
+          </section>
+        ) : null}
+        {prototypeMode ? sections.map(section => {
           const items = deliveries.filter(d => d.section === section)
           if (items.length === 0) return null
           return (
@@ -4456,7 +4530,7 @@ function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | "style"
               </div>
             </section>
           )
-        })}
+        }) : null}
         {deliveries.filter(d => d.section === "Needs attention").length === 0 && (
           <div style={{ textAlign: "center", padding: "var(--space-8) 0", color: "var(--text-secondary)" }}>
             <CheckCircle2 style={{ margin: "0 auto var(--space-2)", opacity: 0.5, display: "block" }} />

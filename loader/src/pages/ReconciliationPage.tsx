@@ -30,7 +30,7 @@ import { useConnectivity } from "../hooks/useConnectivity"
 interface ReconciliationPageProps {
   stops: ActiveStop[]
   onBack: () => void
-  onConfirmed: () => void
+  onConfirmed: () => void | Promise<void>
   activeLoad?: LoadCase
 }
 
@@ -127,7 +127,7 @@ export default function ReconciliationPage({
               icon={ArrowRight}
               iconPosition="end"
               disabled={!canConfirm}
-              onClick={onConfirmed}
+              onClick={() => void onConfirmed()}
             >
               Confirm load
             </Button>

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/state/store';
+import { driverApi } from '@/api/driver';
+import { ApiError } from '@/api/client';
 
 export function usePinVerification() {
   const {
@@ -13,6 +15,7 @@ export function usePinVerification() {
     returnTo,
     conditions,
     meterPhotos,
+    setRouteVersion,
     track
   } = useStore();
 
@@ -44,10 +47,42 @@ export function usePinVerification() {
     popScreen();
   };
 
-  const submitPin = (enteredPin: string) => {
+  const submitPin = async (enteredPin: string) => {
     if (!activeOutlet || !selectedRoute) return;
     setIsVerifying(true);
     setErrorMessage('');
+
+    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true' && selectedRoute.apiId) {
+      try {
+        if (conditions.networkStatus === 'offline') throw new Error('Reconnect to verify the delivery PIN.');
+        const result = await driverApi.completeStop(selectedRoute.apiId, activeOutlet.id, enteredPin, activeOutlet.products, activeOutlet.apiVersion, selectedRoute.version);
+        setRouteVersion(selectedRoute.id, result.tripVersion);
+        setIsVerifying(false);
+        setIsSuccess(true);
+        completeOutlet(activeOutlet.id, false);
+        track('P05');
+        const isLastOutlet = selectedRoute.outlets.filter((outlet) => outlet.id !== activeOutlet.id).every((outlet) => outlet.status === 'completed');
+        setTimeout(() => replaceScreen(isLastOutlet ? 'meter_photo_end' : returnTo === 'map' ? 'map' : 'dashboard'), 1500);
+        return;
+      } catch (error) {
+        setIsVerifying(false);
+        const code = error instanceof ApiError ? error.code : '';
+        if (code === 'PIN_INCORRECT') {
+          const nextAttempts = attemptsLeft - 1;
+          setAttemptsLeft(nextAttempts);
+          setIsWrong(true);
+          setErrorMessage(`Incorrect PIN. ${nextAttempts} ${nextAttempts === 1 ? 'attempt' : 'attempts'} left.`);
+          setTimeout(() => { setIsWrong(false); setPin(''); }, 600);
+        } else if (code === 'PIN_EXPIRED' || code === 'PIN_ATTEMPTS_EXCEEDED') {
+          setIsLocked(true);
+          setErrorMessage(code === 'PIN_EXPIRED' ? 'PIN expired. Ask the manager for a new PIN.' : 'Waiting for a new PIN');
+        } else {
+          setErrorMessage(error instanceof Error ? error.message : 'Delivery confirmation failed.');
+          setPin('');
+        }
+        return;
+      }
+    }
 
     setTimeout(() => {
       setIsVerifying(false);
@@ -111,7 +146,7 @@ export function usePinVerification() {
       const nextPin = prev + digit;
       if (nextPin.length === 4) {
         track('P02');
-        submitPin(nextPin);
+        void submitPin(nextPin);
       }
       return nextPin;
     });

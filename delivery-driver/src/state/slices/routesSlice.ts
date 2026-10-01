@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { RoutePlan, Outlet, DriverProfile } from '@/shared/types';
 import { createInitialRoutes } from '@/shared/lib/mockData';
 import { CANONICAL_DRIVER } from '@/shared/lib/constants';
+import { driverApi } from '@/api/driver';
 
 export function useRoutesSlice(
   track: (id: string) => void,
@@ -65,6 +66,10 @@ export function useRoutesSlice(
     );
   }, []);
 
+  const setRouteVersion = useCallback((id: number, version: number) => {
+    setRoutes((prev) => prev.map((route) => route.id === id ? { ...route, version } : route));
+  }, []);
+
   const toggleProductCheck = useCallback((outletId: string, productId: string) => {
     setRoutes((prev) =>
       prev.map((r) => ({
@@ -88,17 +93,28 @@ export function useRoutesSlice(
     track('M01');
   }, [track]);
 
-  const markUnpackingComplete = useCallback((outletId: string, complete: boolean = true) => {
+  const markUnpackingComplete = useCallback(async (outletId: string, complete: boolean = true) => {
+    const route = routes.find((candidate) => candidate.outlets.some((outlet) => outlet.id === outletId));
+    let deliveryVersion = route?.outlets.find((outlet) => outlet.id === outletId)?.apiVersion;
+    let tripVersion = route?.version;
+    if (complete && route?.apiId && deliveryVersion === undefined && import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true') {
+      const arrived = await driverApi.arriveStop(route.apiId, outletId);
+      const outlet = route.outlets.find((candidate) => candidate.id === outletId)!;
+      const updated = await driverApi.accountStopItems(route.apiId, outletId, arrived.delivery.version, outlet.products);
+      deliveryVersion = updated.version;
+      tripVersion = arrived.tripVersion;
+    }
     setRoutes((prev) =>
       prev.map((r) => ({
         ...r,
+        version: r.id === route?.id && tripVersion !== undefined ? tripVersion : r.version,
         outlets: r.outlets.map((o) => {
           if (o.id !== outletId) return o;
-          return { ...o, unpackingComplete: complete, status: 'in_progress' };
+          return { ...o, apiVersion: deliveryVersion, unpackingComplete: complete, status: 'in_progress' };
         })
       }))
     );
-  }, []);
+  }, [routes]);
 
   const completeOutlet = useCallback((outletId: string, isOffline: boolean = false) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -268,6 +284,7 @@ export function useRoutesSlice(
     toggleExpandRoute,
     startRoute,
     finishRoute,
+    setRouteVersion,
     toggleProductCheck,
     markUnpackingComplete,
     completeOutlet,

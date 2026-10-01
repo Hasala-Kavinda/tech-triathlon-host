@@ -18,6 +18,7 @@ export interface OutletConfirmation {
 }
 
 export interface Outlet {
+  apiVersion?: number;
   id: string;
   city: string;
   lat: number;
@@ -35,6 +36,9 @@ export interface Outlet {
 }
 
 export interface RoutePlan {
+  apiId?: string;
+  version?: number;
+  vehicleId?: string;
   id: number;
   routeNumber: number;
   brandName: string;
@@ -63,6 +67,7 @@ export type ScreenName =
   | 'shift_summary';
 
 export interface MeterPhotoRecord {
+  fileAssetId?: string;
   photoUri: string;
   capturedAt: string;
   rawFile?: File;

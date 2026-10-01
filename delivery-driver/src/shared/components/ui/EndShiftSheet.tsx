@@ -180,6 +180,7 @@ export const SignOutSheet: React.FC<SignOutSheetProps> = ({
     // 1. Clear only this app's driver session storage
     try {
       localStorage.removeItem('waylink.v1.driver');
+      sessionStorage.removeItem('waylink.role.session');
     } catch (e) {
       console.error('Failed to remove driver session:', e);
     }

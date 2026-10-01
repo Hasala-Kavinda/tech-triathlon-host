@@ -1,7 +1,6 @@
 import { useState, useRef, type FormEvent } from "react"
 import { AuthLayout } from "./AuthLayout"
 import { authApi } from "@/auth"
-import { useAuth } from "@/auth/AuthContext"
 import { PROTOTYPE_USERS } from "@/auth/mockApi"
 
 const isMock = import.meta.env.VITE_USE_MOCK_AUTH !== "false"
@@ -11,8 +10,8 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ navigate }: LoginPageProps) {
-  const { signIn } = useAuth()
   const [employeeId, setEmployeeId] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -24,22 +23,8 @@ export function LoginPage({ navigate }: LoginPageProps) {
     setError("")
     setLoading(true)
     try {
-      const result = await authApi.login(employeeId.toUpperCase(), password)
-      const redirectPath = signIn(result)
-      const EXTERNAL_URLS: Record<string, string> = {
-        '/home':   'https://hackathon-host-dispatcher.vercel.app',
-        '/loader': 'https://hackathon-host-loader.vercel.app',
-        '/driver': 'https://kraken-hack-driver.vercel.app',
-        '/store':  'https://hackathon-host-store.vercel.app',
-      }
-      const externalUrl = EXTERNAL_URLS[redirectPath]
-      if (externalUrl) {
-        sessionStorage.removeItem('waytrack.session')
-        window.location.replace(externalUrl)
-        return
-      } else {
-        navigate(redirectPath)
-      }
+      const result = await authApi.login(employeeId.toUpperCase(), password, email)
+      window.location.replace(result.redirectUrl)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.")
     } finally {
@@ -47,9 +32,10 @@ export function LoginPage({ navigate }: LoginPageProps) {
     }
   }
 
-  function fillRow(id: string, pw: string) {
+  function fillRow(id: string, pw: string, recordedEmail: string) {
     setEmployeeId(id)
     setPassword(pw)
+    setEmail(recordedEmail)
     idRef.current?.focus()
   }
 
@@ -63,7 +49,7 @@ export function LoginPage({ navigate }: LoginPageProps) {
           Sign in
         </h1>
         <p className="text-sm mb-8" style={{ color: "#6b7280" }}>
-          Enter your Employee ID and password.
+          Enter your Employee ID, password, and recorded email.
         </p>
 
         {/* Employee ID */}
@@ -96,20 +82,29 @@ export function LoginPage({ navigate }: LoginPageProps) {
           </div>
         </div>
 
+        <div className="mb-5">
+          <label className="block text-sm font-medium mb-1.5" style={{ color: "#374151" }} htmlFor="email">
+            Recorded email
+          </label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@waypoint.lk"
+            className="w-full h-12 px-4 rounded-lg text-sm outline-none transition-all"
+            style={{ border: "1.5px solid #d9dde8" }}
+            required
+          />
+        </div>
+
         {/* Password */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-sm font-medium" style={{ color: "#374151" }} htmlFor="password">
               Password
             </label>
-            <button
-              type="button"
-              className="text-sm font-medium transition-colors"
-              style={{ color: "#14549c" }}
-              onClick={() => navigate("/forgot-password")}
-            >
-              Forgot password?
-            </button>
           </div>
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
@@ -184,9 +179,9 @@ export function LoginPage({ navigate }: LoginPageProps) {
                     key={u.employeeId}
                     className="cursor-pointer hover:bg-blue-50 transition-colors"
                     style={{ borderTop: i > 0 ? "1px solid #f3f4f6" : undefined }}
-                    onClick={() => fillRow(u.employeeId, u.password)}
+                  onClick={() => fillRow(u.employeeId, u.password, u.email)}
                     tabIndex={0}
-                    onKeyDown={(e) => e.key === "Enter" && fillRow(u.employeeId, u.password)}
+                  onKeyDown={(e) => e.key === "Enter" && fillRow(u.employeeId, u.password, u.email)}
                     aria-label={`Fill ${u.employeeId} credentials`}
                   >
                     <td className="py-1.5 pr-2" style={{ fontFamily: "var(--font-mono)", color: "#1f2937" }}>{u.employeeId}</td>
