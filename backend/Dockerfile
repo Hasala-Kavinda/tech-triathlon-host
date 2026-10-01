@@ -1,18 +1,20 @@
 FROM node:24-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY tsconfig.json ./
-COPY src ./src
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
 RUN npm run build
 
 FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S waylink && adduser -S waylink -G waylink
-COPY package.json package-lock.json ./
+COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY ["Drive Data", "/reference-data"]
+COPY CSC /csc
 USER waylink
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

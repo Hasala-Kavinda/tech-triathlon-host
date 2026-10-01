@@ -37,7 +37,8 @@ services:
 
   seed:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: "no"
     depends_on:
       mongo-init:
@@ -50,14 +51,12 @@ services:
       CSC_PRODUCTS_FILE: ${CSC_PRODUCTS_FILE:-/csc/products.demo.csv}
       ALLOW_DEMO_PRODUCTS: ${ALLOW_DEMO_PRODUCTS:-false}
       SEED_DEMO_SCENARIO: ${SEED_DEMO_SCENARIO:-true}
-    volumes:
-      - ./Drive Data:/reference-data:ro
-      - ./CSC:/csc:ro
     command: ["node", "dist/database/seed/index.js"]
 
   api:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     depends_on:
       seed:
         condition: service_completed_successfully
