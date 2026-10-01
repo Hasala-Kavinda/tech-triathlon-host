@@ -2,11 +2,29 @@
   "name": "waylink-system",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@11.6.2",
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
   "scripts": {
+    "bootstrap:backend": "npm --prefix backend ci --no-audit --no-fund",
+    "bootstrap:login": "npm --prefix Login ci --no-audit --no-fund",
+    "bootstrap:dispatcher": "npm --prefix dispatcher ci --no-audit --no-fund",
+    "bootstrap:loader": "npm --prefix loader ci --no-audit --no-fund",
+    "bootstrap:driver": "npm --prefix delivery-driver ci --no-audit --no-fund",
+    "bootstrap:store": "npm --prefix Store-Manager ci --no-audit --no-fund",
+    "bootstrap": "npm run bootstrap:backend && npm run bootstrap:login && npm run bootstrap:dispatcher && npm run bootstrap:loader && npm run bootstrap:driver && npm run bootstrap:store",
     "build:backend": "npm --prefix backend run build",
-    "build:frontends": "npm --prefix hackathon-host/Login run build && npm --prefix hackathon-host/dispatcher run build && npm --prefix hackathon-host/loader run build && npm --prefix hackathon-host/delivery-driver run build && npm --prefix hackathon-host/Store-Manager run build",
+    "build:login": "npm --prefix Login run build",
+    "build:dispatcher": "npm --prefix dispatcher run build",
+    "build:loader": "npm --prefix loader run build",
+    "build:driver": "npm --prefix delivery-driver run build",
+    "build:store": "npm --prefix Store-Manager run build",
+    "build:frontends": "npm run build:login && npm run build:dispatcher && npm run build:loader && npm run build:driver && npm run build:store",
     "build": "npm run build:backend && npm run build:frontends",
     "test": "npm --prefix backend test",
-    "typecheck": "npm --prefix backend run typecheck"
+    "typecheck": "npm --prefix backend run typecheck",
+    "verify": "npm run typecheck && npm run test && npm run build"
   }
 }
