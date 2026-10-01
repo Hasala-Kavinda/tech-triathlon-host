@@ -1,0 +1,12 @@
+{
+  "name": "waylink-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:backend": "npm --prefix backend run build",
+    "build:frontends": "npm --prefix hackathon-host/Login run build && npm --prefix hackathon-host/dispatcher run build && npm --prefix hackathon-host/loader run build && npm --prefix hackathon-host/delivery-driver run build && npm --prefix hackathon-host/Store-Manager run build",
+    "build": "npm run build:backend && npm run build:frontends",
+    "test": "npm --prefix backend test",
+    "typecheck": "npm --prefix backend run typecheck"
+  }
+}
