@@ -1,2 +1,5 @@
 .vscode
 .env
+.npm-cache/
+backend/dist/
+backend/node_modules/
