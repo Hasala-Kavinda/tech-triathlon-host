@@ -13,7 +13,7 @@ RUN addgroup -S waylink && adduser -S waylink -G waylink
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
-COPY ["Drive Data", "/reference-data"]
+COPY --chown=waylink:waylink ["Drive Data", "/reference-data"]
 COPY CSC /csc
 USER waylink
 EXPOSE 3000
