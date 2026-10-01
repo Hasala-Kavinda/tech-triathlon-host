@@ -16,6 +16,12 @@ describe("environment configuration", () => {
       "http://login.test", "http://dispatcher.test", "http://loader.test", "http://driver.test", "http://store.test",
     ])
     expect(config.roleOrigins.store_manager).toBe("http://store.test")
+    expect(config.seedDemoScenario).toBe(false)
+  })
+
+  it("enables the deterministic demo scenario only when explicitly requested", () => {
+    const config = loadConfig({ NODE_ENV: "test", SEED_DEMO_SCENARIO: "true" })
+    expect(config.seedDemoScenario).toBe(true)
   })
 
   it("rejects an unsafe production secret", () => {

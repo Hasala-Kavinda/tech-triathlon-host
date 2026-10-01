@@ -23,6 +23,7 @@
     "build:store": "npm --prefix Store-Manager run build",
     "build:frontends": "npm run build:login && npm run build:dispatcher && npm run build:loader && npm run build:driver && npm run build:store",
     "build": "npm run build:backend && npm run build:frontends",
+    "data:preflight": "npm --prefix backend run seed:preflight",
     "test": "npm --prefix backend test",
     "typecheck": "npm --prefix backend run typecheck",
     "verify": "npm run typecheck && npm run test && npm run build"

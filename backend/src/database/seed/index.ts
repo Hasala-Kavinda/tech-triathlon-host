@@ -6,6 +6,7 @@ import { loadConfig } from "../../config/env.js"
 import { connectDatabase, disconnectDatabase } from "../connection.js"
 import { AuthHandoff, CalendarDay, DeliveryRecord, FileAsset, IdempotencyRecord, LoadRecord, OperationalEvent, Order, Outlet, Product, SyncReceipt, Trip, TripLocation, User, Vehicle } from "../models/index.js"
 import { DEMO_PRODUCTS } from "./demo-products.js"
+import { validateReferenceData } from "./preflight.js"
 
 type CsvRow = Record<string, string>
 
@@ -33,6 +34,11 @@ async function upsertReference() {
     csv(resolve(dir, "vehicles.csv")),
     csv(resolve(dir, "calendar.csv")),
   ])
+  const productFile = config.cscProductsFile ? resolve(process.cwd(), config.cscProductsFile) : undefined
+  const products = productFile ? await csv(productFile) : undefined
+  const productSummary = products && productFile
+    ? validateReferenceData({ outlets, vehicles, calendar, products, productFile })
+    : undefined
 
   const outletOps = outlets.map((row) => ({
     updateOne: {
@@ -98,11 +104,7 @@ async function upsertReference() {
   ])
 
   let productCount = 0
-  if (config.cscProductsFile) {
-    const products = await csv(resolve(process.cwd(), config.cscProductsFile))
-    const requiredColumns = ["sku", "name", "brand", "order_types", "unit", "weight_kg", "volume_m3", "temperature_class"]
-    const missing = requiredColumns.filter((column) => !products[0] || !(column in products[0]))
-    if (missing.length) throw new Error(`CSC product file is missing required columns: ${missing.join(", ")}`)
+  if (products && productSummary) {
     await Product.bulkWrite(products.map((row) => ({
       updateOne: {
         filter: { sku: required(row, "sku").toUpperCase() },
@@ -111,7 +113,9 @@ async function upsertReference() {
           orderTypes: required(row, "order_types").split("|").map((value) => value.trim()), unit: required(row, "unit"),
           weightKg: Number(required(row, "weight_kg")), volumeM3: Number(required(row, "volume_m3")),
           temperatureClass: required(row, "temperature_class"), fragile: bool(row.fragile || "false"),
-          source: `CSC:${config.cscProductsFile}`, assumptions: [], active: true,
+          source: productSummary.source === "approved_demo_fixture" ? "EXPLICIT_DEMO_FIXTURE_NOT_CSC" : `CSC:${config.cscProductsFile}`,
+          assumptions: productSummary.source === "approved_demo_fixture" ? ["Planning attributes are temporary demonstration values."] : [],
+          active: true,
         } }, upsert: true,
       },
     })))
@@ -146,8 +150,11 @@ async function upsertUsers() {
   const users = [
     { employeeId: "DSP-1001", email: "nuwan.perera@waypoint.lk", name: "Nuwan Perera", role: "dispatcher", passwordHash: passwordHash[0] },
     { employeeId: "LDR-2001", email: "kasun.silva@waypoint.lk", name: "Kasun Silva", role: "loader", depot: "Peliyagoda", passwordHash: passwordHash[1] },
+    { employeeId: "LDR-2002", email: "amal.perera@waypoint.lk", name: "Amal Perera", role: "loader", depot: "Peliyagoda", passwordHash: passwordHash[1] },
     { employeeId: "DRV-3001", email: "ruwan.fernando@waypoint.lk", name: "Ruwan Fernando", role: "driver", depot: "Peliyagoda", passwordHash: passwordHash[2] },
+    { employeeId: "DRV-3002", email: "ishara.senanayake@waypoint.lk", name: "Ishara Senanayake", role: "driver", depot: "Peliyagoda", passwordHash: passwordHash[2] },
     { employeeId: "STM-4001", email: "dilani.j@waypoint.lk", name: "Dilani Jayasuriya", role: "store_manager", outletId: "OUT001", passwordHash: passwordHash[3] },
+    { employeeId: "STM-4002", email: "chathuri.r@waypoint.lk", name: "Chathuri Rodrigo", role: "store_manager", outletId: "OUT002", passwordHash: passwordHash[3] },
   ] as const
   const result = await User.bulkWrite(users.map((user) => ({
     updateOne: { filter: { employeeId: user.employeeId }, update: { $set: { ...user, active: true } }, upsert: true },
@@ -157,10 +164,12 @@ async function upsertUsers() {
 
 async function upsertDemo() {
   const days = [
+    { date: "2026-09-30", dayOfWeek: "Wed", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
     { date: "2026-10-01", dayOfWeek: "Thu", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
     { date: "2026-10-02", dayOfWeek: "Fri", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-    { date: "2026-10-03", dayOfWeek: "Sat", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
+    { date: "2026-10-03", dayOfWeek: "Sat", isWeekend: true, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
     { date: "2026-10-04", dayOfWeek: "Sun", isWeekend: true, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: false },
+    { date: "2026-10-05", dayOfWeek: "Mon", isWeekend: false, isoYear: 2026, isoWeek: 41, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
   ]
   await CalendarDay.bulkWrite(days.map((day) => ({ updateOne: { filter: { date: day.date }, update: { $set: day }, upsert: true } })))
   console.warn("WARNING: loaded explicitly labelled 2026 hackathon demo calendar days")
@@ -176,7 +185,7 @@ async function main() {
   ])
   if (mode === "all" || mode === "reference") await upsertReference()
   if (mode === "all" || mode === "users") await upsertUsers()
-  if (mode === "demo") await upsertDemo()
+  if (mode === "demo" || (mode === "all" && config.seedDemoScenario)) await upsertDemo()
 }
 
 main()

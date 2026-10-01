@@ -37,6 +37,14 @@ npm run verify
 
 Individual builds are available as `build:backend`, `build:login`, `build:dispatcher`, `build:loader`, `build:driver` and `build:store`.
 
+Validate all reference CSVs before starting MongoDB or writing seed data:
+
+```powershell
+npm run data:preflight
+```
+
+The checked-in `CSC/products.demo.csv` is deliberately classified as a non-authoritative demo fixture. Replace `CSC_PRODUCTS_FILE` with the approved CSC extract when it is supplied; do not rename demo rows to make them appear official.
+
 ## Environment configuration
 
 Copy `.env.example` to `.env` for Docker Compose. Each application also has its own `.env.example` for direct local development.

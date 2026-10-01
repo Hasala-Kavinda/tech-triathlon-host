@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx src/database/seed/index.ts",
+    "seed:preflight": "tsx src/database/seed/preflight-cli.ts ../CSC/products.demo.csv",
     "seed:reference": "tsx src/database/seed/index.ts reference",
     "seed:users": "tsx src/database/seed/index.ts users",
     "seed:demo": "tsx src/database/seed/index.ts demo"

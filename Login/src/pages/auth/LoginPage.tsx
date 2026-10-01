@@ -3,7 +3,7 @@ import { AuthLayout } from "./AuthLayout"
 import { authApi } from "@/auth"
 import { PROTOTYPE_USERS } from "@/auth/mockApi"
 
-const isMock = import.meta.env.VITE_USE_MOCK_AUTH !== "false"
+const isMock = import.meta.env.VITE_USE_MOCK_AUTH === "true"
 
 interface LoginPageProps {
   navigate: (path: string) => void

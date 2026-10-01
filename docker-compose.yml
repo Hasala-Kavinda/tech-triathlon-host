@@ -17,7 +17,6 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
-      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 5s
@@ -30,7 +29,11 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
-    command: ["mongosh", "--host", "mongo:27017", "--eval", "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mongosh --host mongo:27017 --quiet --eval "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }"
+        until mongosh --host mongo:27017 --quiet --eval "quit(db.hello().isWritablePrimary ? 0 : 1)"; do sleep 1; done
 
   seed:
     build:
@@ -44,8 +47,9 @@ services:
       MONGODB_URI: mongodb://mongo:27017/waylink?replicaSet=rs0
       JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me-now}
       REFERENCE_DATA_DIR: /reference-data
-      CSC_PRODUCTS_FILE: ${CSC_PRODUCTS_FILE:-}
+      CSC_PRODUCTS_FILE: ${CSC_PRODUCTS_FILE:-/csc/products.demo.csv}
       ALLOW_DEMO_PRODUCTS: ${ALLOW_DEMO_PRODUCTS:-false}
+      SEED_DEMO_SCENARIO: ${SEED_DEMO_SCENARIO:-true}
     volumes:
       - ./Drive Data:/reference-data:ro
       - ./CSC:/csc:ro
@@ -81,14 +85,14 @@ services:
   login-web:
     build:
       <<: *frontend-build
-      args: { APP_DIR: Login, VITE_API_BASE_URL: http://localhost:3000 }
+      args: { APP_DIR: Login, VITE_API_BASE_URL: http://localhost:3000, VITE_USE_MOCK_AUTH: "false" }
     ports: ["5173:8080"]
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
 
   dispatcher-web:
     build:
       <<: *frontend-build
-      args: { APP_DIR: dispatcher, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+      args: { APP_DIR: dispatcher, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173, VITE_SERVICE_DATE: "${VITE_SERVICE_DATE:-2026-10-01}" }
     ports: ["5174:8080"]
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
 
@@ -109,7 +113,7 @@ services:
   store-manager-web:
     build:
       <<: *frontend-build
-      args: { APP_DIR: Store-Manager, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+      args: { APP_DIR: Store-Manager, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173, VITE_SERVICE_DATE: "${VITE_SERVICE_DATE:-2026-10-01}" }
     ports: ["5177:8080"]
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
 

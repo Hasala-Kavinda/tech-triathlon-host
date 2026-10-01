@@ -16,6 +16,7 @@ const schema = z.object({
   REFERENCE_DATA_DIR: z.string().default("../Drive Data"),
   CSC_PRODUCTS_FILE: z.string().optional(),
   ALLOW_DEMO_PRODUCTS: z.enum(["true", "false"]).default("false"),
+  SEED_DEMO_SCENARIO: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.string().default("info"),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
@@ -56,6 +57,7 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
     referenceDataDir: data.REFERENCE_DATA_DIR,
     cscProductsFile: data.CSC_PRODUCTS_FILE || undefined,
     allowDemoProducts: data.ALLOW_DEMO_PRODUCTS === "true",
+    seedDemoScenario: data.SEED_DEMO_SCENARIO === "true",
     logLevel: data.LOG_LEVEL,
     cloudinary: data.CLOUDINARY_CLOUD_NAME && data.CLOUDINARY_API_KEY && data.CLOUDINARY_API_SECRET
       ? { cloudName: data.CLOUDINARY_CLOUD_NAME, apiKey: data.CLOUDINARY_API_KEY, apiSecret: data.CLOUDINARY_API_SECRET }
