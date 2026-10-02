@@ -22,16 +22,4 @@ export class OperationalEventCommandPort {
     await OperationalEvent.create([input], { session })
   }
 
-  /**
-   * Existing authoritative requirement from Operations module.
-   * Updates an existing remark event with a review response.
-   */
-  static async reviewRemarkEvent(eventId: string, response: string, notifyRoles: string[]): Promise<any> {
-    const event = await OperationalEvent.findOneAndUpdate(
-      { _id: eventId, eventType: "remark.created" },
-      { $set: { "data.reviewed": true, "data.response": response, "data.notifyRoles": notifyRoles } },
-      { new: true }
-    )
-    return event
-  }
 }

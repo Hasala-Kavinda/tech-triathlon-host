@@ -21,6 +21,7 @@ export { TripLocation } from "../../modules/delivery/persistence/trip-location.m
 
 export { OperationalEvent } from "../../modules/audit/persistence/operational-event.model.js"
 export { MutationLedger } from "../../modules/audit/persistence/mutation-ledger.model.js"
+export { Remark } from "../../modules/audit/persistence/remark.model.js"
 export { FileAsset } from "../../modules/files/persistence/file-asset.model.js"
 
 export function toPublicObject<T extends { toObject(): Record<string, unknown> }>(document: T) {
