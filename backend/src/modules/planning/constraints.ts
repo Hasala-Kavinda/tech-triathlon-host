@@ -1,5 +1,6 @@
 import { DateTime } from "luxon"
-import { CalendarDay, Order, Trip, Vehicle } from "../../database/models/index.js"
+import { CalendarDay, Order, Trip } from "../../database/models/index.js"
+import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 
@@ -20,7 +21,7 @@ export async function validateTrip(input: {
 }) {
   const [day, vehicle, orders, existingVehicleRoutes, overlappingDriverTrip] = await Promise.all([
     CalendarDay.findOne({ date: input.serviceDate }).lean(),
-    Vehicle.findOne({ vehicleId: input.vehicleId, active: true }).lean(),
+    VehicleReadPort.findByVehicleId(input.vehicleId),
     Order.find({ _id: { $in: input.orderIds } }).lean(),
     Trip.countDocuments({
       ...(input.excludeTripId ? { _id: { $ne: input.excludeTripId } } : {}),

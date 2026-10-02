@@ -16,22 +16,7 @@ const statusEventSchema = new Schema(
 
 
 
-const vehicleSchema = new Schema(
-  {
-    vehicleId: { type: String, required: true, unique: true },
-    type: { type: String, required: true },
-    temperatureClass: { type: String, required: true },
-    weightCapacityKg: { type: Number, required: true, min: 0 },
-    volumeCapacityM3: { type: Number, required: true, min: 0 },
-    fuelType: { type: String, required: true },
-    kmPerL: { type: Number, required: true, min: 0.01 },
-    weeklyFuelQuotaL: { type: Number, required: true, min: 0 },
-    depot: { type: String, required: true },
-    active: { type: Boolean, default: true },
-  },
-  { timestamps: true, versionKey: "version" },
-)
-vehicleSchema.index({ depot: 1, type: 1, temperatureClass: 1, active: 1 })
+
 
 const calendarDaySchema = new Schema(
   {
@@ -269,7 +254,7 @@ const syncReceiptSchema = new Schema(
 )
 syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
-export const Vehicle = model("Vehicle", vehicleSchema)
+
 export const CalendarDay = model("CalendarDay", calendarDaySchema)
 export const Order = model("Order", orderSchema)
 export const Trip = model("Trip", tripSchema)

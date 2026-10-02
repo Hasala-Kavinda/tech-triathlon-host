@@ -5,9 +5,10 @@ import { badRequest, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Vehicle } from "../../database/models/index.js"
+import { CalendarDay } from "../../database/models/index.js"
 import { Outlet } from "./persistence/outlet.model.js"
 import { Product } from "./persistence/product.model.js"
+import { VehicleReadPort } from "./vehicle.read-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
 const clean = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -32,11 +33,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     const query = z.object({ serviceDate: z.string(), depot: z.string().optional(), type: z.string().optional(), temp: z.string().optional() }).safeParse(request.query)
     if (!query.success) throw badRequest("serviceDate is required.")
     parseServiceDate(query.data.serviceDate)
-    const filter: Record<string, unknown> = { active: true }
-    if (query.data.depot) filter.depot = query.data.depot
-    if (query.data.type) filter.type = query.data.type
-    if (query.data.temp) filter.temperatureClass = query.data.temp
-    const rows = await Vehicle.find(filter).sort({ vehicleId: 1 }).lean()
+    const rows = await VehicleReadPort.findActiveByFilter({ depot: query.data.depot, type: query.data.type, temp: query.data.temp })
     return ok(request, rows)
   })
 

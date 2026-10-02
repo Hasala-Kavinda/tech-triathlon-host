@@ -9,8 +9,9 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { parseServiceDate } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { LoadRecord, Order, Trip, Vehicle } from "../../database/models/index.js"
+import { LoadRecord, Order, Trip } from "../../database/models/index.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
 
 const tripBody = z.object({
@@ -49,7 +50,7 @@ export async function planningRoutes(app: FastifyInstance) {
     parseServiceDate(parsed.data.serviceDate)
     const [driver, vehicle] = await Promise.all([
       UserReadPort.findDriverById(parsed.data.driverId),
-      Vehicle.findOne({ vehicleId: parsed.data.vehicleId, active: true }).lean(),
+      VehicleReadPort.findByVehicleId(parsed.data.vehicleId),
     ])
     if (!driver) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
     if (!vehicle) throw unprocessable("VEHICLE_UNAVAILABLE", "The selected vehicle is unavailable.")
