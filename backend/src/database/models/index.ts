@@ -14,24 +14,7 @@ const statusEventSchema = new Schema(
 
 
 
-const outletSchema = new Schema(
-  {
-    outletId: { type: String, required: true, unique: true },
-    displayName: { type: String, required: true },
-    brand: { type: String, required: true },
-    district: { type: String, required: true },
-    depot: { type: String, required: true },
-    dockType: String,
-    parkingConstraint: String,
-    windowOpenTime: { type: String, required: true },
-    windowCloseTime: { type: String, required: true },
-    coordinates: { latitude: Number, longitude: Number },
-    source: { type: String, default: "official_csv" },
-    active: { type: Boolean, default: true },
-  },
-  { timestamps: true, versionKey: "version" },
-)
-outletSchema.index({ brand: 1, depot: 1, district: 1 })
+
 
 const vehicleSchema = new Schema(
   {
@@ -304,7 +287,6 @@ const syncReceiptSchema = new Schema(
 )
 syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
-export const Outlet = model("Outlet", outletSchema)
 export const Vehicle = model("Vehicle", vehicleSchema)
 export const CalendarDay = model("CalendarDay", calendarDaySchema)
 export const Product = model("Product", productSchema)

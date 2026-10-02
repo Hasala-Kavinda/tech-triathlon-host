@@ -1,5 +1,6 @@
 import { DateTime } from "luxon"
-import { CalendarDay, Order, Outlet, Trip, Vehicle } from "../../database/models/index.js"
+import { CalendarDay, Order, Trip, Vehicle } from "../../database/models/index.js"
+import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 
 export type RuleResult = { code: string; passed: boolean; message: string; actual?: unknown; threshold?: unknown }
@@ -64,7 +65,7 @@ export async function validateTrip(input: {
   const plannedFuelL = vehicle ? input.distanceKm / vehicle.kmPerL : Number.POSITIVE_INFINITY
   rules.push(passFail("WEEKLY_FUEL_QUOTA", Boolean(vehicle) && usedFuelL + plannedFuelL <= vehicle!.weeklyFuelQuotaL, "The trip must fit the vehicle's weekly fuel quota.", usedFuelL + plannedFuelL, vehicle?.weeklyFuelQuotaL))
 
-  const outlets = await Outlet.find({ outletId: { $in: orders.map((order) => order.outletId) } }).lean()
+  const outlets = await OutletReadPort.findManyByOutletIds(orders.map((order) => order.outletId))
   const outletMap = new Map(outlets.map((outlet) => [outlet.outletId, outlet]))
   for (const order of orders.filter((candidate) => candidate.brand.toLowerCase() === "fresh")) {
     const outlet = outletMap.get(order.outletId)

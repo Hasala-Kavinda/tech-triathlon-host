@@ -8,8 +8,9 @@ import { findIdempotentResult, saveIdempotentResult } from "../../common/idempot
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Order, Outlet, Product } from "../../database/models/index.js"
+import { CalendarDay, Order, Product } from "../../database/models/index.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { OutletReadPort } from "../reference/outlet.read-port.js"
 
 const createBody = z.object({
   orderType: z.string().min(1).max(40),
@@ -20,7 +21,7 @@ const createBody = z.object({
 async function managerContext(userId: string) {
   const user = await UserReadPort.findById(userId)
   if (!user?.outletId) throw forbidden("The Store Manager is not assigned to an outlet.")
-  const outlet = await Outlet.findOne({ outletId: user.outletId, active: true }).lean()
+  const outlet = await OutletReadPort.findByOutletId(user.outletId)
   if (!outlet) throw forbidden("The assigned outlet is unavailable.")
   return { user, outlet }
 }

@@ -5,7 +5,8 @@ import { badRequest, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Outlet, Product, Vehicle } from "../../database/models/index.js"
+import { CalendarDay, Product, Vehicle } from "../../database/models/index.js"
+import { Outlet } from "./persistence/outlet.model.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
 const clean = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
