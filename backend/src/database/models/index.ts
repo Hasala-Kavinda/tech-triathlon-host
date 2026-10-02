@@ -7,23 +7,9 @@ export { Trip } from "../../modules/planning/persistence/trip.model.js"
 export { LoadRecord } from "../../modules/loading/persistence/load-record.model.js"
 export { DeliveryRecord } from "../../modules/delivery/persistence/delivery-record.model.js"
 export { PinChallenge } from "../../modules/delivery/persistence/pin-challenge.model.js"
+export { TripLocation } from "../../modules/delivery/persistence/trip-location.model.js"
 
-const locationSchema = new Schema(
-  {
-    tripId: { type: Schema.Types.ObjectId, ref: "Trip", required: true },
-    driverId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    sequence: { type: Number, required: true },
-    recordedAt: { type: Date, required: true },
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
-    accuracy: { type: Number, required: true },
-    heading: Number,
-    speed: Number,
-  },
-  { timestamps: true, versionKey: false },
-)
-locationSchema.index({ tripId: 1, sequence: 1 }, { unique: true })
-locationSchema.index({ tripId: 1, recordedAt: -1 })
+
 
 const eventSchema = new Schema(
   {
@@ -89,7 +75,7 @@ syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
 
 
-export const TripLocation = model("TripLocation", locationSchema)
+
 export const OperationalEvent = model("OperationalEvent", eventSchema)
 export const FileAsset = model("FileAsset", fileAssetSchema)
 export const IdempotencyRecord = model("IdempotencyRecord", idempotencySchema)

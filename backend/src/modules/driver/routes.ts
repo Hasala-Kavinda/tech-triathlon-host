@@ -11,7 +11,8 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, SyncReceipt, Trip, TripLocation } from "../../database/models/index.js"
+import { DeliveryRecord, SyncReceipt, Trip } from "../../database/models/index.js"
+import { TripLocationCommandPort } from "../delivery/trip-location.command-port.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { markOrderDelivered } from "../orders/order.commands.js"
 import { UserReadPort } from "../auth/user.read-port.js"
@@ -96,9 +97,17 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!params.success || !body.success) throw badRequest("The location batch is invalid.")
     const trip = await Trip.findOne({ _id: params.data.tripId, driverId: auth.userId, status: "in_transit" }).lean()
     if (!trip) throw conflict("TRIP_NOT_ACTIVE", "Locations can be uploaded only for the Driver's active trip.")
-    const writes = body.data.points.map((point) => ({ updateOne: { filter: { tripId: trip._id, sequence: point.sequence }, update: { $setOnInsert: { ...point, tripId: trip._id, driverId: auth.userId } }, upsert: true } }))
-    const result = await TripLocation.bulkWrite(writes, { ordered: false })
-    return ok(request, { acceptedCount: result.upsertedCount, duplicateCount: body.data.points.length - result.upsertedCount, lastPosition: body.data.points.at(-1) })
+    const writes = body.data.points.map((point) => ({
+      sequence: point.sequence,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracy: point.accuracy,
+      heading: point.heading,
+      speed: point.speed,
+      recordedAt: point.recordedAt
+    }))
+    const result = await TripLocationCommandPort.recordLocations(trip._id, auth.userId, trip.vehicleId, writes)
+    return ok(request, { acceptedCount: result.acceptedCount, duplicateCount: result.duplicateCount, lastPosition: body.data.points.at(-1) })
   })
 
   app.post("/trips/:tripId/stops/:stopId/arrive", { preHandler: app.authenticate }, async (request) => {
@@ -236,7 +245,18 @@ export async function driverRoutes(app: FastifyInstance) {
         const point = z.object({ tripId: z.string(), sequence: z.number().int(), latitude: z.number(), longitude: z.number(), accuracy: z.number() }).safeParse(mutation.payload)
         if (point.success) {
           const trip = await Trip.findOne({ _id: point.data.tripId, driverId: auth.userId }).lean()
-          if (trip) { await TripLocation.updateOne({ tripId: trip._id, sequence: point.data.sequence }, { $setOnInsert: { ...point.data, driverId: auth.userId, recordedAt: mutation.clientRecordedAt } }, { upsert: true }); result = "applied"; response = { accepted: true } }
+          if (trip) {
+            const writes = [{
+              sequence: point.data.sequence,
+              latitude: point.data.latitude,
+              longitude: point.data.longitude,
+              accuracy: point.data.accuracy,
+              recordedAt: mutation.clientRecordedAt
+            }]
+            await TripLocationCommandPort.recordLocations(trip._id, auth.userId, trip.vehicleId, writes)
+            result = "applied"
+            response = { accepted: true }
+          }
           else { result = "conflict"; response = { code: "TRIP_NOT_ASSIGNED" } }
         }
       }

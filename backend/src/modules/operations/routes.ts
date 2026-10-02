@@ -61,7 +61,8 @@ export async function operationRoutes(app: FastifyInstance) {
     if (!delivery) throw notFound()
     const trip = await Trip.findById(delivery.tripId).lean()
     const lastLocation = await TripLocation.findOne({ tripId: delivery.tripId }).sort({ recordedAt: -1 }).lean()
-    return ok(request, { delivery, trip, tracking: lastLocation ? { lastLocation, lastSeenAt: lastLocation.recordedAt } : null })
+    const trackingLoc = lastLocation ? { ...lastLocation, latitude: lastLocation.location.coordinates[1], longitude: lastLocation.location.coordinates[0], location: undefined } : null
+    return ok(request, { delivery, trip, tracking: trackingLoc ? { lastLocation: trackingLoc, lastSeenAt: trackingLoc.recordedAt } : null })
   })
 
   app.post("/store/deliveries/:deliveryId/receipt", { preHandler: app.authenticate }, async (request) => {
@@ -84,7 +85,8 @@ export async function operationRoutes(app: FastifyInstance) {
     const trips = await Trip.find({ serviceDate: query.data.serviceDate, status: { $in: ["published", "load_confirmed", "claimed", "in_transit", "completed"] } }).sort({ departureAt: 1 }).lean()
     const latest = await Promise.all(trips.map((trip) => TripLocation.findOne({ tripId: trip._id }).sort({ recordedAt: -1 }).lean()))
     return ok(request, trips.map((trip, index) => {
-      const location = latest[index]
+      const loc = latest[index]
+      const location = loc ? { ...loc, latitude: loc.location.coordinates[1], longitude: loc.location.coordinates[0], location: undefined } : null
       const ageSeconds = location ? Math.floor((Date.now() - location.recordedAt.getTime()) / 1000) : null
       return { ...trip, lastLocation: location, trackingState: trip.status === "completed" ? "completed" : !location ? "offline_unknown" : ageSeconds! <= 120 ? "live" : ageSeconds! <= 600 ? "delayed" : "gps_gap", lastSeenSecondsAgo: ageSeconds }
     }))
