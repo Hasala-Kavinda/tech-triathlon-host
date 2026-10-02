@@ -19,43 +19,6 @@ const statusEventSchema = new Schema(
 
 
 
-const orderItemSchema = new Schema(
-  {
-    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    sku: { type: String, required: true },
-    name: { type: String, required: true },
-    unit: { type: String, required: true },
-    quantity: { type: Number, required: true, min: 1 },
-    unitWeightKg: { type: Number, required: true, min: 0 },
-    unitVolumeM3: { type: Number, required: true, min: 0 },
-    temperatureClass: { type: String, required: true },
-    fragile: { type: Boolean, required: true },
-  },
-  { _id: false },
-)
-
-const orderSchema = new Schema(
-  {
-    orderNumber: { type: String, required: true, unique: true },
-    outletId: { type: String, required: true },
-    storeManagerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    brand: { type: String, required: true },
-    orderType: { type: String, required: true },
-    requestedDate: { type: String, required: true },
-    cutoffBucket: { type: String, enum: ["before_cutoff", "after_cutoff"], required: true },
-    status: { type: String, enum: ["submitted", "deferred", "allocated", "in_transit", "delivered", "cancelled"], default: "submitted" },
-    items: { type: [orderItemSchema], required: true },
-    totalWeightKg: { type: Number, required: true },
-    totalVolumeM3: { type: Number, required: true },
-    allocatedTripId: { type: Schema.Types.ObjectId, ref: "Trip" },
-    deferredTo: String,
-    deferralReason: String,
-    statusHistory: { type: [statusEventSchema], default: [] },
-  },
-  { timestamps: true, versionKey: "version", optimisticConcurrency: true },
-)
-orderSchema.index({ outletId: 1, createdAt: -1 })
-orderSchema.index({ requestedDate: 1, status: 1, brand: 1 })
 
 const ruleSchema = new Schema(
   { code: String, passed: Boolean, message: String, actual: Schema.Types.Mixed, threshold: Schema.Types.Mixed },
@@ -239,7 +202,6 @@ syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
 
 
-export const Order = model("Order", orderSchema)
 export const Trip = model("Trip", tripSchema)
 export const LoadRecord = model("LoadRecord", loadRecordSchema)
 export const DeliveryRecord = model("DeliveryRecord", deliveryRecordSchema)

@@ -8,7 +8,7 @@ import { findIdempotentResult, saveIdempotentResult } from "../../common/idempot
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { Order } from "../../database/models/index.js"
+import { Order } from "./persistence/order.model.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { ProductReadPort } from "../reference/product.read-port.js"

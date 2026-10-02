@@ -9,7 +9,9 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { parseServiceDate } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { LoadRecord, Order, Trip } from "../../database/models/index.js"
+import { LoadRecord, Trip } from "../../database/models/index.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/order.commands.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
@@ -36,10 +38,8 @@ export async function planningRoutes(app: FastifyInstance) {
     const query = z.object({ serviceDate: z.string(), brand: z.string().optional(), status: z.string().optional() }).merge(paginationSchema).safeParse(request.query)
     if (!query.success) throw badRequest("A valid serviceDate and filters are required.")
     parseServiceDate(query.data.serviceDate)
-    const filter: Record<string, unknown> = { requestedDate: query.data.serviceDate, status: query.data.status ?? { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }
-    if (query.data.brand) filter.brand = query.data.brand
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
-    const [rows, total] = await Promise.all([Order.find(filter).sort({ cutoffBucket: 1, createdAt: 1 }).skip(skip).limit(limit).lean(), Order.countDocuments(filter)])
+    const { rows, total } = await OrderReadPort.findEligibleForDatePaged(query.data.serviceDate, query.data.brand, query.data.status, skip, limit)
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
@@ -55,7 +55,7 @@ export async function planningRoutes(app: FastifyInstance) {
     if (!driver) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
     if (!vehicle) throw unprocessable("VEHICLE_UNAVAILABLE", "The selected vehicle is unavailable.")
     const validation = await buildValidation(parsed.data)
-    const orders = await Order.find({ _id: { $in: parsed.data.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(parsed.data.stops.map((stop) => stop.orderId))
     const orderMap = new Map(orders.map((order) => [String(order._id), order]))
     const trip = await Trip.create({
       tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
@@ -97,9 +97,9 @@ export async function planningRoutes(app: FastifyInstance) {
         const validation = await buildValidation(data, trip.id)
         if (!validation.valid) throw unprocessable("TRIP_CONSTRAINTS_FAILED", "The trip does not satisfy all hard constraints.", validation)
         const orderIds = trip.stops.map((stop) => stop.orderId)
-        const update = await Order.updateMany({ _id: { $in: orderIds }, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "allocated", allocatedTripId: trip._id }, $push: { statusHistory: { status: "allocated", at: new Date(), actorId: auth.userId } } }, { session })
-        if (update.modifiedCount !== orderIds.length) throw conflict("ORDER_ALLOCATION_CONFLICT", "One or more orders were allocated concurrently.")
-        const orders = await Order.find({ _id: { $in: orderIds } }).session(session).lean()
+        const { modifiedCount } = await allocateOrdersToTrip(orderIds, trip._id, auth.userId, session)
+        if (modifiedCount !== orderIds.length) throw conflict("ORDER_ALLOCATION_CONFLICT", "One or more orders were allocated concurrently.")
+        const orders = await OrderReadPort.findByIdsInSession(orderIds, session)
         const orderMap = new Map(orders.map((order) => [String(order._id), order]))
         const loadItems = [...trip.stops].reverse().flatMap((stop) => (orderMap.get(String(stop.orderId))?.items ?? []).map((item) => ({ itemId: `${stop.stopId}-${item.sku}`, stopId: stop.stopId, orderId: stop.orderId, sku: item.sku, name: item.name, expectedQuantity: item.quantity })))
         await LoadRecord.create([{ tripId: trip._id, depot: trip.depot, status: "available", items: loadItems }], { session })
@@ -120,10 +120,10 @@ export async function planningRoutes(app: FastifyInstance) {
     const body = z.object({ nextDate: z.string(), reasonCode: z.string().min(1), note: z.string().max(1000).optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("A valid deferral request is required.")
     parseServiceDate(body.data.nextDate)
-    const order = await Order.findOneAndUpdate({ _id: params.data.orderId, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "deferred", deferredTo: body.data.nextDate, deferralReason: body.data.reasonCode }, $push: { statusHistory: { status: "deferred", at: new Date(), actorId: auth.userId, note: body.data.note ?? body.data.reasonCode } } }, { new: true })
+    const order = await deferOrder(params.data.orderId, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId)
     if (!order) throw conflict("ORDER_NOT_DEFERRABLE", "The order is no longer available for deferral.")
-    await audit(request, "order.deferred", "order", order.id, { nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
-    return ok(request, order.toObject())
+    await audit(request, "order.deferred", "order", String(order._id), { nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
+    return ok(request, order)
   })
 
   app.post("/orders/defer-batch", { preHandler: app.authenticate }, async (request) => {
@@ -131,11 +131,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const body = z.object({ orderIds: z.array(z.string()).min(1).max(100), nextDate: z.string(), reasonCode: z.string().min(1), note: z.string().max(1000).optional() }).safeParse(request.body)
     if (!body.success) throw badRequest("A valid batch deferral request is required.")
     parseServiceDate(body.data.nextDate)
-    const results = []
-    for (const orderId of body.data.orderIds) {
-      const order = await Order.findOneAndUpdate({ _id: orderId, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "deferred", deferredTo: body.data.nextDate, deferralReason: body.data.reasonCode }, $push: { statusHistory: { status: "deferred", at: new Date(), actorId: auth.userId, note: body.data.note ?? body.data.reasonCode } } }, { new: true }).lean()
-      results.push({ orderId, result: order ? "deferred" : "conflict", order })
-    }
+    const results = await deferOrderBatch(body.data.orderIds, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId)
     await audit(request, "order.batch_deferred", "order_batch", request.id, { count: body.data.orderIds.length, nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
     return ok(request, results)
   })
@@ -172,7 +168,7 @@ export async function planningRoutes(app: FastifyInstance) {
     if (auth.role === "driver") filter.driverId = auth.userId
     const trip = await Trip.findOne(filter).lean()
     if (!trip) throw notFound()
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     return ok(request, { ...trip, orders })
   })
 }

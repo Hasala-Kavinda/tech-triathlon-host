@@ -6,7 +6,8 @@ import { badRequest, conflict, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, OperationalEvent, Order, Trip, TripLocation } from "../../database/models/index.js"
+import { DeliveryRecord, OperationalEvent, Trip, TripLocation } from "../../database/models/index.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
 async function storeOutlet(userId: string) {
@@ -20,7 +21,7 @@ export async function operationRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "store_manager")
     const outletId = await storeOutlet(auth.userId)
     const [recentOrders, upcomingDeliveries, attentionCount] = await Promise.all([
-      Order.find({ outletId }).sort({ createdAt: -1 }).limit(5).lean(),
+      OrderReadPort.findRecentByOutlet(outletId, 5),
       DeliveryRecord.find({ outletId, status: { $ne: "completed" } }).sort({ createdAt: 1 }).limit(5).lean(),
       DeliveryRecord.countDocuments({ outletId, outcome: { $in: ["partial", "failed"] } }),
     ])

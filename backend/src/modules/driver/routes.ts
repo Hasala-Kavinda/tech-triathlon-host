@@ -9,7 +9,9 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, Order, SyncReceipt, Trip, TripLocation } from "../../database/models/index.js"
+import { DeliveryRecord, SyncReceipt, Trip, TripLocation } from "../../database/models/index.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { markOrderDelivered } from "../orders/order.commands.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { DateTime } from "luxon"
 
@@ -40,7 +42,7 @@ export async function driverRoutes(app: FastifyInstance) {
       { new: true },
     ).lean()
     if (!trip) throw conflict("ASSIGNMENT_ALREADY_CLAIMED", "The assignment was already claimed or changed.")
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     await audit(request, "driver.assignment_claimed", "trip", params.data.tripId)
     return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
@@ -69,7 +71,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const version = expectedVersion(request, body.data.expectedVersion)
     const trip = await Trip.findOneAndUpdate({ _id: params.data.tripId, driverId: auth.userId, claimedByDriverId: auth.userId, vehicleId: body.data.vehicleId, status: "claimed", version }, { $set: { vehicleConfirmedAt: new Date() }, $inc: { version: 1 } }, { new: true }).lean()
     if (!trip) throw conflict("VEHICLE_CONFIRMATION_FAILED", "The vehicle does not match the assignment or the trip changed.")
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
 
@@ -106,7 +108,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (trip.status !== "in_transit") throw conflict("TRIP_NOT_ACTIVE", "The trip is not active.")
     const stop = trip.stops.find((candidate) => candidate.stopId === params.data.stopId)
     if (!stop) throw notFound("The stop was not found.")
-    const order = await Order.findById(stop.orderId).lean()
+    const order = await OrderReadPort.findById(String(stop.orderId))
     if (!order) throw notFound("The stop order was not found.")
     const record = await DeliveryRecord.findOneAndUpdate(
       { tripId: trip._id, stopId: stop.stopId },
@@ -172,7 +174,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const version = expectedVersion(request, body.data.expectedVersion)
     const record = await DeliveryRecord.findOneAndUpdate({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "proof_verified", version }, { $set: { status: "completed", outcome: body.data.outcome, completedAt: body.data.completedAt }, $inc: { version: 1 } }, { new: true })
     if (!record) throw conflict("DELIVERY_COMPLETE_CONFLICT", "The delivery is not ready to complete or changed.")
-    await Order.findByIdAndUpdate(record.orderId, { $set: { status: "delivered" }, $push: { statusHistory: { status: "delivered", at: body.data.completedAt, actorId: auth.userId } } })
+    await markOrderDelivered(record.orderId, body.data.completedAt, auth.userId)
     await audit(request, "delivery.completed", "delivery", record.id, { outcome: body.data.outcome })
     return ok(request, record.toObject())
   })
@@ -197,7 +199,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const query = paginationSchema.safeParse(request.query); if (!query.success) throw badRequest("Invalid pagination.")
     const tripIds = await Trip.find({ driverId: auth.userId }).distinct("stops.orderId")
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
-    const [rows, total] = await Promise.all([Order.find({ _id: { $in: tripIds } }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Order.countDocuments({ _id: { $in: tripIds } })])
+    const { rows, total } = await OrderReadPort.findByIdsPaged(tripIds, skip, limit)
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
