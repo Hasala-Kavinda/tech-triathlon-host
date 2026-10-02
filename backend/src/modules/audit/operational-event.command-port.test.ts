@@ -3,18 +3,12 @@ import mongoose from "mongoose"
 import { OperationalEventCommandPort } from "./operational-event.command-port.js"
 import { OperationalEvent } from "./persistence/operational-event.model.js"
 
-let isStandalone = false
-
 describe("OperationalEventCommandPort (DB-17)", () => {
   beforeAll(async () => {
     if (mongoose.connection.readyState !== 1) {
       await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/waylink_test")
     }
-    const admin = mongoose.connection.db?.admin()
-    if (admin) {
-      const info = await admin.command({ isMaster: 1 })
-      isStandalone = !info.setName
-    }
+    await OperationalEvent.createCollection()
   })
 
   beforeEach(async () => {
@@ -26,7 +20,6 @@ describe("OperationalEventCommandPort (DB-17)", () => {
   })
 
   it("should successfully emit an event through the boundary and commit", async () => {
-    if (isStandalone) return
     const session = await mongoose.startSession()
     session.startTransaction()
 
@@ -52,7 +45,6 @@ describe("OperationalEventCommandPort (DB-17)", () => {
   })
 
   it("should guarantee that an event rolls back if the business transaction fails", async () => {
-    if (isStandalone) return
     const session = await mongoose.startSession()
     session.startTransaction()
 

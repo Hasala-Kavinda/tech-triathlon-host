@@ -7,6 +7,7 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
 import { DeliveryRecord, OperationalEvent, Trip, TripLocation } from "../../database/models/index.js"
+import { OperationalEventCommandPort } from "../audit/operational-event.command-port.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
@@ -96,8 +97,9 @@ export async function operationRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "dispatcher", "loader", "driver", "store_manager")
     const body = z.object({ entityType: z.string().min(1), id: z.string().min(1), text: z.string().min(1).max(2000), audienceRoles: z.array(z.enum(["dispatcher", "loader", "driver", "store_manager"])) }).safeParse(request.body)
     if (!body.success) throw badRequest("The remark is invalid.")
-    const event = await OperationalEvent.create({ eventType: "remark.created", entityType: body.data.entityType, entityId: body.data.id, actorId: auth.userId, actorRole: auth.role, requestId: request.id, data: { text: body.data.text, audienceRoles: body.data.audienceRoles, reviewed: false } })
-    return reply.status(201).send(ok(request, event.toObject()))
+    await OperationalEventCommandPort.emitEvent(undefined, { eventType: "remark.created", entityType: body.data.entityType, entityId: body.data.id, actorId: auth.userId, actorRole: auth.role, requestId: request.id, data: { text: body.data.text, audienceRoles: body.data.audienceRoles, reviewed: false } })
+    const event = await OperationalEvent.findOne({ requestId: request.id }).sort({ createdAt: -1 }) // refetch for return
+    return reply.status(201).send(ok(request, event!.toObject()))
   })
 
   app.patch("/remarks/:eventId/review", { preHandler: app.authenticate }, async (request) => {
@@ -105,7 +107,7 @@ export async function operationRoutes(app: FastifyInstance) {
     const params = z.object({ eventId: z.string() }).safeParse(request.params)
     const body = z.object({ response: z.string().min(1).max(2000), notifyRoles: z.array(z.string()).default([]) }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("The review is invalid.")
-    const event = await OperationalEvent.findOneAndUpdate({ _id: params.data.eventId, eventType: "remark.created" }, { $set: { "data.reviewed": true, "data.response": body.data.response, "data.notifyRoles": body.data.notifyRoles } }, { new: true })
+    const event = await OperationalEventCommandPort.reviewRemarkEvent(params.data.eventId, body.data.response, body.data.notifyRoles)
     if (!event) throw notFound()
     return ok(request, event.toObject())
   })
