@@ -1,5 +1,8 @@
 import mongoose from "mongoose"
 import { DeliveryRecord } from "./persistence/delivery-record.model.js"
+import { PinChallenge } from "./persistence/pin-challenge.model.js"
+import { hmacSha256 } from "../../common/crypto.js"
+import { loadConfig } from "../../config/env.js"
 
 export interface CreateDeliveryItemInput {
   sku: string
@@ -59,6 +62,72 @@ export const DeliveryCommandPort = {
         if (session) await record.save({ session })
         else await record.save()
       }
+    }
+  },
+
+  async issueChallenge(deliveryRecordId: mongoose.Types.ObjectId, pin: string, expiresAt: Date) {
+    await PinChallenge.updateMany(
+      { deliveryRecordId, status: "issued" },
+      { $set: { status: "revoked", revokedAt: new Date() } }
+    )
+    
+    const config = loadConfig()
+    const pinHash = hmacSha256(pin, config.pinHmacSecret)
+    return await PinChallenge.create({
+      deliveryRecordId,
+      pinHash,
+      expiresAt,
+      attempts: 0,
+      maxAttempts: 5,
+      status: "issued"
+    })
+  },
+
+  async verifyChallenge(deliveryRecordId: mongoose.Types.ObjectId, pin: string, clientRecordedAt: Date) {
+    const challenge = await PinChallenge.findOne({ 
+      deliveryRecordId, 
+      status: { $in: ["issued", "locked", "expired"] } 
+    }).sort({ createdAt: -1 }).select("+pinHash")
+    
+    if (!challenge) {
+      return { verified: false, error: "PIN_NOT_FOUND", attemptsLeft: 0 }
+    }
+    
+    if (challenge.status === "locked") {
+      return { verified: false, error: "PIN_ATTEMPTS_EXCEEDED", attemptsLeft: 0 }
+    }
+    
+    if (challenge.status === "expired" || challenge.expiresAt <= new Date()) {
+      if (challenge.status !== "expired") {
+        challenge.status = "expired"
+        await challenge.save()
+      }
+      return { verified: false, error: "PIN_EXPIRED", attemptsLeft: 0 }
+    }
+    
+    if (challenge.attempts >= challenge.maxAttempts) {
+      challenge.status = "locked"
+      await challenge.save()
+      return { verified: false, error: "PIN_ATTEMPTS_EXCEEDED", attemptsLeft: 0 }
+    }
+    
+    const config = loadConfig()
+    const expectedHash = hmacSha256(pin, config.pinHmacSecret)
+    const isValid = challenge.pinHash === expectedHash
+    
+    challenge.attempts += 1
+    
+    if (isValid) {
+      challenge.status = "verified"
+      challenge.verifiedAt = clientRecordedAt
+      await challenge.save()
+      return { verified: true, attemptsLeft: Math.max(0, challenge.maxAttempts - challenge.attempts) }
+    } else {
+      if (challenge.attempts >= challenge.maxAttempts) {
+        challenge.status = "locked"
+      }
+      await challenge.save()
+      return { verified: false, error: "PIN_INCORRECT", attemptsLeft: Math.max(0, challenge.maxAttempts - challenge.attempts) }
     }
   }
 }

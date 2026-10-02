@@ -6,6 +6,7 @@ describe("environment configuration", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       JWT_SECRET: "12345678901234567890123456789012",
+      PIN_HMAC_SECRET: "12345678901234567890123456789012",
       LOGIN_ORIGIN: "http://login.test",
       DISPATCHER_ORIGIN: "http://dispatcher.test",
       LOADER_ORIGIN: "http://loader.test",

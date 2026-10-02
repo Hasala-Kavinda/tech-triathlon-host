@@ -1,5 +1,7 @@
 import { randomInt } from "node:crypto"
 import argon2 from "argon2"
+import mongoose from "mongoose"
+import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
@@ -142,11 +144,14 @@ export async function driverRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "store_manager")
     const user = await UserReadPort.findById(auth.userId)
     if (!user?.outletId) throw notFound()
-    const pin = String(randomInt(0, 10_000)).padStart(4, "0")
-    const record = await DeliveryRecord.findOneAndUpdate({ _id: request.params && (request.params as { deliveryId: string }).deliveryId, outletId: user.outletId, status: "arrived" }, { $set: { pinHash: await argon2.hash(pin), pinExpiresAt: new Date(Date.now() + 10 * 60_000), pinAttempts: 0 } }, { new: true }).select("+pinHash")
+    const deliveryId = new mongoose.Types.ObjectId((request.params as any).deliveryId)
+    const record = await DeliveryRecord.findOne({ _id: deliveryId, outletId: user.outletId, status: "arrived" })
     if (!record) throw conflict("PIN_NOT_AVAILABLE", "A PIN can be issued only after arrival at your outlet.")
+    const pin = String(randomInt(0, 10_000)).padStart(4, "0")
+    const expiresAt = new Date(Date.now() + 10 * 60_000)
+    await DeliveryCommandPort.issueChallenge(deliveryId, pin, expiresAt)
     await audit(request, "delivery.pin_issued", "delivery", record.id)
-    return ok(request, { pin, expiresAt: record.pinExpiresAt })
+    return ok(request, { pin, expiresAt })
   })
 
   app.post("/trips/:tripId/stops/:stopId/verify-pin", { preHandler: app.authenticate }, async (request) => {
@@ -154,16 +159,21 @@ export async function driverRoutes(app: FastifyInstance) {
     const params = z.object({ tripId: z.string(), stopId: z.string() }).safeParse(request.params)
     const body = z.object({ pin: z.string().regex(/^\d{4}$/), clientRecordedAt: z.coerce.date() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("A four-digit PIN is required.")
-    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived" }).select("+pinHash")
-    if (!record?.pinHash || !record.pinExpiresAt || record.pinExpiresAt <= new Date()) throw conflict("PIN_EXPIRED", "The delivery PIN is absent or expired.")
-    if (record.pinAttempts >= 5) throw conflict("PIN_ATTEMPTS_EXCEEDED", "The PIN attempt limit has been reached.")
-    const verified = await argon2.verify(record.pinHash, body.data.pin).catch(() => false)
-    record.pinAttempts += 1
-    if (verified) record.proof = { status: "verified", enteredAt: body.data.clientRecordedAt }
-    await record.save()
-    if (!verified) throw unprocessable("PIN_INCORRECT", "The PIN is incorrect.", { attemptsLeft: Math.max(0, 5 - record.pinAttempts) })
-    await audit(request, "delivery.pin_verified", "delivery", record.id, { clientRecordedAt: body.data.clientRecordedAt.toISOString() })
-    return ok(request, { verified: true, deliveryId: record.id, version: record.version })
+    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived" })
+    if (!record) throw notFound()
+    
+    const result = await DeliveryCommandPort.verifyChallenge(record._id as mongoose.Types.ObjectId, body.data.pin, body.data.clientRecordedAt)
+    
+    if (result.verified) {
+      record.proof = { status: "verified", enteredAt: body.data.clientRecordedAt }
+      await record.save()
+      await audit(request, "delivery.pin_verified", "delivery", record.id, { clientRecordedAt: body.data.clientRecordedAt.toISOString() })
+      return ok(request, { verified: true, deliveryId: record.id, version: record.version })
+    } else {
+      if (result.error === "PIN_NOT_FOUND" || result.error === "PIN_EXPIRED") throw conflict("PIN_EXPIRED", "The delivery PIN is absent or expired.")
+      if (result.error === "PIN_ATTEMPTS_EXCEEDED") throw conflict("PIN_ATTEMPTS_EXCEEDED", "The PIN attempt limit has been reached.")
+      throw unprocessable("PIN_INCORRECT", "The PIN is incorrect.", { attemptsLeft: result.attemptsLeft })
+    }
   })
 
   app.post("/trips/:tripId/stops/:stopId/complete", { preHandler: app.authenticate }, async (request) => {

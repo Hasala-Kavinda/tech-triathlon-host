@@ -1,4 +1,8 @@
-import { createHash, randomBytes } from "node:crypto"
+import { createHash, randomBytes, createHmac } from "node:crypto"
+
+export function hmacSha256(value: string, secret: string) {
+  return createHmac("sha256", secret).update(value).digest("hex")
+}
 
 export function randomCode(bytes = 32) {
   return randomBytes(bytes).toString("base64url")

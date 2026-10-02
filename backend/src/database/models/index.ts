@@ -6,6 +6,7 @@ export { Trip } from "../../modules/planning/persistence/trip.model.js"
 
 export { LoadRecord } from "../../modules/loading/persistence/load-record.model.js"
 export { DeliveryRecord } from "../../modules/delivery/persistence/delivery-record.model.js"
+export { PinChallenge } from "../../modules/delivery/persistence/pin-challenge.model.js"
 
 const locationSchema = new Schema(
   {

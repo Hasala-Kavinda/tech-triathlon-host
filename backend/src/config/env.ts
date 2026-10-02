@@ -7,6 +7,7 @@ const schema = z.object({
   HOST: z.string().default("0.0.0.0"),
   MONGODB_URI: z.string().min(1).default("mongodb://localhost:27017/waylink"),
   JWT_SECRET: z.string().min(32).default("development-only-secret-change-me-now"),
+  PIN_HMAC_SECRET: z.string().min(32).default("development-only-pin-secret-change-me-now"),
   ACCESS_TOKEN_TTL: z.string().default("8h"),
   LOGIN_ORIGIN: z.string().url().default("http://localhost:5173"),
   DISPATCHER_ORIGIN: z.string().url().default("http://localhost:5174"),
@@ -36,6 +37,9 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
   if (data.NODE_ENV === "production" && data.JWT_SECRET.startsWith("development-only")) {
     throw new Error("JWT_SECRET must be replaced in production")
   }
+  if (data.NODE_ENV === "production" && data.PIN_HMAC_SECRET.startsWith("development-only")) {
+    throw new Error("PIN_HMAC_SECRET must be replaced in production")
+  }
 
   const roleOrigins = {
     dispatcher: data.DISPATCHER_ORIGIN,
@@ -50,6 +54,7 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
     host: data.HOST,
     mongodbUri: data.MONGODB_URI,
     jwtSecret: data.JWT_SECRET,
+    pinHmacSecret: data.PIN_HMAC_SECRET,
     accessTokenTtl: data.ACCESS_TOKEN_TTL,
     loginOrigin: data.LOGIN_ORIGIN,
     roleOrigins,

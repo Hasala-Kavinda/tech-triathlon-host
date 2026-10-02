@@ -39,11 +39,6 @@ const deliveryRecordSchema = new Schema(
     proof: { type: proofSchema, default: () => ({ status: "none" }) },
     receipt: Schema.Types.Mixed,
     items: [deliveryItemSchema],
-    
-    // Legacy fields for driver/store compat. Do NOT redesign offline sync/receipt yet.
-    pinHash: { type: String, select: false },
-    pinExpiresAt: Date,
-    pinAttempts: { type: Number, default: 0 },
   },
   { timestamps: true, versionKey: "version", optimisticConcurrency: true },
 )
