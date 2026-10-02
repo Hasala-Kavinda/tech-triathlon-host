@@ -20,6 +20,16 @@ describe("HTTP foundation", () => {
     expect(response.json()).toMatchObject({ success: true, requestId: "test-request", data: { status: "alive" } })
   })
 
+  it("generates a request ID if none is provided", async () => {
+    const app = await testApp()
+    const response = await app.inject({ method: "GET", url: "/health/live" })
+    expect(response.statusCode).toBe(200)
+    const reqId = response.headers["x-request-id"]
+    expect(typeof reqId).toBe("string")
+    expect((reqId as string).length).toBeGreaterThan(0)
+    expect(response.json().requestId).toBe(reqId)
+  })
+
   it("uses the standard not-found envelope", async () => {
     const app = await testApp()
     const response = await app.inject({ method: "GET", url: "/missing" })
