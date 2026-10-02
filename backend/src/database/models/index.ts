@@ -11,20 +11,6 @@ export { TripLocation } from "../../modules/delivery/persistence/trip-location.m
 
 
 
-const eventSchema = new Schema(
-  {
-    eventType: { type: String, required: true },
-    entityType: { type: String, required: true },
-    entityId: { type: String, required: true },
-    actorId: { type: Schema.Types.ObjectId, ref: "User" },
-    actorRole: String,
-    requestId: String,
-    data: Schema.Types.Mixed,
-  },
-  { timestamps: true, versionKey: false },
-)
-eventSchema.index({ entityType: 1, entityId: 1, createdAt: -1 })
-
 
 
 const idempotencySchema = new Schema(
@@ -59,7 +45,7 @@ syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
 
 
-export const OperationalEvent = model("OperationalEvent", eventSchema)
+export { OperationalEvent } from "../../modules/audit/persistence/operational-event.model.js"
 export { FileAsset } from "../../modules/files/persistence/file-asset.model.js"
 export const IdempotencyRecord = model("IdempotencyRecord", idempotencySchema)
 export const SyncReceipt = model("SyncReceipt", syncReceiptSchema)
