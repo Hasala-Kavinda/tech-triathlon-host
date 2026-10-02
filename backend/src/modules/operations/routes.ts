@@ -6,10 +6,11 @@ import { badRequest, conflict, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, OperationalEvent, Order, Trip, TripLocation, User } from "../../database/models/index.js"
+import { DeliveryRecord, OperationalEvent, Order, Trip, TripLocation } from "../../database/models/index.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 
 async function storeOutlet(userId: string) {
-  const user = await User.findById(userId).lean()
+  const user = await UserReadPort.findById(userId)
   if (!user?.outletId) throw notFound()
   return user.outletId
 }

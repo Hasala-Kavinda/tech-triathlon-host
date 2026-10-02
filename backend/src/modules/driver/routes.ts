@@ -9,7 +9,8 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, Order, SyncReceipt, Trip, TripLocation, User } from "../../database/models/index.js"
+import { DeliveryRecord, Order, SyncReceipt, Trip, TripLocation } from "../../database/models/index.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 import { DateTime } from "luxon"
 
 function today() { return DateTime.now().setZone(OPERATING_ZONE).toFormat("yyyy-MM-dd") }
@@ -137,7 +138,7 @@ export async function driverRoutes(app: FastifyInstance) {
 
   app.post("/store/deliveries/:deliveryId/pin", { preHandler: app.authenticate }, async (request) => {
     const auth = requireRole(request, "store_manager")
-    const user = await User.findById(auth.userId).lean()
+    const user = await UserReadPort.findById(auth.userId)
     if (!user?.outletId) throw notFound()
     const pin = String(randomInt(0, 10_000)).padStart(4, "0")
     const record = await DeliveryRecord.findOneAndUpdate({ _id: request.params && (request.params as { deliveryId: string }).deliveryId, outletId: user.outletId, status: "arrived" }, { $set: { pinHash: await argon2.hash(pin), pinExpiresAt: new Date(Date.now() + 10 * 60_000), pinAttempts: 0 } }, { new: true }).select("+pinHash")

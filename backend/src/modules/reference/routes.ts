@@ -5,7 +5,8 @@ import { badRequest, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Outlet, Product, User, Vehicle } from "../../database/models/index.js"
+import { CalendarDay, Outlet, Product, Vehicle } from "../../database/models/index.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 
 const clean = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -43,7 +44,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     if (!query.success) throw badRequest("Invalid Driver filters.")
     const filter: Record<string, unknown> = { role: "driver", active: true }
     if (query.data.depot) filter.depot = query.data.depot
-    const rows = await User.find(filter).select("employeeId name depot").sort({ name: 1 }).lean()
+    const rows = await UserReadPort.findByFilter(filter)
     return ok(request, rows)
   })
 

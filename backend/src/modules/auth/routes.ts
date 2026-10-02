@@ -5,7 +5,8 @@ import { randomCode, sha256 } from "../../common/crypto.js"
 import { badRequest, forbidden, unauthorized } from "../../common/errors.js"
 import { issueAccessToken } from "../../common/auth.js"
 import { noContent, ok } from "../../common/response.js"
-import { AuthHandoff, User } from "../../database/models/index.js"
+import { AuthHandoff } from "../../database/models/index.js"
+import { User, type Role } from "./persistence/user.model.js"
 import { audit } from "../../common/audit.js"
 
 const loginBody = z.object({
@@ -41,7 +42,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const handoffCode = randomCode()
-    const intendedOrigin = app.config.roleOrigins[user.role]
+    const intendedOrigin = app.config.roleOrigins[user.role as Role]
     await AuthHandoff.create({
       codeHash: sha256(handoffCode),
       userId: user._id,

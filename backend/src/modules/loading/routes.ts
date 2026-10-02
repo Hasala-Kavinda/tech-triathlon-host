@@ -6,11 +6,12 @@ import { audit } from "../../common/audit.js"
 import { badRequest, conflict, notFound, unprocessable } from "../../common/errors.js"
 import { ok } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { LoadRecord, Trip, User } from "../../database/models/index.js"
+import { LoadRecord, Trip } from "../../database/models/index.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 
 async function loaderScope(request: FastifyRequest) {
   const auth = requireRole(request, "loader")
-  const user = await User.findById(auth.userId).lean()
+  const user = await UserReadPort.findById(auth.userId)
   if (!user?.depot) throw conflict("LOADER_DEPOT_REQUIRED", "The Loader is not assigned to a depot.")
   return { auth, depot: user.depot }
 }
