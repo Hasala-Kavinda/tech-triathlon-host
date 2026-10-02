@@ -126,7 +126,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const body = z.object({ items: z.array(z.object({ sku: z.string(), delivered: z.number().int().min(0), short: z.number().int().min(0), damaged: z.number().int().min(0), note: z.string().max(500).optional() })), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("Delivery item outcomes are invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
-    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "arrived", version })
+    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived", version })
     if (!record) throw conflict("DELIVERY_ITEM_CONFLICT", "The delivery changed or is not editable.")
     for (const update of body.data.items) {
       const item = record.items.find((candidate) => candidate.sku === update.sku)
@@ -154,12 +154,12 @@ export async function driverRoutes(app: FastifyInstance) {
     const params = z.object({ tripId: z.string(), stopId: z.string() }).safeParse(request.params)
     const body = z.object({ pin: z.string().regex(/^\d{4}$/), clientRecordedAt: z.coerce.date() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("A four-digit PIN is required.")
-    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "arrived" }).select("+pinHash")
+    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived" }).select("+pinHash")
     if (!record?.pinHash || !record.pinExpiresAt || record.pinExpiresAt <= new Date()) throw conflict("PIN_EXPIRED", "The delivery PIN is absent or expired.")
     if (record.pinAttempts >= 5) throw conflict("PIN_ATTEMPTS_EXCEEDED", "The PIN attempt limit has been reached.")
     const verified = await argon2.verify(record.pinHash, body.data.pin).catch(() => false)
     record.pinAttempts += 1
-    if (verified) record.status = "proof_verified"
+    if (verified) record.proof = { status: "verified", enteredAt: body.data.clientRecordedAt }
     await record.save()
     if (!verified) throw unprocessable("PIN_INCORRECT", "The PIN is incorrect.", { attemptsLeft: Math.max(0, 5 - record.pinAttempts) })
     await audit(request, "delivery.pin_verified", "delivery", record.id, { clientRecordedAt: body.data.clientRecordedAt.toISOString() })
@@ -172,9 +172,9 @@ export async function driverRoutes(app: FastifyInstance) {
     const body = z.object({ outcome: z.enum(["delivered", "partial", "failed"]), completedAt: z.coerce.date(), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("Completion data is invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
-    const record = await DeliveryRecord.findOneAndUpdate({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "proof_verified", version }, { $set: { status: "completed", outcome: body.data.outcome, completedAt: body.data.completedAt }, $inc: { version: 1 } }, { new: true })
+    const record = await DeliveryRecord.findOneAndUpdate({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, "proof.status": "verified", version }, { $set: { status: "completed", outcome: body.data.outcome, completedAt: body.data.completedAt }, $inc: { version: 1 } }, { new: true })
     if (!record) throw conflict("DELIVERY_COMPLETE_CONFLICT", "The delivery is not ready to complete or changed.")
-    await markOrderDelivered(record.orderId, body.data.completedAt, auth.userId)
+    await markOrderDelivered(record.items[0]?.orderIds[0]!, body.data.completedAt, auth.userId)
     await audit(request, "delivery.completed", "delivery", record.id, { outcome: body.data.outcome })
     return ok(request, record.toObject())
   })

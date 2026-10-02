@@ -8,6 +8,7 @@ import { ok } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
 import { Trip } from "../../database/models/index.js"
 import { LoadRecord } from "./persistence/load-record.model.js"
+import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
 async function loaderScope(request: FastifyRequest) {
@@ -160,6 +161,14 @@ export async function loadingRoutes(app: FastifyInstance) {
         if (!record) throw conflict("LOAD_CONFIRM_CONFLICT", "The load changed or is not ready for confirmation.")
         const trip = await Trip.findOne({ _id: record.tripId, status: "published" }).session(session)
         if (!trip) throw conflict("TRIP_STATE_CONFLICT", "The trip is no longer awaiting load confirmation.")
+        
+        const updateItems = record.items.map(item => ({
+          tripStopId: item.tripStopId as mongoose.Types.ObjectId,
+          sku: item.sku,
+          loadedQuantity: item.loadedQuantity
+        }))
+        await DeliveryCommandPort.updateExpectedQuantitiesForLoadConfirmation(trip._id as mongoose.Types.ObjectId, updateItems, session)
+        
         record.status = "confirmed"; record.confirmedAt = new Date(); await record.save({ session })
         trip.status = "load_confirmed"; trip.statusHistory.push({ status: "load_confirmed", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId) }); await trip.save({ session })
         confirmed = record

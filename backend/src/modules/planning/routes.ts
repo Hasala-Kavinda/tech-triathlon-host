@@ -12,6 +12,7 @@ import { expectedVersion } from "../../common/version.js"
 import { Trip } from "../../database/models/index.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { LoadingCommandPort } from "../loading/loading.command-port.js"
+import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/order.commands.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
@@ -129,6 +130,36 @@ export async function planningRoutes(app: FastifyInstance) {
           }))
         })
         await LoadingCommandPort.createLoadJob({ tripId: trip._id as mongoose.Types.ObjectId, depot: trip.depot, items: loadItems }, session)
+        
+        const deliveryRecords = trip.stops.map(stop => {
+          const stopOrders = stop.orderIds.map((id) => orderMap.get(String(id))).filter(Boolean)
+          const itemsBySku = new Map<string, { sku: string, quantity: number, orderIds: Set<string> }>()
+          for (const order of stopOrders) {
+            for (const item of order!.items) {
+              const existing = itemsBySku.get(item.sku)
+              if (existing) {
+                existing.quantity += item.quantity
+                existing.orderIds.add(String(order!._id))
+              } else {
+                itemsBySku.set(item.sku, { sku: item.sku, quantity: item.quantity, orderIds: new Set([String(order!._id)]) })
+              }
+            }
+          }
+          const items = Array.from(itemsBySku.values()).map(item => ({
+            sku: item.sku,
+            orderIds: Array.from(item.orderIds).map(id => new mongoose.Types.ObjectId(id)),
+            expectedQuantity: item.quantity
+          }))
+          return {
+            tripId: trip._id as mongoose.Types.ObjectId,
+            tripStopId: stop.tripStopId as mongoose.Types.ObjectId,
+            outletId: stop.outletId,
+            driverId: trip.driverId as mongoose.Types.ObjectId,
+            items
+          }
+        })
+        await DeliveryCommandPort.createDeliveryRecordsForPublishedTrip(deliveryRecords, session)
+
         trip.status = "published"
         trip.set("constraintCheck", { checkedAt: new Date(), valid: true, rules: validation.rules })
         trip.statusHistory.push({ status: "published", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId) })
