@@ -5,8 +5,8 @@ import { randomCode, sha256 } from "../../common/crypto.js"
 import { badRequest, forbidden, unauthorized } from "../../common/errors.js"
 import { issueAccessToken } from "../../common/auth.js"
 import { noContent, ok } from "../../common/response.js"
-import { AuthHandoff } from "../../database/models/index.js"
 import { User, type Role } from "./persistence/user.model.js"
+import { AuthHandoff } from "./persistence/auth-handoff.model.js"
 import { audit } from "../../common/audit.js"
 
 const loginBody = z.object({

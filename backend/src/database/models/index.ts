@@ -12,17 +12,7 @@ const statusEventSchema = new Schema(
   { _id: false },
 )
 
-const handoffSchema = new Schema(
-  {
-    codeHash: { type: String, required: true, unique: true },
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    intendedOrigin: { type: String, required: true },
-    expiresAt: { type: Date, required: true },
-    consumedAt: Date,
-  },
-  { timestamps: true, versionKey: false },
-)
-handoffSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
 
 const outletSchema = new Schema(
   {
@@ -314,7 +304,6 @@ const syncReceiptSchema = new Schema(
 )
 syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
-export const AuthHandoff = model("AuthHandoff", handoffSchema)
 export const Outlet = model("Outlet", outletSchema)
 export const Vehicle = model("Vehicle", vehicleSchema)
 export const CalendarDay = model("CalendarDay", calendarDaySchema)
