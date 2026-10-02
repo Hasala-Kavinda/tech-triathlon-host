@@ -24,6 +24,7 @@ describe("009_db11_trip_persistence", () => {
   })
 
   it("should assign sequential routeIndex to trips for the same vehicle and serviceDate", async () => {
+    await Trip.collection.dropIndex("vehicleId_1_serviceDate_1_routeIndex_1").catch(() => {})
     await Trip.collection.insertMany([
       {
         _id: new mongoose.Types.ObjectId(),

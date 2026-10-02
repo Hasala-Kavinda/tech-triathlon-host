@@ -6,7 +6,8 @@ import { audit } from "../../common/audit.js"
 import { badRequest, conflict, notFound, unprocessable } from "../../common/errors.js"
 import { ok } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { LoadRecord, Trip } from "../../database/models/index.js"
+import { Trip } from "../../database/models/index.js"
+import { LoadRecord } from "./persistence/load-record.model.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 
 async function loaderScope(request: FastifyRequest) {
@@ -106,10 +107,9 @@ export async function loadingRoutes(app: FastifyInstance) {
     if (!record) throw conflict("LOAD_ITEM_CONFLICT", "The load record changed or is not editable.")
     const item = record.items.find((candidate) => candidate.itemId === params.data.itemId)
     if (!item) throw notFound("The load item was not found.")
-    if (body.data.loadedQuantity > item.expectedQuantity) throw unprocessable("QUANTITY_EXCEEDS_EXPECTED", "Loaded quantity cannot exceed expected quantity.")
     item.status = body.data.status
     item.loadedQuantity = body.data.loadedQuantity
-    if (body.data.status === "loaded" && body.data.loadedQuantity !== item.expectedQuantity) throw unprocessable("INCOMPLETE_LOADED_ITEM", "A loaded item must account for the full expected quantity.")
+    if (body.data.status === "loaded" && body.data.loadedQuantity < item.expectedQuantity) throw unprocessable("INCOMPLETE_LOADED_ITEM", "A loaded item must account for at least the full expected quantity.")
     await record.save()
     return ok(request, record.toObject())
   })
@@ -127,7 +127,7 @@ export async function loadingRoutes(app: FastifyInstance) {
     if (body.data.quantity > item.expectedQuantity) throw unprocessable("QUANTITY_EXCEEDS_EXPECTED", "Exception quantity cannot exceed expected quantity.")
     item.status = body.data.type
     item.loadedQuantity = item.expectedQuantity - body.data.quantity
-    item.exception = { type: body.data.type, quantity: body.data.quantity, reasonCode: body.data.reasonCode, note: body.data.note }
+    item.exception = { type: body.data.type, quantity: body.data.quantity, reasonCode: body.data.reasonCode, ...(body.data.note ? { note: body.data.note } : {}) }
     await record.save()
     await audit(request, "load.exception_recorded", "load_record", record.id, { itemId: item.itemId, type: body.data.type, quantity: body.data.quantity })
     return ok(request, record.toObject())

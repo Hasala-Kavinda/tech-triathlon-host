@@ -4,36 +4,7 @@ export { ROLES, type Role, User } from "../../modules/auth/persistence/user.mode
 
 export { Trip } from "../../modules/planning/persistence/trip.model.js"
 
-const loadItemSchema = new Schema(
-  {
-    itemId: { type: String, required: true },
-    stopId: { type: String, required: true },
-    orderId: { type: Schema.Types.ObjectId, required: true },
-    sku: { type: String, required: true },
-    name: { type: String, required: true },
-    expectedQuantity: { type: Number, required: true },
-    loadedQuantity: { type: Number, default: 0 },
-    status: { type: String, enum: ["pending", "loaded", "missing", "damaged"], default: "pending" },
-    exception: { type: Schema.Types.Mixed },
-  },
-  { _id: false },
-)
-
-const loadRecordSchema = new Schema(
-  {
-    tripId: { type: Schema.Types.ObjectId, ref: "Trip", required: true, unique: true },
-    depot: { type: String, required: true },
-    status: { type: String, enum: ["available", "claimed", "loading", "reconciled", "confirmed"], default: "available" },
-    claimedBy: { type: Schema.Types.ObjectId, ref: "User" },
-    claimedAt: Date,
-    loadingStartedAt: Date,
-    confirmedAt: Date,
-    items: { type: [loadItemSchema], default: [] },
-  },
-  { timestamps: true, versionKey: "version", optimisticConcurrency: true },
-)
-loadRecordSchema.index({ depot: 1, status: 1, createdAt: -1 })
-
+export { LoadRecord } from "../../modules/loading/persistence/load-record.model.js"
 const deliveryItemSchema = new Schema(
   { orderId: Schema.Types.ObjectId, sku: String, expected: Number, delivered: Number, short: Number, damaged: Number, note: String },
   { _id: false },
@@ -142,7 +113,6 @@ syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
 
 
-export const LoadRecord = model("LoadRecord", loadRecordSchema)
 export const DeliveryRecord = model("DeliveryRecord", deliveryRecordSchema)
 export const TripLocation = model("TripLocation", locationSchema)
 export const OperationalEvent = model("OperationalEvent", eventSchema)
