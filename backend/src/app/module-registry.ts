@@ -1,20 +1,20 @@
 import { FastifyInstance } from "fastify"
-import { authRoutes } from "../modules/auth/routes.js"
-import { referenceRoutes } from "../modules/reference/routes.js"
-import { orderRoutes } from "../modules/orders/routes.js"
-import { planningRoutes } from "../modules/planning/routes.js"
-import { loadingRoutes } from "../modules/loading/routes.js"
-import { driverRoutes } from "../modules/driver/routes.js"
-import { operationRoutes } from "../modules/operations/routes.js"
-import { fileRoutes } from "../modules/files/routes.js"
+import { authModule } from "../modules/auth/auth.module.js"
+import { referenceModule } from "../modules/reference/reference.module.js"
+import { storeModule } from "../modules/store/store.module.js"
+import { planningModule } from "../modules/planning/planning.module.js"
+import { loadingModule } from "../modules/loading/loading.module.js"
+import { deliveryModule } from "../modules/delivery/delivery.module.js"
+import { operationsModule } from "../modules/operations/operations.module.js"
+import { filesModule } from "../modules/files/files.module.js"
 
 export async function registerModules(api: FastifyInstance) {
-  await api.register(authRoutes)
-  await api.register(referenceRoutes)
-  await api.register(orderRoutes)
-  await api.register(planningRoutes)
-  await api.register(loadingRoutes)
-  await api.register(driverRoutes)
-  await api.register(operationRoutes)
-  await api.register(fileRoutes)
+  await api.register(authModule)
+  await api.register(referenceModule)
+  await api.register(storeModule)
+  await api.register(planningModule)
+  await api.register(loadingModule)
+  await api.register(deliveryModule)
+  await api.register(operationsModule)
+  await api.register(filesModule)
 }
