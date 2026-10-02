@@ -27,12 +27,18 @@ const ruleSchema = new Schema(
 
 const stopSchema = new Schema(
   {
-    stopId: { type: String, required: true },
+    // DB-10: stable ObjectId identity — does NOT depend on array position
+    tripStopId: { type: Schema.Types.ObjectId, required: true, default: () => new mongoose.Types.ObjectId() },
+    // DB-10: multi-order reference — all Orders served at this physical stop
+    orderIds: { type: [Schema.Types.ObjectId], ref: "Order", required: true, validate: { validator: (v: mongoose.Types.ObjectId[]) => v.length > 0, message: "A TripStop must reference at least one order" } },
+    // Legacy: single-order shorthand kept for DeliveryRecord backward compat (DB-11 will remove)
     orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true },
     outletId: { type: String, required: true },
     sequence: { type: Number, required: true },
     plannedArrivalAt: Date,
     status: { type: String, default: "planned" },
+    // Legacy: string stopId kept for DeliveryRecord.stopId backward compat (DB-11 will remove)
+    stopId: { type: String, required: true },
   },
   { _id: false },
 )

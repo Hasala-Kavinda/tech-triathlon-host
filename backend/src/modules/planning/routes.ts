@@ -60,7 +60,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const trip = await Trip.create({
       tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
       ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
-      stops: parsed.data.stops.map((stop, index) => ({ stopId: `STOP-${index + 1}`, orderId: stop.orderId, outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
+      stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
       constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
       statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
     })
