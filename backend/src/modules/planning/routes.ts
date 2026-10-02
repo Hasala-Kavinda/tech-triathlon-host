@@ -19,6 +19,7 @@ import { validateTrip } from "./constraints.js"
 const tripBody = z.object({
   serviceDate: z.string(), departureAt: z.coerce.date(), plannedEndAt: z.coerce.date(), vehicleId: z.string().min(1), driverId: z.string().min(1),
   distanceKm: z.number().min(0),
+  routeIndex: z.number().int().min(1).optional().default(1),
   stops: z.array(z.object({ orderId: z.string().min(1), plannedArrivalAt: z.coerce.date() })).min(1),
 })
 
@@ -60,6 +61,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const trip = await Trip.create({
       tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
       ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
+      totals: { distanceKm: parsed.data.distanceKm, weightKg: 0, volumeM3: 0, fuelLitres: 0 },
       stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
       constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
       statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
@@ -74,11 +76,11 @@ export async function planningRoutes(app: FastifyInstance) {
     if (!params.success) throw badRequest("A trip ID is required.")
     const trip = await Trip.findById(params.data.tripId)
     if (!trip) throw notFound()
-    const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
+    const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
     const validation = await buildValidation(data, trip.id)
     trip.set("constraintCheck", { checkedAt: new Date(), valid: validation.valid, rules: validation.rules })
     await trip.save()
-    return ok(request, { ...validation, version: trip.version })
+    return ok(request, { ...validation, version: (trip as any).version })
   })
 
   app.post("/planning/trips/:tripId/publish", { preHandler: app.authenticate }, async (request) => {
@@ -93,7 +95,7 @@ export async function planningRoutes(app: FastifyInstance) {
       await session.withTransaction(async () => {
         const trip = await Trip.findOne({ _id: params.data.tripId, status: "draft", version }).session(session)
         if (!trip) throw conflict("STALE_OR_INVALID_STATE", "The trip changed or is no longer a draft.")
-        const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
+        const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
         const validation = await buildValidation(data, trip.id)
         if (!validation.valid) throw unprocessable("TRIP_CONSTRAINTS_FAILED", "The trip does not satisfy all hard constraints.", validation)
         const orderIds = trip.stops.map((stop) => stop.orderId)

@@ -117,7 +117,7 @@ export async function driverRoutes(app: FastifyInstance) {
     )
     stop.status = "arrived"; await trip.save()
     await audit(request, "delivery.arrived", "delivery", record.id, { clientRecordedAt: body.data.arrivedAt.toISOString() })
-    return ok(request, { delivery: record.toObject(), tripVersion: trip.version })
+    return ok(request, { delivery: record.toObject(), tripVersion: (trip as any).version })
   })
 
   app.patch("/trips/:tripId/stops/:stopId/items", { preHandler: app.authenticate }, async (request) => {
@@ -186,7 +186,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!params.success || !body.success) throw badRequest("End-meter evidence and current version are required.")
     const version = expectedVersion(request, body.data.expectedVersion)
     const trip = await assignedTrip(params.data.tripId, auth.userId)
-    if (trip.version !== version || trip.status !== "in_transit") throw conflict("TRIP_FINISH_CONFLICT", "The trip changed or is not active.")
+    if ((trip as any).version !== version || trip.status !== "in_transit") throw conflict("TRIP_FINISH_CONFLICT", "The trip changed or is not active.")
     const incomplete = await DeliveryRecord.countDocuments({ tripId: trip._id, status: { $ne: "completed" } })
     if (incomplete) throw unprocessable("STOPS_INCOMPLETE", "Every stop must be completed before finishing the trip.", { incomplete })
     trip.status = "completed"; trip.completedAt = new Date(); trip.endFileAssetId = body.data.endFileAssetId; trip.statusHistory.push({ status: "completed", at: new Date(), actorId: auth.userId }); await trip.save()

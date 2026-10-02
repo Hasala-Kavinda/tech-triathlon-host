@@ -117,12 +117,12 @@ describe("DB-10: TripStop stable identity", () => {
     ]
     const trip = await Trip.create({ ...baseTrip(), stops })
     const reloaded = await Trip.findById(trip._id).lean()
-    expect(reloaded!.stops[0]!.sequence).toBe(1)
-    expect(reloaded!.stops[1]!.sequence).toBe(2)
-    expect(reloaded!.stops[2]!.sequence).toBe(3)
-    expect(reloaded!.stops[0]!.outletId).toBe("OUT001")
-    expect(reloaded!.stops[1]!.outletId).toBe("OUT002")
-    expect(reloaded!.stops[2]!.outletId).toBe("OUT003")
+    expect((reloaded!.stops as unknown as any[])[0]!.sequence).toBe(1)
+    expect((reloaded!.stops as unknown as any[])[1]!.sequence).toBe(2)
+    expect((reloaded!.stops as unknown as any[])[2]!.sequence).toBe(3)
+    expect((reloaded!.stops as unknown as any[])[0]!.outletId).toBe("OUT001")
+    expect((reloaded!.stops as unknown as any[])[1]!.outletId).toBe("OUT002")
+    expect((reloaded!.stops as unknown as any[])[2]!.outletId).toBe("OUT003")
   })
 
   it("8. tripStopId identity does NOT depend on array position", async () => {
@@ -144,22 +144,22 @@ describe("DB-10: TripStop stable identity", () => {
 
     const reloaded = await Trip.findById(trip._id).lean()
     // tripStopId A remains at position 0, B at position 1 — IDs unchanged despite sequence flip
-    expect(String(reloaded!.stops[0]!.tripStopId)).toBe(String(idA))
-    expect(String(reloaded!.stops[1]!.tripStopId)).toBe(String(idB))
+    expect(String((reloaded!.stops as unknown as any[])[0]!.tripStopId)).toBe(String(idA))
+    expect(String((reloaded!.stops as unknown as any[])[1]!.tripStopId)).toBe(String(idB))
   })
 
   it("9. Legacy orderId (single) is preserved", async () => {
     const orderId = new Types.ObjectId()
     const trip = await Trip.create({ ...baseTrip(), stops: [baseStop({ orderId, orderIds: [orderId] })] })
     const reloaded = await Trip.findById(trip._id).lean()
-    expect(String(reloaded!.stops[0]!.orderId)).toBe(String(orderId))
+    expect(String((reloaded!.stops as unknown as any[])[0]!.orderId)).toBe(String(orderId))
   })
 
   it("10. Legacy stopId string is preserved for DeliveryRecord compat", async () => {
     const stop = baseStop({ stopId: "STOP-LEGACY-42" })
     const trip = await Trip.create({ ...baseTrip(), stops: [stop] })
     const reloaded = await Trip.findById(trip._id).lean()
-    expect(reloaded!.stops[0]!.stopId).toBe("STOP-LEGACY-42")
+    expect((reloaded!.stops as unknown as any[])[0]!.stopId).toBe("STOP-LEGACY-42")
   })
 
   it("11. TripStop does NOT exist in a separate collection", async () => {
@@ -175,10 +175,10 @@ describe("DB-10: TripStop stable identity", () => {
     const trip = await Trip.create({ ...baseTrip(), stops: [baseStop({ tripStopId: stopId })] })
 
     // Update trip metadata (not stops) and save
-    trip.status = "draft"
+    trip.status = "draft" as any
     await trip.save()
 
     const reloaded = await Trip.findById(trip._id).lean()
-    expect(String(reloaded!.stops[0]!.tripStopId)).toBe(String(stopId))
+    expect(String((reloaded!.stops as unknown as any[])[0]!.tripStopId)).toBe(String(stopId))
   })
 })
