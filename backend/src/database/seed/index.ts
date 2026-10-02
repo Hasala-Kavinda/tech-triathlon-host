@@ -4,7 +4,7 @@ import argon2 from "argon2"
 import { parse } from "csv-parse/sync"
 import { loadConfig } from "../../config/env.js"
 import { connectDatabase, disconnectDatabase } from "../../db/connection.js"
-import { DeliveryRecord, FileAsset, IdempotencyRecord, LoadRecord, OperationalEvent, SyncReceipt, Trip, TripLocation, User } from "../models/index.js"
+import { DeliveryRecord, FileAsset, LoadRecord, MutationLedger, OperationalEvent, Trip, TripLocation, User } from "../models/index.js"
 import { AuthHandoff } from "../../modules/auth/persistence/auth-handoff.model.js"
 import { Outlet } from "../../modules/reference/persistence/outlet.model.js"
 import { Product } from "../../modules/reference/persistence/product.model.js"
@@ -187,7 +187,7 @@ async function main() {
   await Promise.all([
     User.syncIndexes(), AuthHandoff.syncIndexes(), Outlet.syncIndexes(), Vehicle.syncIndexes(), CalendarDay.syncIndexes(),
     Product.syncIndexes(), Order.syncIndexes(), Trip.syncIndexes(), LoadRecord.syncIndexes(), DeliveryRecord.syncIndexes(),
-    TripLocation.syncIndexes(), OperationalEvent.syncIndexes(), FileAsset.syncIndexes(), IdempotencyRecord.syncIndexes(), SyncReceipt.syncIndexes(),
+    TripLocation.syncIndexes(), OperationalEvent.syncIndexes(), FileAsset.syncIndexes(), MutationLedger.syncIndexes(),
   ])
   if (mode === "all" || mode === "reference") await upsertReference()
   if (mode === "all" || mode === "users") await upsertUsers()

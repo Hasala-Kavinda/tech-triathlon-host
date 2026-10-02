@@ -11,7 +11,8 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, SyncReceipt, Trip } from "../../database/models/index.js"
+import { DeliveryRecord, Trip } from "../../database/models/index.js"
+import { MutationLedgerCommandPort } from "../audit/mutation-ledger.command-port.js"
 import { TripLocationCommandPort } from "../delivery/trip-location.command-port.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { markOrderDelivered } from "../orders/order.commands.js"
@@ -237,7 +238,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!body.success) throw badRequest("The sync batch is invalid.", body.error.flatten())
     const results: Array<Record<string, unknown>> = []
     for (const mutation of body.data.mutations) {
-      const prior = await SyncReceipt.findOne({ clientMutationId: mutation.clientMutationId, driverId: auth.userId }).lean()
+      const prior = await MutationLedgerCommandPort.findSyncReceipt(mutation.clientMutationId, auth.userId)
       if (prior) { results.push({ clientMutationId: mutation.clientMutationId, result: "duplicate", response: prior.response }); continue }
       let result: "applied" | "conflict" | "rejected" = "rejected"
       let response: unknown = { code: "UNSUPPORTED_OFFLINE_OPERATION", message: "This operation is not accepted by the offline sync contract." }
@@ -260,7 +261,7 @@ export async function driverRoutes(app: FastifyInstance) {
           else { result = "conflict"; response = { code: "TRIP_NOT_ASSIGNED" } }
         }
       }
-      await SyncReceipt.create({ clientMutationId: mutation.clientMutationId, driverId: auth.userId, tripId: mutation.entityId, operation: mutation.operation, result, response })
+      await MutationLedgerCommandPort.recordSyncReceipt({ mutationId: mutation.clientMutationId, actorId: auth.userId, entityId: mutation.entityId, operation: mutation.operation, result, response })
       results.push({ clientMutationId: mutation.clientMutationId, result, response })
     }
     return ok(request, { deviceId: body.data.deviceId, results })
