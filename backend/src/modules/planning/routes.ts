@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto"
 import mongoose from "mongoose"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
@@ -17,6 +16,7 @@ import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/ord
 import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
+import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const tripBody = z.object({
   serviceDate: z.string(), departureAt: z.coerce.date(), plannedEndAt: z.coerce.date(), vehicleId: z.string().min(1), driverId: z.string().min(1),
@@ -60,16 +60,26 @@ export async function planningRoutes(app: FastifyInstance) {
     const validation = await buildValidation(parsed.data)
     const orders = await OrderReadPort.findByIds(parsed.data.stops.map((stop) => stop.orderId))
     const orderMap = new Map(orders.map((order) => [String(order._id), order]))
-    const trip = await Trip.create({
-      tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
-      ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
-      totals: { distanceKm: parsed.data.distanceKm, weightKg: 0, volumeM3: 0, fuelLitres: 0 },
-      stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
-      constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
-      statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
-    })
-    await audit(request, "trip.draft_created", "trip", trip.id, { valid: validation.valid })
-    return reply.status(201).send(ok(request, trip.toObject()))
+    let trip!: InstanceType<typeof Trip>
+    const session = await mongoose.startSession()
+    try {
+      await session.withTransaction(async () => {
+        const seq = await CounterCommandPort.getNextSequence("trip", session)
+        trip = (await Trip.create(
+          [{
+            tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${String(seq).padStart(6, "0")}`,
+            ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
+            totals: { distanceKm: parsed.data.distanceKm, weightKg: 0, volumeM3: 0, fuelLitres: 0 },
+            stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
+            constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
+            statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
+          }],
+          { session },
+        ))[0]!
+      })
+    } finally { await session.endSession() }
+    await audit(request, "trip.draft_created", "trip", trip!.id, { valid: validation.valid })
+    return reply.status(201).send(ok(request, trip!.toObject()))
   })
 
   app.post("/planning/trips/:tripId/validate", { preHandler: app.authenticate }, async (request) => {

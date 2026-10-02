@@ -1,5 +1,6 @@
 import mongoose, { Schema, model } from "mongoose"
 
+export { Counter } from "../persistence/counter.model.js"
 export { ROLES, type Role, User } from "../../modules/auth/persistence/user.model.js"
 
 export { Trip } from "../../modules/planning/persistence/trip.model.js"

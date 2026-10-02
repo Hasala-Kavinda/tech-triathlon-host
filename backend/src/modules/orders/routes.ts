@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import mongoose from "mongoose"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
@@ -13,6 +13,7 @@ import { UserReadPort } from "../auth/user.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { ProductReadPort } from "../reference/product.read-port.js"
 import { CalendarDayReadPort } from "../reference/calendar-day.read-port.js"
+import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const createBody = z.object({
   orderType: z.string().min(1).max(40),
@@ -64,21 +65,32 @@ export async function orderRoutes(app: FastifyInstance) {
     })
     const now = new Date()
     const cutoff = cutoffContext(parsed.data.requestedDate)
-    const order = await Order.create({
-      orderNumber: `ORD-${now.toISOString().slice(2, 10).replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
-      outletId: outlet.outletId,
-      storeManagerId: auth.userId,
-      brand: outlet.brand,
-      orderType: parsed.data.orderType,
-      requestedDate: parsed.data.requestedDate,
-      cutoffBucket: cutoff.cutoffBucket,
-      items,
-      totalWeightKg: items.reduce((total, item) => total + item.unitWeightKg * item.quantity, 0),
-      totalVolumeM3: items.reduce((total, item) => total + item.unitVolumeM3 * item.quantity, 0),
-      statusHistory: [{ status: "submitted", at: now, actorId: auth.userId }],
-    })
-    await audit(request, "order.submitted", "order", order.id, { orderNumber: order.orderNumber, outletId: outlet.outletId, cutoffBucket: cutoff.cutoffBucket })
-    const response = ok(request, order.toObject())
+    let order!: InstanceType<typeof Order>
+    const session = await mongoose.startSession()
+    try {
+      await session.withTransaction(async () => {
+        const seq = await CounterCommandPort.getNextSequence("order", session)
+        const dateTag = now.toISOString().slice(2, 10).replaceAll("-", "")
+        order = (await Order.create(
+          [{
+            orderNumber: `ORD-${dateTag}-${String(seq).padStart(6, "0")}`,
+            outletId: outlet.outletId,
+            storeManagerId: auth.userId,
+            brand: outlet.brand,
+            orderType: parsed.data.orderType,
+            requestedDate: parsed.data.requestedDate,
+            cutoffBucket: cutoff.cutoffBucket,
+            items,
+            totalWeightKg: items.reduce((total, item) => total + item.unitWeightKg * item.quantity, 0),
+            totalVolumeM3: items.reduce((total, item) => total + item.unitVolumeM3 * item.quantity, 0),
+            statusHistory: [{ status: "submitted", at: now, actorId: auth.userId }],
+          }],
+          { session },
+        ))[0]!
+      })
+    } finally { await session.endSession() }
+    await audit(request, "order.submitted", "order", order!.id, { orderNumber: order!.orderNumber, outletId: outlet.outletId, cutoffBucket: cutoff.cutoffBucket })
+    const response = ok(request, order!.toObject())
     await saveIdempotentResult({ key: idem.key, requestHash: idem.requestHash, operation: "orders.create", userId: auth.userId, statusCode: 201, response })
     return reply.status(201).send(response)
   })
