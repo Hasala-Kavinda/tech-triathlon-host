@@ -18,23 +18,6 @@ const statusEventSchema = new Schema(
 
 
 
-const calendarDaySchema = new Schema(
-  {
-    date: { type: String, required: true, unique: true },
-    dayOfWeek: { type: String, required: true },
-    isWeekend: { type: Boolean, required: true },
-    isoYear: { type: Number, required: true },
-    isoWeek: { type: Number, required: true },
-    isPayday: { type: Boolean, required: true },
-    festival: String,
-    festivalRamp: Number,
-    isHoliday: { type: Boolean, required: true },
-    monsoon: { type: Boolean, required: true },
-    isOperating: { type: Boolean, required: true },
-  },
-  { timestamps: true, versionKey: false },
-)
-
 
 const orderItemSchema = new Schema(
   {
@@ -255,7 +238,7 @@ const syncReceiptSchema = new Schema(
 syncReceiptSchema.index({ clientMutationId: 1, driverId: 1 }, { unique: true })
 
 
-export const CalendarDay = model("CalendarDay", calendarDaySchema)
+
 export const Order = model("Order", orderSchema)
 export const Trip = model("Trip", tripSchema)
 export const LoadRecord = model("LoadRecord", loadRecordSchema)

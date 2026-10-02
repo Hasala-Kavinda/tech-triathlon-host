@@ -8,10 +8,11 @@ import { findIdempotentResult, saveIdempotentResult } from "../../common/idempot
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Order } from "../../database/models/index.js"
+import { Order } from "../../database/models/index.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { ProductReadPort } from "../reference/product.read-port.js"
+import { CalendarDayReadPort } from "../reference/calendar-day.read-port.js"
 
 const createBody = z.object({
   orderType: z.string().min(1).max(40),
@@ -38,7 +39,7 @@ export async function orderRoutes(app: FastifyInstance) {
     parseServiceDate(parsed.data.requestedDate)
     const [{ outlet }, calendar, products] = await Promise.all([
       managerContext(auth.userId),
-      CalendarDay.findOne({ date: parsed.data.requestedDate }).lean(),
+      CalendarDayReadPort.findByDate(parsed.data.requestedDate),
       ProductReadPort.findActiveByIds(parsed.data.items.map((item) => item.productId)),
     ])
     if (!calendar?.isOperating) throw unprocessable("NON_OPERATING_DAY", "Orders cannot be requested for a non-operating day.")
