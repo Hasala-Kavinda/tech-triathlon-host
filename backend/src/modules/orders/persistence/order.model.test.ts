@@ -143,8 +143,11 @@ describe("Order Model (DB-09)", () => {
     expect(ORDER_STATUSES).toContain("submitted")
     expect(ORDER_STATUSES).toContain("deferred")
     expect(ORDER_STATUSES).toContain("allocated")
+    expect(ORDER_STATUSES).toContain("loading")
+    expect(ORDER_STATUSES).toContain("load_confirmed")
     expect(ORDER_STATUSES).toContain("in_transit")
     expect(ORDER_STATUSES).toContain("delivered")
+    expect(ORDER_STATUSES).toContain("delivery_failed")
     expect(ORDER_STATUSES).toContain("cancelled")
   })
 

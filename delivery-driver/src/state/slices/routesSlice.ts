@@ -97,7 +97,8 @@ export function useRoutesSlice(
     const route = routes.find((candidate) => candidate.outlets.some((outlet) => outlet.id === outletId));
     let deliveryVersion = route?.outlets.find((outlet) => outlet.id === outletId)?.apiVersion;
     let tripVersion = route?.version;
-    if (complete && route?.apiId && deliveryVersion === undefined && import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true') {
+    // Offline, arrival and item counts are queued together with the PIN at completion time.
+    if (complete && route?.apiId && deliveryVersion === undefined && navigator.onLine && import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true') {
       const arrived = await driverApi.arriveStop(route.apiId, outletId);
       const outlet = route.outlets.find((candidate) => candidate.id === outletId)!;
       const updated = await driverApi.accountStopItems(route.apiId, outletId, arrived.delivery.version, outlet.products);

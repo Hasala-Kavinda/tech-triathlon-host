@@ -25,6 +25,7 @@ import { useConditionsSlice, DEFAULT_CONDITIONS } from './slices/conditionsSlice
 import { useRoutesSlice } from './slices/routesSlice';
 import { driverApi } from '@/api/driver';
 import { queueLocation } from '@/offline/db';
+import { flushSyncQueue } from '@/offline/syncQueue';
 
 // Re-export domain types for backward compatibility
 export type {
@@ -153,6 +154,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       routesSlice.setRoutes([]);
     });
   }, []);
+
+  // Replay deliveries completed offline whenever the device is back online (and once on start).
+  const { setRoutes } = routesSlice;
+  useEffect(() => {
+    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === 'true') return;
+    const replay = () => {
+      if (!navigator.onLine) return;
+      void flushSyncQueue().then(({ syncedStops }) => {
+        if (!syncedStops.length) return;
+        setRoutes((prev) => prev.map((route) => ({
+          ...route,
+          outlets: route.outlets.map((outlet) => syncedStops.some((stop) => stop.tripId === route.apiId && stop.stopId === outlet.id) ? { ...outlet, syncStatus: 'synced' } : outlet),
+        })));
+      });
+    };
+    replay();
+    window.addEventListener('online', replay);
+    return () => window.removeEventListener('online', replay);
+  }, [setRoutes]);
 
   useEffect(() => {
     const activeTrip = routesSlice.routes.find((route) => route.status === 'in_progress' && route.apiId);

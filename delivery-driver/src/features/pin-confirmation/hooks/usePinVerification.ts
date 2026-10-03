@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/state/store';
 import { driverApi } from '@/api/driver';
 import { ApiError } from '@/api/client';
+import { queueStopCompletion } from '@/offline/syncQueue';
 
 export function usePinVerification() {
   const {
@@ -54,7 +55,24 @@ export function usePinVerification() {
 
     if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true' && selectedRoute.apiId) {
       try {
-        if (conditions.networkStatus === 'offline') throw new Error('Reconnect to verify the delivery PIN.');
+        if (conditions.networkStatus === 'offline' || !navigator.onLine) {
+          // No signal at the store: keep the PIN and delivery on the device. The server checks
+          // the PIN when this syncs, against the PIN that was valid at the time it was entered.
+          await queueStopCompletion({
+            tripId: selectedRoute.apiId,
+            stopId: activeOutlet.id,
+            pin: enteredPin,
+            includeArrival: activeOutlet.apiVersion === undefined,
+            items: activeOutlet.products.map((product) => ({ sku: product.id, delivered: Number(product.quantity), short: 0, damaged: 0 })),
+          });
+          setIsVerifying(false);
+          setIsOfflineSaved(true);
+          completeOutlet(activeOutlet.id, true);
+          track('P06');
+          const isLastOutlet = selectedRoute.outlets.filter((outlet) => outlet.id !== activeOutlet.id).every((outlet) => outlet.status === 'completed');
+          setTimeout(() => replaceScreen(isLastOutlet ? 'meter_photo_end' : returnTo === 'map' ? 'map' : 'dashboard'), 1500);
+          return;
+        }
         const result = await driverApi.completeStop(selectedRoute.apiId, activeOutlet.id, enteredPin, activeOutlet.products, activeOutlet.apiVersion, selectedRoute.version);
         setRouteVersion(selectedRoute.id, result.tripVersion);
         setIsVerifying(false);

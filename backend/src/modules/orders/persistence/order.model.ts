@@ -47,7 +47,7 @@ export interface StatusEventDoc {
   note?: string
 }
 
-export const ORDER_STATUSES = ["submitted", "deferred", "allocated", "in_transit", "delivered", "cancelled"] as const
+export const ORDER_STATUSES = ["submitted", "deferred", "allocated", "loading", "load_confirmed", "in_transit", "delivered", "delivery_failed", "cancelled"] as const
 export type OrderStatus = typeof ORDER_STATUSES[number]
 
 export const CUTOFF_BUCKETS = ["before_cutoff", "after_cutoff"] as const

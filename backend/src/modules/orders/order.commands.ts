@@ -1,5 +1,5 @@
 import mongoose from "mongoose"
-import { Order } from "./persistence/order.model.js"
+import { Order, type OrderStatus } from "./persistence/order.model.js"
 import { conflict } from "../../common/errors.js"
 
 /**
@@ -86,26 +86,50 @@ export async function deferOrderBatch(
 }
 
 /**
- * Mark an order as delivered.
- *
- * DB-10 MIGRATION POINT: This command will be superseded by the Delivery
- * persistence boundary in DB-10. For now it lives here to keep the Driver
- * module from directly accessing the Order Mongoose model.
- *
- * The delivery status write must still be transactionally safe; the caller
- * is responsible for ensuring the DeliveryRecord is persisted before calling
- * this command.
+ * Move every order allocated to a trip from one status to the next
+ * (loading, load confirmation, trip start). Only orders currently in `from`
+ * are touched, so a repeated call changes nothing.
+ * Must be called within the caller's transaction.
  */
-export async function markOrderDelivered(
-  orderId: mongoose.Types.ObjectId | string,
+export async function advanceOrdersForTrip(
+  tripId: mongoose.Types.ObjectId | string,
+  from: OrderStatus,
+  to: OrderStatus,
+  actorId: string,
+  session: mongoose.ClientSession,
+): Promise<{ modifiedCount: number }> {
+  const update = await Order.updateMany(
+    { allocatedTripId: tripId, status: from },
+    {
+      $set: { status: to },
+      $push: { statusHistory: { status: to, at: new Date(), actorId } },
+    },
+    { session },
+  )
+  return { modifiedCount: update.modifiedCount }
+}
+
+/**
+ * Record the delivery outcome on every order served by a stop.
+ * `failed` outcomes become `delivery_failed`; `delivered` and `partial`
+ * become `delivered`. Must be called within the caller's transaction so the
+ * delivery record and the orders cannot disagree.
+ */
+export async function markOrdersDelivered(
+  orderIds: (mongoose.Types.ObjectId | string)[],
+  outcome: "delivered" | "partial" | "failed",
   completedAt: Date,
   actorId: string,
-) {
-  await Order.findByIdAndUpdate(
-    orderId,
+  session: mongoose.ClientSession,
+): Promise<{ modifiedCount: number }> {
+  const status: OrderStatus = outcome === "failed" ? "delivery_failed" : "delivered"
+  const update = await Order.updateMany(
+    { _id: { $in: orderIds }, status: { $in: ["allocated", "loading", "load_confirmed", "in_transit"] } },
     {
-      $set: { status: "delivered" },
-      $push: { statusHistory: { status: "delivered", at: completedAt, actorId } },
+      $set: { status },
+      $push: { statusHistory: { status, at: completedAt, actorId } },
     },
+    { session },
   )
+  return { modifiedCount: update.modifiedCount }
 }

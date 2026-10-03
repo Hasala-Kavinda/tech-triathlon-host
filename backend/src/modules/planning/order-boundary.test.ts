@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { OrderReadPort } from "../orders/order.read-port.js"
-import { allocateOrdersToTrip, deferOrder, deferOrderBatch, markOrderDelivered } from "../orders/order.commands.js"
+import { advanceOrdersForTrip, allocateOrdersToTrip, deferOrder, deferOrderBatch, markOrdersDelivered } from "../orders/order.commands.js"
 
 // Mock both the read port and command boundary
 vi.mock("../orders/order.read-port.js", () => ({
@@ -19,7 +19,8 @@ vi.mock("../orders/order.commands.js", () => ({
   allocateOrdersToTrip: vi.fn(),
   deferOrder: vi.fn(),
   deferOrderBatch: vi.fn(),
-  markOrderDelivered: vi.fn(),
+  markOrdersDelivered: vi.fn(),
+  advanceOrdersForTrip: vi.fn(),
 }))
 
 describe("Order Boundary (DB-09 corrective pass)", () => {
@@ -73,9 +74,16 @@ describe("Order Boundary (DB-09 corrective pass)", () => {
     expect(results[0]?.result).toBe("deferred")
   })
 
-  it("should route markOrderDelivered through command boundary (DB-10 migration point)", async () => {
-    vi.mocked(markOrderDelivered).mockResolvedValue(undefined)
-    await expect(markOrderDelivered("order-id", new Date(), "driver-id")).resolves.toBeUndefined()
+  it("should route delivery outcomes for every order of a stop through the command boundary", async () => {
+    vi.mocked(markOrdersDelivered).mockResolvedValue({ modifiedCount: 2 })
+    const result = await markOrdersDelivered(["o1", "o2"], "delivered", new Date(), "driver-id", {} as any)
+    expect(result.modifiedCount).toBe(2)
+  })
+
+  it("should route trip-wide order status advances through the command boundary", async () => {
+    vi.mocked(advanceOrdersForTrip).mockResolvedValue({ modifiedCount: 3 })
+    const result = await advanceOrdersForTrip("trip-id", "allocated", "loading", "loader-id", {} as any)
+    expect(result.modifiedCount).toBe(3)
   })
 })
 

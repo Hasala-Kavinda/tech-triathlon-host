@@ -10,7 +10,7 @@ import { type UpcomingDelivery, type StatusKind } from "../types/store";
 import { statusDetails, calmSpring } from "../lib/constants";
 
 const deliveryStatusKind: Record<string, StatusKind> = { pending: "scheduled", arrived: "arrived", delivered: "received", failed: "issue" };
-const orderStatusKind: Record<string, StatusKind> = { submitted: "awaiting", deferred: "deferred", allocated: "scheduled", in_transit: "transit", delivered: "received", cancelled: "issue" };
+const orderStatusKind: Record<string, StatusKind> = { submitted: "awaiting", deferred: "deferred", allocated: "scheduled", loading: "scheduled", load_confirmed: "scheduled", in_transit: "transit", delivered: "received", delivery_failed: "issue", cancelled: "issue" };
 
 export function HomePage({
       showAttention = true,

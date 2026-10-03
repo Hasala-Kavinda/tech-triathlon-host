@@ -4,7 +4,9 @@ const MUTATIONS = "mutations"
 
 export type StoredMutation = {
   id: string
-  type: "outlet_progress" | "pin_submission" | "route_start" | "route_finish"
+  // The first four are accepted by /sync/batch. The last two come from the legacy
+  // prototype queue (state/syncQueueContext.tsx), which the live app does not mount.
+  type: "stop_arrive" | "stop_items" | "pin_submission" | "stop_complete" | "outlet_progress" | "route_start" | "route_finish"
   payload: Record<string, unknown>
   recordedAt: string
   attempts: number

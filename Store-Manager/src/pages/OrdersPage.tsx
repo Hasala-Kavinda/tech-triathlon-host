@@ -11,15 +11,18 @@ const statusPresentation: Record<StoreOrder["status"], { label: string; kind: St
   submitted: { label: "Submitted", kind: "awaiting", state: "confirmed" },
   deferred: { label: "Deferred", kind: "deferred", state: "deferred" },
   allocated: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
+  loading: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
+  load_confirmed: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
   in_transit: { label: "On the way", kind: "transit", state: "confirmed" },
   delivered: { label: "Delivered", kind: "received", state: "receipt-confirmed" },
+  delivery_failed: { label: "Delivery failed", kind: "issue", state: "confirmed" },
   cancelled: { label: "Cancelled", kind: "issue", state: "confirmed" },
 };
 
 export function OrdersPage({ onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("All");
-    const statuses = ["All", "Submitted", "Scheduled", "On the way", "Deferred", "Delivered", "Cancelled"];
+    const statuses = ["All", "Submitted", "Scheduled", "On the way", "Deferred", "Delivered", "Delivery failed", "Cancelled"];
     const [orders, setOrders] = useState<StoreOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

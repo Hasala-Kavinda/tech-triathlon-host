@@ -2,7 +2,8 @@ import { apiRequest } from "./client"
 
 export type ApiProduct = { _id: string; sku: string; name: string; brand: string; orderTypes: string[]; unit: string }
 export type CreatedOrder = { _id: string; orderNumber: string; status: string; cutoffBucket: "before_cutoff" | "after_cutoff"; version: number }
-export type StoreDelivery = { _id: string; orderId: string; status: string; outcome?: string; version: number; arrivedAt?: string; completedAt?: string; receipt?: unknown; items: Array<{ sku: string; expected: number; delivered: number; short: number; damaged: number }> }
+export type StoreDeliveryStatus = "pending" | "arrived" | "delivered" | "failed" | "receipt_confirmed" | "receipt_issue"
+export type StoreDelivery = { _id: string; orderId: string; status: StoreDeliveryStatus; outcome?: string; version: number; arrivedAt?: string; completedAt?: string; receipt?: unknown; items: Array<{ sku: string; expected: number; delivered: number; short: number; damaged: number }> }
 
 const brandName = { fresh: "Fresh", style: "Style", tech: "Tech" } as const
 const orderTypeName = (business: keyof typeof brandName, type: string) => business === "fresh" ? type : "stock"
@@ -21,7 +22,7 @@ export function submitStoreOrder(input: { business: keyof typeof brandName; type
   })
 }
 
-export type StoreOrder = { _id: string; orderNumber: string; brand: string; orderType: string; requestedDate: string; status: "submitted" | "deferred" | "allocated" | "in_transit" | "delivered" | "cancelled"; cutoffBucket: string; totalWeightKg: number; totalVolumeM3: number; createdAt: string; items: Array<{ sku: string; name: string; quantity: number; unit: string }> }
+export type StoreOrder = { _id: string; orderNumber: string; brand: string; orderType: string; requestedDate: string; status: "submitted" | "deferred" | "allocated" | "loading" | "load_confirmed" | "in_transit" | "delivered" | "delivery_failed" | "cancelled"; cutoffBucket: string; totalWeightKg: number; totalVolumeM3: number; createdAt: string; items: Array<{ sku: string; name: string; quantity: number; unit: string }> }
 
 export function getOrderHistory(page = 1, pageSize = 50) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })

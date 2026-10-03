@@ -74,7 +74,7 @@ export function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | 
                   <span className="upcoming-date">{delivery.arrivedAt ? new Date(delivery.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Scheduled"}</span>
                   <span className="upcoming-status"><strong>{delivery.status.split("_").join(" ")}</strong></span>
                   {delivery.status === "arrived" ? <Button onClick={() => void issuePin(delivery)}>Issue PIN</Button> : null}
-                  {delivery.status === "completed" && !delivery.receipt ? <Button onClick={() => void confirmReceipt(delivery)}>Confirm receipt</Button> : null}
+                  {delivery.status === "delivered" && !delivery.receipt ? <Button onClick={() => void confirmReceipt(delivery)}>Confirm receipt</Button> : null}
                 </div>
               ))}
               {!liveDeliveries.length && !liveError ? <p>No live deliveries for this outlet.</p> : null}

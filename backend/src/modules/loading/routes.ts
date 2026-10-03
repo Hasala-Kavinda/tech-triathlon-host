@@ -10,6 +10,7 @@ import { Trip } from "../../database/models/index.js"
 import { LoadRecord } from "./persistence/load-record.model.js"
 import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { advanceOrdersForTrip } from "../orders/order.commands.js"
 
 async function loaderScope(request: FastifyRequest) {
   const auth = requireRole(request, "loader")
@@ -88,14 +89,22 @@ export async function loadingRoutes(app: FastifyInstance) {
     const params = z.object({ tripId: z.string() }).safeParse(request.params)
     if (!params.success) throw badRequest("A trip ID is required.")
     const version = versionBody(request)
-    const record = await LoadRecord.findOneAndUpdate(
-      { tripId: params.data.tripId, depot, status: "claimed", claimedBy: auth.userId, version },
-      { $set: { status: "loading", loadingStartedAt: new Date() }, $inc: { version: 1 } },
-      { new: true },
-    )
-    if (!record) throw conflict("LOAD_START_CONFLICT", "The load is no longer in a startable state.")
-    await audit(request, "load.started", "load_record", record.id)
-    return ok(request, record.toObject())
+    const session = await mongoose.startSession()
+    let started: InstanceType<typeof LoadRecord> | null = null
+    try {
+      await session.withTransaction(async () => {
+        const record = await LoadRecord.findOneAndUpdate(
+          { tripId: params.data.tripId, depot, status: "claimed", claimedBy: auth.userId, version },
+          { $set: { status: "loading", loadingStartedAt: new Date() }, $inc: { version: 1 } },
+          { new: true, session },
+        )
+        if (!record) throw conflict("LOAD_START_CONFLICT", "The load is no longer in a startable state.")
+        await advanceOrdersForTrip(params.data.tripId, "allocated", "loading", auth.userId, session)
+        started = record
+      })
+    } finally { await session.endSession() }
+    await audit(request, "load.started", "load_record", started!.id)
+    return ok(request, started!.toObject())
   })
 
   app.patch("/load-jobs/:tripId/items/:itemId", { preHandler: app.authenticate }, async (request) => {
@@ -169,6 +178,7 @@ export async function loadingRoutes(app: FastifyInstance) {
         }))
         await DeliveryCommandPort.updateExpectedQuantitiesForLoadConfirmation(trip._id as mongoose.Types.ObjectId, updateItems, session)
         
+        await advanceOrdersForTrip(trip._id as mongoose.Types.ObjectId, "loading", "load_confirmed", auth.userId, session)
         record.status = "confirmed"; record.confirmedAt = new Date(); await record.save({ session })
         trip.status = "load_confirmed"; trip.statusHistory.push({ status: "load_confirmed", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId) }); await trip.save({ session })
         confirmed = record
