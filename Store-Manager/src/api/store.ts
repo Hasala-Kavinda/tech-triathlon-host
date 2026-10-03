@@ -21,6 +21,23 @@ export function submitStoreOrder(input: { business: keyof typeof brandName; type
   })
 }
 
+export type StoreOrder = { _id: string; orderNumber: string; brand: string; orderType: string; requestedDate: string; status: "submitted" | "deferred" | "allocated" | "in_transit" | "delivered" | "cancelled"; cutoffBucket: string; totalWeightKg: number; totalVolumeM3: number; createdAt: string; items: Array<{ sku: string; name: string; quantity: number; unit: string }> }
+
+export function getOrderHistory(page = 1, pageSize = 50) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  return apiRequest<StoreOrder[]>(`/store/order-history?${query}`)
+}
+
+export type DashboardPayload = {
+  recentOrders: Array<{ _id: string; orderNumber: string; status: string; orderType: string; createdAt: string; requestedDate: string }>
+  upcomingDeliveries: Array<{ _id: string; status: string; createdAt: string; arrivedAt?: string; items: Array<{ sku: string; expected: number }> }>
+  attentionCount: number
+}
+
+export function getDashboard() {
+  return apiRequest<DashboardPayload>("/store/dashboard")
+}
+
 export const storeDeliveryApi = {
   list: () => apiRequest<StoreDelivery[]>("/store/deliveries"),
   issuePin: (deliveryId: string) => apiRequest<{ pin: string; expiresAt: string }>(`/store/deliveries/${deliveryId}/pin`, { method: "POST" }),

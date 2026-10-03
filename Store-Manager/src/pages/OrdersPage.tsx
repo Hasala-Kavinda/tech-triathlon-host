@@ -1,30 +1,40 @@
 import { Plus, Search, CalendarDays, ArrowRight } from "lucide-react";
 import {  motion  } from 'motion/react';
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {  Button  } from '../components/common/Button';
 import { StatusPill } from "../components/common/StatusPill";
-import {  formatOrderType, getDefaultOrderType  } from '../lib/utils';
 import type { StatusKind } from "../types/store";
 import { calmSpring } from "../lib/constants";
+import { getOrderHistory, type StoreOrder } from "../api/store";
 
-export function OrdersPage({ business, onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
+const statusPresentation: Record<StoreOrder["status"], { label: string; kind: StatusKind; state: string }> = {
+  submitted: { label: "Submitted", kind: "awaiting", state: "confirmed" },
+  deferred: { label: "Deferred", kind: "deferred", state: "deferred" },
+  allocated: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
+  in_transit: { label: "On the way", kind: "transit", state: "confirmed" },
+  delivered: { label: "Delivered", kind: "received", state: "receipt-confirmed" },
+  cancelled: { label: "Cancelled", kind: "issue", state: "confirmed" },
+};
+
+export function OrdersPage({ onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("All");
-    const statuses = [
-            "All", "Order confirmed", "Scheduled", "On the way", 
-            "Deferred", "Awaiting confirmation", "Receipt confirmed"
-          ];
-    const orders = [
-            { id: "ORD-1082", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, view: "order-detail", state: "confirmed" },
-            { id: "ORD-1065", type: formatOrderType(business || "fresh", business === "fresh" ? "chilled" : getDefaultOrderType(business || "fresh")), date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: business === "fresh" ? "Refrigerated capacity" : "Vehicle capacity constraints", view: "order-detail", state: "deferred" },
-            { id: "ORD-1062", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", view: "order-detail", state: "scheduled" },
-            { id: "ORD-1071", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Monday, 5 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, eta: "Not scheduled yet", view: "order-detail", state: "confirmed" },
-            { id: "ORD-1045", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
-            { id: "ORD-1037", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" }
-          ];
-    const filtered = orders.filter(o => 
-            o.id.toLowerCase().includes(search.toLowerCase()) && 
-            (statusFilter === "All" || o.statusLabel === statusFilter)
+    const statuses = ["All", "Submitted", "Scheduled", "On the way", "Deferred", "Delivered", "Cancelled"];
+    const [orders, setOrders] = useState<StoreOrder[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      getOrderHistory()
+        .then((rows) => { if (!cancelled) { setOrders(rows); setError(null); } })
+        .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load orders."); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }, []);
+    const filtered = orders.filter(o =>
+            o.orderNumber.toLowerCase().includes(search.toLowerCase()) &&
+            (statusFilter === "All" || statusPresentation[o.status].label === statusFilter)
           );
     return (
     <div className="list-container">
@@ -72,41 +82,43 @@ export function OrdersPage({ business, onNewOrder, onOpenOrder }: { business: "f
       </div>
 
       <div className="upcoming-list" style={{ marginTop: "var(--space-6)" }}>
-        {filtered.length > 0 ? filtered.map(order => (
+        {loading && <p style={{ color: "var(--text-secondary)" }}>Loading orders…</p>}
+        {error && <p style={{ color: "var(--text-secondary)" }}>{error}</p>}
+        {!loading && !error && filtered.length > 0 ? filtered.map(order => {
+          const presentation = statusPresentation[order.status];
+          return (
           <motion.button
-            key={order.id}
+            key={order._id}
             className="upcoming-row"
             type="button"
             layout
-            onClick={() => onOpenOrder(order.id, order.view, order.state)}
+            onClick={() => onOpenOrder(order._id, "order-detail", presentation.state)}
             whileTap={{ scale: 0.99 }}
             transition={calmSpring}
           >
             <span className="upcoming-record">
-              <strong className="data-id">{order.id}</strong>
-              <span>{order.type}</span>
+              <strong className="data-id">{order.orderNumber}</strong>
+              <span>{order.orderType}</span>
             </span>
             <span className="upcoming-date">
               <CalendarDays />
-              {order.date}
+              {new Date(order.requestedDate).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
             </span>
             <span className="upcoming-status">
-              <StatusPill kind={order.status} />
-              {(order.eta || order.subtext) && (
-                <small style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {order.eta && <span>{order.eta}</span>}
-                  {order.subtext && <span style={{ opacity: 0.8 }}>{order.subtext}</span>}
-                </small>
-              )}
+              <StatusPill kind={presentation.kind} />
+              <small style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span>{presentation.label}</span>
+              </small>
             </span>
             <ArrowRight className="row-arrow" />
           </motion.button>
-        )) : (
+          );
+        }) : (!loading && !error && (
           <div style={{ textAlign: "center", padding: "var(--space-8) 0", color: "var(--text-secondary)" }}>
             <Search style={{ margin: "0 auto var(--space-2)", opacity: 0.5, display: "block" }} />
             <p style={{ margin: 0 }}>No orders found. Try another order ID or status filter.</p>
           </div>
-        )}
+        ))}
       </div>
     </div>
     )

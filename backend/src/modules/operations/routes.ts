@@ -24,8 +24,8 @@ export async function operationRoutes(app: FastifyInstance) {
     const outletId = await storeOutlet(auth.userId)
     const [recentOrders, upcomingDeliveries, attentionCount] = await Promise.all([
       OrderReadPort.findRecentByOutlet(outletId, 5),
-      DeliveryRecord.find({ outletId, status: { $ne: "completed" } }).sort({ createdAt: 1 }).limit(5).lean(),
-      DeliveryRecord.countDocuments({ outletId, outcome: { $in: ["partial", "failed"] } }),
+      DeliveryRecord.find({ outletId, status: { $in: ["pending", "arrived"] } }).sort({ createdAt: 1 }).limit(5).lean(),
+      DeliveryRecord.countDocuments({ outletId, outcome: { $in: ["partial", "failed"] }, status: { $in: ["delivered", "failed", "receipt_confirmed", "receipt_issue"] } }),
     ])
     return ok(request, { recentOrders, upcomingDeliveries, attentionCount })
   })
@@ -46,7 +46,7 @@ export async function operationRoutes(app: FastifyInstance) {
     const outletId = await storeOutlet(auth.userId)
     const query = z.object({ outcome: z.string().optional(), from: z.string().optional(), to: z.string().optional() }).merge(paginationSchema).safeParse(request.query)
     if (!query.success) throw badRequest("Invalid delivery history filters.")
-    const filter: Record<string, unknown> = { outletId, status: "completed" }
+    const filter: Record<string, unknown> = { outletId, status: { $in: ["delivered", "failed", "receipt_confirmed", "receipt_issue"] } }
     if (query.data.outcome) filter.outcome = query.data.outcome
     if (query.data.from || query.data.to) filter.completedAt = { ...(query.data.from ? { $gte: new Date(query.data.from) } : {}), ...(query.data.to ? { $lte: new Date(query.data.to) } : {}) }
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
@@ -74,7 +74,7 @@ export async function operationRoutes(app: FastifyInstance) {
     const body = z.object({ result: z.enum(["full", "issue"]), itemOutcomes: z.array(z.object({ sku: z.string(), received: z.number().int().min(0), issueType: z.string().optional() })).default([]), remark: z.string().max(2000).optional(), evidenceFileIds: z.array(z.string()).max(10).default([]), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("The receipt is invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
-    const record = await DeliveryRecord.findOneAndUpdate({ _id: params.data.deliveryId, outletId, status: "completed", version, receipt: { $exists: false } }, { $set: { receipt: { ...body.data, confirmedAt: new Date(), confirmedBy: auth.userId } }, $inc: { version: 1 } }, { new: true })
+    const record = await DeliveryRecord.findOneAndUpdate({ _id: params.data.deliveryId, outletId, status: { $in: ["delivered", "failed"] }, version, receipt: { $exists: false } }, { $set: { status: body.data.result === "full" ? "receipt_confirmed" : "receipt_issue", receipt: { ...body.data, confirmedAt: new Date(), confirmedBy: auth.userId } }, $inc: { version: 1 } }, { new: true })
     if (!record) throw conflict("RECEIPT_CONFLICT", "The delivery is not receivable, changed, or already has a receipt.")
     await audit(request, body.data.result === "full" ? "receipt.confirmed" : "receipt.issue_reported", "delivery", record.id, { result: body.data.result })
     return ok(request, record.toObject())

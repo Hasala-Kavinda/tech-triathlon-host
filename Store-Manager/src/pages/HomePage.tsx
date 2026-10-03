@@ -5,9 +5,12 @@ import {  Button  } from '../components/common/Button';
 import { AttentionCard } from "../components/common/PrototypeMisc";
 import {  StatusPill  } from '../components/common/StatusPill';
 import { FloatingNewOrder } from "../components/layout/TopBar";
-import { getUpcomingDeliveries, formatOrderType, getDefaultOrderType } from "../lib/utils";
-import { type UpcomingDelivery } from "../types/store";
-import { recentActivity, statusDetails, calmSpring } from "../lib/constants";
+import { getDashboard, type DashboardPayload } from "../api/store";
+import { type UpcomingDelivery, type StatusKind } from "../types/store";
+import { statusDetails, calmSpring } from "../lib/constants";
+
+const deliveryStatusKind: Record<string, StatusKind> = { pending: "scheduled", arrived: "arrived", delivered: "received", failed: "issue" };
+const orderStatusKind: Record<string, StatusKind> = { submitted: "awaiting", deferred: "deferred", allocated: "scheduled", in_transit: "transit", delivered: "received", cancelled: "issue" };
 
 export function HomePage({
       showAttention = true,
@@ -30,6 +33,18 @@ export function HomePage({
           onBusinessChange?: (b: "fresh" | "style" | "tech") => void
           onNavigate: (label: string) => void
         }) {
+    const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    useEffect(() => {
+      let cancelled = false;
+      getDashboard()
+        .then((payload) => { if (!cancelled) { setDashboard(payload); setError(null); } })
+        .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load dashboard."); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }, []);
+    const nextDelivery = dashboard?.upcomingDeliveries[0] ?? null;
     return (
         <div className="home-page">
           <div className="home-page-header">
@@ -68,7 +83,7 @@ export function HomePage({
 
           <motion.section className="home-section" layout transition={calmSpring}>
             <HomeSectionHeader title="Next delivery" />
-            <NextDeliveryHero business={business} onOpen={() => onOpenOrder("ORD-1062", "order-detail", "scheduled")} />
+            <NextDeliveryHero delivery={nextDelivery} onOpen={() => nextDelivery && onOpenOrder(nextDelivery._id, "order-detail", "scheduled")} />
           </motion.section>
 
     <AnimatePresence initial={false}>
@@ -100,15 +115,22 @@ export function HomePage({
                     exit={{ opacity: 0, y: -6 }}
                     transition={calmSpring}
                   >
-                    {getUpcomingDeliveries(business || "fresh").map((delivery) => (
-                      <UpcomingDeliveryRow business={business}
-                        delivery={delivery}
-                        key={delivery.id}
-                        onOpen={
-                          delivery.id === "ORD-1065" ? onOpenDeferred : undefined
-                        }
+                    {loading && <p style={{ color: "var(--text-secondary)" }}>Loading…</p>}
+                    {error && <p style={{ color: "var(--text-secondary)" }}>{error}</p>}
+                    {!loading && !error && (dashboard?.upcomingDeliveries ?? []).map((delivery) => (
+                      <UpcomingDeliveryRow
+                        key={delivery._id}
+                        delivery={{
+                          id: delivery._id,
+                          type: `${delivery.items.length} item${delivery.items.length === 1 ? "" : "s"}`,
+                          date: new Date(delivery.arrivedAt ?? delivery.createdAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+                          status: delivery.status === "arrived" ? "confirmed" : "scheduled",
+                          eta: delivery.status === "arrived" ? "Arrived" : "Scheduled",
+                        }}
+                        onOpen={() => onOpenOrder(delivery._id, "order-detail", "scheduled")}
                       />
                     ))}
+                    {!loading && !error && (dashboard?.upcomingDeliveries ?? []).length === 0 && <UpcomingEmptyState />}
                   </motion.div>
                 ) : (
                   <UpcomingEmptyState key="upcoming-empty" />
@@ -118,7 +140,7 @@ export function HomePage({
 
             <section className="home-panel activity-panel">
               <HomeSectionHeader title="Recent activity" action="View all" onAction={() => onNavigate("Deliveries")} />
-              <RecentActivityList />
+              <RecentActivityList orders={dashboard?.recentOrders ?? []} loading={loading} />
             </section>
           </motion.div>
           <FloatingNewOrder onClick={onNewOrder} />
@@ -148,7 +170,18 @@ export function HomeSectionHeader({
     )
 }
 
-export function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () => void, business?: "fresh" | "style" | "tech" }) {
+export function NextDeliveryHero({ onOpen, delivery }: { onOpen?: () => void, delivery?: DashboardPayload["upcomingDeliveries"][number] | null }) {
+    if (!delivery) {
+      return (
+        <motion.div className="next-delivery-card" layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={calmSpring}>
+          <div className="next-delivery-main">
+            <div className="delivery-name">No upcoming deliveries</div>
+            <span className="order-reference">New deliveries will appear here once a trip is published.</span>
+          </div>
+        </motion.div>
+      );
+    }
+    const kind = deliveryStatusKind[delivery.status] ?? "scheduled";
     return (
     <motion.div
       className="next-delivery-card"
@@ -161,31 +194,20 @@ export function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () =
         <div className="next-delivery-heading">
           <span className="delivery-date">
             <CalendarDays />
-            Tomorrow · Thursday, 1 October
+            {new Date(delivery.arrivedAt ?? delivery.createdAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
           </span>
-          <StatusPill kind="scheduled" />
+          <StatusPill kind={kind} />
         </div>
-        <div className="delivery-name">{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</div>
+        <div className="delivery-name">{delivery.status === "arrived" ? "Delivery arrived" : "Delivery scheduled"}</div>
         <span className="order-reference">
-          Order <strong className="data-id">ORD-1062</strong>
+          Delivery <strong className="data-id">{delivery._id}</strong>
         </span>
       </div>
 
       <div className="next-delivery-eta">
-        <span className="field-label">Expected arrival</span>
-        <strong>06:40–07:00</strong>
-        <span>Tomorrow morning</span>
-      </div>
-
-      <div className="next-delivery-meta">
-        <div>
-          <span>Trip</span>
-          <strong className="data-id">PLG-03</strong>
-        </div>
-        <div>
-          <span>Vehicle</span>
-          <strong className="data-id">WP-014</strong>
-        </div>
+        <span className="field-label">Items</span>
+        <strong>{delivery.items.length}</strong>
+        <span>{delivery.items.reduce((sum, item) => sum + item.expected, 0)} units expected</span>
       </div>
 
       <Button tone="secondary" className="view-details-button" onClick={onOpen}>
@@ -196,7 +218,7 @@ export function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () =
     )
 }
 
-export function UpcomingDeliveryRow({ business, delivery, onOpen }: { business: "fresh" | "style" | "tech", delivery: UpcomingDelivery, onOpen?: () => void }) {
+export function UpcomingDeliveryRow({ delivery, onOpen }: { delivery: UpcomingDelivery, onOpen?: () => void }) {
     return (
     <motion.button
       className="upcoming-row"
@@ -229,30 +251,33 @@ export function UpcomingDeliveryRow({ business, delivery, onOpen }: { business: 
     )
 }
 
-export function RecentActivityList() {
+export function RecentActivityList({ orders, loading }: { orders: DashboardPayload["recentOrders"], loading?: boolean }) {
+    if (loading) return <p style={{ color: "var(--text-secondary)" }}>Loading…</p>;
+    if (orders.length === 0) return <p style={{ color: "var(--text-secondary)" }}>No recent orders.</p>;
     return (
     <div className="activity-list">
-      {recentActivity.map((activity) => {
-        const details = statusDetails[activity.kind]
+      {orders.map((order) => {
+        const kind = orderStatusKind[order.status] ?? "awaiting";
+        const details = statusDetails[kind];
         return (
           <motion.button
             className="activity-row"
             type="button"
-            key={activity.id}
+            key={order._id}
             whileTap={{ scale: 0.99 }}
             transition={calmSpring}
           >
             <span
-              className={`activity-icon activity-icon--${activity.kind}`}
+              className={`activity-icon activity-icon--${kind}`}
               aria-hidden="true"
             >
               {details.icon}
             </span>
             <span className="activity-copy">
-              <strong className="data-id">{activity.id}</strong>
-              <span>{activity.label}</span>
+              <strong className="data-id">{order.orderNumber}</strong>
+              <span>{details.label}</span>
             </span>
-            <time>{activity.time}</time>
+            <time>{new Date(order.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</time>
           </motion.button>
         )
       })}

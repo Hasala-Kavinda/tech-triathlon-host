@@ -36,6 +36,7 @@ const deliveryRecordSchema = new Schema(
     },
     arrivedAt: Date,
     completedAt: Date,
+    outcome: { type: String, enum: ["delivered", "partial", "failed"] },
     proof: { type: proofSchema, default: () => ({ status: "none" }) },
     receipt: Schema.Types.Mixed,
     items: [deliveryItemSchema],
