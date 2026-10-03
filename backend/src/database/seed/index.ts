@@ -3,8 +3,14 @@ import { resolve } from "node:path"
 import argon2 from "argon2"
 import { parse } from "csv-parse/sync"
 import { loadConfig } from "../../config/env.js"
-import { connectDatabase, disconnectDatabase } from "../connection.js"
-import { AuthHandoff, CalendarDay, DeliveryRecord, FileAsset, IdempotencyRecord, LoadRecord, OperationalEvent, Order, Outlet, Product, SyncReceipt, Trip, TripLocation, User, Vehicle } from "../models/index.js"
+import { connectDatabase, disconnectDatabase } from "../../db/connection.js"
+import { Counter, DeliveryRecord, FileAsset, LoadRecord, MutationLedger, OperationalEvent, Remark, Trip, TripLocation, User } from "../models/index.js"
+import { AuthHandoff } from "../../modules/auth/persistence/auth-handoff.model.js"
+import { Outlet } from "../../modules/reference/persistence/outlet.model.js"
+import { Product } from "../../modules/reference/persistence/product.model.js"
+import { Vehicle } from "../../modules/reference/persistence/vehicle.model.js"
+import { CalendarDay } from "../../modules/reference/persistence/calendar-day.model.js"
+import { Order } from "../../modules/orders/persistence/order.model.js"
 import { DEMO_PRODUCTS } from "./demo-products.js"
 import { validateReferenceData } from "./preflight.js"
 
@@ -181,7 +187,7 @@ async function main() {
   await Promise.all([
     User.syncIndexes(), AuthHandoff.syncIndexes(), Outlet.syncIndexes(), Vehicle.syncIndexes(), CalendarDay.syncIndexes(),
     Product.syncIndexes(), Order.syncIndexes(), Trip.syncIndexes(), LoadRecord.syncIndexes(), DeliveryRecord.syncIndexes(),
-    TripLocation.syncIndexes(), OperationalEvent.syncIndexes(), FileAsset.syncIndexes(), IdempotencyRecord.syncIndexes(), SyncReceipt.syncIndexes(),
+    TripLocation.syncIndexes(), OperationalEvent.syncIndexes(), FileAsset.syncIndexes(), MutationLedger.syncIndexes(), Counter.syncIndexes(), Remark.syncIndexes(),
   ])
   if (mode === "all" || mode === "reference") await upsertReference()
   if (mode === "all" || mode === "users") await upsertUsers()

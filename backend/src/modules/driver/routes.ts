@@ -1,5 +1,7 @@
 import { randomInt } from "node:crypto"
 import argon2 from "argon2"
+import mongoose from "mongoose"
+import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
@@ -9,7 +11,12 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, Order, SyncReceipt, Trip, TripLocation, User } from "../../database/models/index.js"
+import { DeliveryRecord, Trip } from "../../database/models/index.js"
+import { MutationLedgerCommandPort } from "../audit/mutation-ledger.command-port.js"
+import { TripLocationCommandPort } from "../delivery/trip-location.command-port.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { markOrderDelivered } from "../orders/order.commands.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 import { DateTime } from "luxon"
 
 function today() { return DateTime.now().setZone(OPERATING_ZONE).toFormat("yyyy-MM-dd") }
@@ -39,7 +46,7 @@ export async function driverRoutes(app: FastifyInstance) {
       { new: true },
     ).lean()
     if (!trip) throw conflict("ASSIGNMENT_ALREADY_CLAIMED", "The assignment was already claimed or changed.")
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     await audit(request, "driver.assignment_claimed", "trip", params.data.tripId)
     return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
@@ -68,7 +75,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const version = expectedVersion(request, body.data.expectedVersion)
     const trip = await Trip.findOneAndUpdate({ _id: params.data.tripId, driverId: auth.userId, claimedByDriverId: auth.userId, vehicleId: body.data.vehicleId, status: "claimed", version }, { $set: { vehicleConfirmedAt: new Date() }, $inc: { version: 1 } }, { new: true }).lean()
     if (!trip) throw conflict("VEHICLE_CONFIRMATION_FAILED", "The vehicle does not match the assignment or the trip changed.")
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
 
@@ -91,9 +98,17 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!params.success || !body.success) throw badRequest("The location batch is invalid.")
     const trip = await Trip.findOne({ _id: params.data.tripId, driverId: auth.userId, status: "in_transit" }).lean()
     if (!trip) throw conflict("TRIP_NOT_ACTIVE", "Locations can be uploaded only for the Driver's active trip.")
-    const writes = body.data.points.map((point) => ({ updateOne: { filter: { tripId: trip._id, sequence: point.sequence }, update: { $setOnInsert: { ...point, tripId: trip._id, driverId: auth.userId } }, upsert: true } }))
-    const result = await TripLocation.bulkWrite(writes, { ordered: false })
-    return ok(request, { acceptedCount: result.upsertedCount, duplicateCount: body.data.points.length - result.upsertedCount, lastPosition: body.data.points.at(-1) })
+    const writes = body.data.points.map((point) => ({
+      sequence: point.sequence,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracy: point.accuracy,
+      heading: point.heading,
+      speed: point.speed,
+      recordedAt: point.recordedAt
+    }))
+    const result = await TripLocationCommandPort.recordLocations(trip._id, auth.userId, trip.vehicleId, writes)
+    return ok(request, { acceptedCount: result.acceptedCount, duplicateCount: result.duplicateCount, lastPosition: body.data.points.at(-1) })
   })
 
   app.post("/trips/:tripId/stops/:stopId/arrive", { preHandler: app.authenticate }, async (request) => {
@@ -105,7 +120,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (trip.status !== "in_transit") throw conflict("TRIP_NOT_ACTIVE", "The trip is not active.")
     const stop = trip.stops.find((candidate) => candidate.stopId === params.data.stopId)
     if (!stop) throw notFound("The stop was not found.")
-    const order = await Order.findById(stop.orderId).lean()
+    const order = await OrderReadPort.findById(String(stop.orderId))
     if (!order) throw notFound("The stop order was not found.")
     const record = await DeliveryRecord.findOneAndUpdate(
       { tripId: trip._id, stopId: stop.stopId },
@@ -114,7 +129,7 @@ export async function driverRoutes(app: FastifyInstance) {
     )
     stop.status = "arrived"; await trip.save()
     await audit(request, "delivery.arrived", "delivery", record.id, { clientRecordedAt: body.data.arrivedAt.toISOString() })
-    return ok(request, { delivery: record.toObject(), tripVersion: trip.version })
+    return ok(request, { delivery: record.toObject(), tripVersion: (trip as any).version })
   })
 
   app.patch("/trips/:tripId/stops/:stopId/items", { preHandler: app.authenticate }, async (request) => {
@@ -123,7 +138,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const body = z.object({ items: z.array(z.object({ sku: z.string(), delivered: z.number().int().min(0), short: z.number().int().min(0), damaged: z.number().int().min(0), note: z.string().max(500).optional() })), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("Delivery item outcomes are invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
-    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "arrived", version })
+    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived", version })
     if (!record) throw conflict("DELIVERY_ITEM_CONFLICT", "The delivery changed or is not editable.")
     for (const update of body.data.items) {
       const item = record.items.find((candidate) => candidate.sku === update.sku)
@@ -137,13 +152,16 @@ export async function driverRoutes(app: FastifyInstance) {
 
   app.post("/store/deliveries/:deliveryId/pin", { preHandler: app.authenticate }, async (request) => {
     const auth = requireRole(request, "store_manager")
-    const user = await User.findById(auth.userId).lean()
+    const user = await UserReadPort.findById(auth.userId)
     if (!user?.outletId) throw notFound()
-    const pin = String(randomInt(0, 10_000)).padStart(4, "0")
-    const record = await DeliveryRecord.findOneAndUpdate({ _id: request.params && (request.params as { deliveryId: string }).deliveryId, outletId: user.outletId, status: "arrived" }, { $set: { pinHash: await argon2.hash(pin), pinExpiresAt: new Date(Date.now() + 10 * 60_000), pinAttempts: 0 } }, { new: true }).select("+pinHash")
+    const deliveryId = new mongoose.Types.ObjectId((request.params as any).deliveryId)
+    const record = await DeliveryRecord.findOne({ _id: deliveryId, outletId: user.outletId, status: "arrived" })
     if (!record) throw conflict("PIN_NOT_AVAILABLE", "A PIN can be issued only after arrival at your outlet.")
+    const pin = String(randomInt(0, 10_000)).padStart(4, "0")
+    const expiresAt = new Date(Date.now() + 10 * 60_000)
+    await DeliveryCommandPort.issueChallenge(deliveryId, pin, expiresAt)
     await audit(request, "delivery.pin_issued", "delivery", record.id)
-    return ok(request, { pin, expiresAt: record.pinExpiresAt })
+    return ok(request, { pin, expiresAt })
   })
 
   app.post("/trips/:tripId/stops/:stopId/verify-pin", { preHandler: app.authenticate }, async (request) => {
@@ -151,16 +169,21 @@ export async function driverRoutes(app: FastifyInstance) {
     const params = z.object({ tripId: z.string(), stopId: z.string() }).safeParse(request.params)
     const body = z.object({ pin: z.string().regex(/^\d{4}$/), clientRecordedAt: z.coerce.date() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("A four-digit PIN is required.")
-    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "arrived" }).select("+pinHash")
-    if (!record?.pinHash || !record.pinExpiresAt || record.pinExpiresAt <= new Date()) throw conflict("PIN_EXPIRED", "The delivery PIN is absent or expired.")
-    if (record.pinAttempts >= 5) throw conflict("PIN_ATTEMPTS_EXCEEDED", "The PIN attempt limit has been reached.")
-    const verified = await argon2.verify(record.pinHash, body.data.pin).catch(() => false)
-    record.pinAttempts += 1
-    if (verified) record.status = "proof_verified"
-    await record.save()
-    if (!verified) throw unprocessable("PIN_INCORRECT", "The PIN is incorrect.", { attemptsLeft: Math.max(0, 5 - record.pinAttempts) })
-    await audit(request, "delivery.pin_verified", "delivery", record.id, { clientRecordedAt: body.data.clientRecordedAt.toISOString() })
-    return ok(request, { verified: true, deliveryId: record.id, version: record.version })
+    const record = await DeliveryRecord.findOne({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, status: "arrived" })
+    if (!record) throw notFound()
+    
+    const result = await DeliveryCommandPort.verifyChallenge(record._id as mongoose.Types.ObjectId, body.data.pin, body.data.clientRecordedAt)
+    
+    if (result.verified) {
+      record.proof = { status: "verified", enteredAt: body.data.clientRecordedAt }
+      await record.save()
+      await audit(request, "delivery.pin_verified", "delivery", record.id, { clientRecordedAt: body.data.clientRecordedAt.toISOString() })
+      return ok(request, { verified: true, deliveryId: record.id, version: record.version })
+    } else {
+      if (result.error === "PIN_NOT_FOUND" || result.error === "PIN_EXPIRED") throw conflict("PIN_EXPIRED", "The delivery PIN is absent or expired.")
+      if (result.error === "PIN_ATTEMPTS_EXCEEDED") throw conflict("PIN_ATTEMPTS_EXCEEDED", "The PIN attempt limit has been reached.")
+      throw unprocessable("PIN_INCORRECT", "The PIN is incorrect.", { attemptsLeft: result.attemptsLeft })
+    }
   })
 
   app.post("/trips/:tripId/stops/:stopId/complete", { preHandler: app.authenticate }, async (request) => {
@@ -169,9 +192,9 @@ export async function driverRoutes(app: FastifyInstance) {
     const body = z.object({ outcome: z.enum(["delivered", "partial", "failed"]), completedAt: z.coerce.date(), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("Completion data is invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
-    const record = await DeliveryRecord.findOneAndUpdate({ tripId: params.data.tripId, stopId: params.data.stopId, driverId: auth.userId, status: "proof_verified", version }, { $set: { status: "completed", outcome: body.data.outcome, completedAt: body.data.completedAt }, $inc: { version: 1 } }, { new: true })
+    const record = await DeliveryRecord.findOneAndUpdate({ tripId: params.data.tripId, tripStopId: params.data.stopId, driverId: auth.userId, "proof.status": "verified", version }, { $set: { status: "completed", outcome: body.data.outcome, completedAt: body.data.completedAt }, $inc: { version: 1 } }, { new: true })
     if (!record) throw conflict("DELIVERY_COMPLETE_CONFLICT", "The delivery is not ready to complete or changed.")
-    await Order.findByIdAndUpdate(record.orderId, { $set: { status: "delivered" }, $push: { statusHistory: { status: "delivered", at: body.data.completedAt, actorId: auth.userId } } })
+    await markOrderDelivered(record.items[0]?.orderIds[0]!, body.data.completedAt, auth.userId)
     await audit(request, "delivery.completed", "delivery", record.id, { outcome: body.data.outcome })
     return ok(request, record.toObject())
   })
@@ -183,7 +206,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!params.success || !body.success) throw badRequest("End-meter evidence and current version are required.")
     const version = expectedVersion(request, body.data.expectedVersion)
     const trip = await assignedTrip(params.data.tripId, auth.userId)
-    if (trip.version !== version || trip.status !== "in_transit") throw conflict("TRIP_FINISH_CONFLICT", "The trip changed or is not active.")
+    if ((trip as any).version !== version || trip.status !== "in_transit") throw conflict("TRIP_FINISH_CONFLICT", "The trip changed or is not active.")
     const incomplete = await DeliveryRecord.countDocuments({ tripId: trip._id, status: { $ne: "completed" } })
     if (incomplete) throw unprocessable("STOPS_INCOMPLETE", "Every stop must be completed before finishing the trip.", { incomplete })
     trip.status = "completed"; trip.completedAt = new Date(); trip.endFileAssetId = body.data.endFileAssetId; trip.statusHistory.push({ status: "completed", at: new Date(), actorId: auth.userId }); await trip.save()
@@ -196,7 +219,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const query = paginationSchema.safeParse(request.query); if (!query.success) throw badRequest("Invalid pagination.")
     const tripIds = await Trip.find({ driverId: auth.userId }).distinct("stops.orderId")
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
-    const [rows, total] = await Promise.all([Order.find({ _id: { $in: tripIds } }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Order.countDocuments({ _id: { $in: tripIds } })])
+    const { rows, total } = await OrderReadPort.findByIdsPaged(tripIds, skip, limit)
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
@@ -215,7 +238,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!body.success) throw badRequest("The sync batch is invalid.", body.error.flatten())
     const results: Array<Record<string, unknown>> = []
     for (const mutation of body.data.mutations) {
-      const prior = await SyncReceipt.findOne({ clientMutationId: mutation.clientMutationId, driverId: auth.userId }).lean()
+      const prior = await MutationLedgerCommandPort.findSyncReceipt(mutation.clientMutationId, auth.userId)
       if (prior) { results.push({ clientMutationId: mutation.clientMutationId, result: "duplicate", response: prior.response }); continue }
       let result: "applied" | "conflict" | "rejected" = "rejected"
       let response: unknown = { code: "UNSUPPORTED_OFFLINE_OPERATION", message: "This operation is not accepted by the offline sync contract." }
@@ -223,11 +246,22 @@ export async function driverRoutes(app: FastifyInstance) {
         const point = z.object({ tripId: z.string(), sequence: z.number().int(), latitude: z.number(), longitude: z.number(), accuracy: z.number() }).safeParse(mutation.payload)
         if (point.success) {
           const trip = await Trip.findOne({ _id: point.data.tripId, driverId: auth.userId }).lean()
-          if (trip) { await TripLocation.updateOne({ tripId: trip._id, sequence: point.data.sequence }, { $setOnInsert: { ...point.data, driverId: auth.userId, recordedAt: mutation.clientRecordedAt } }, { upsert: true }); result = "applied"; response = { accepted: true } }
+          if (trip) {
+            const writes = [{
+              sequence: point.data.sequence,
+              latitude: point.data.latitude,
+              longitude: point.data.longitude,
+              accuracy: point.data.accuracy,
+              recordedAt: mutation.clientRecordedAt
+            }]
+            await TripLocationCommandPort.recordLocations(trip._id, auth.userId, trip.vehicleId, writes)
+            result = "applied"
+            response = { accepted: true }
+          }
           else { result = "conflict"; response = { code: "TRIP_NOT_ASSIGNED" } }
         }
       }
-      await SyncReceipt.create({ clientMutationId: mutation.clientMutationId, driverId: auth.userId, tripId: mutation.entityId, operation: mutation.operation, result, response })
+      await MutationLedgerCommandPort.recordSyncReceipt({ mutationId: mutation.clientMutationId, actorId: auth.userId, entityId: mutation.entityId, operation: mutation.operation, result, response })
       results.push({ clientMutationId: mutation.clientMutationId, result, response })
     }
     return ok(request, { deviceId: body.data.deviceId, results })

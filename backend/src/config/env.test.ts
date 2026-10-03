@@ -6,6 +6,7 @@ describe("environment configuration", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       JWT_SECRET: "12345678901234567890123456789012",
+      PIN_HMAC_SECRET: "12345678901234567890123456789012",
       LOGIN_ORIGIN: "http://login.test",
       DISPATCHER_ORIGIN: "http://dispatcher.test",
       LOADER_ORIGIN: "http://loader.test",
@@ -26,5 +27,18 @@ describe("environment configuration", () => {
 
   it("rejects an unsafe production secret", () => {
     expect(() => loadConfig({ NODE_ENV: "production" })).toThrow("JWT_SECRET")
+  })
+  it("uses existing defaults when values are missing", () => {
+    const config = loadConfig({ NODE_ENV: "test" })
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe("0.0.0.0")
+    expect(config.mongodbUri).toBe("mongodb://localhost:27017/waylink")
+    expect(config.accessTokenTtl).toBe("8h")
+    expect(config.logLevel).toBe("info")
+  })
+
+  it("rejects invalid configuration types", () => {
+    expect(() => loadConfig({ NODE_ENV: "test", PORT: "not-a-number" })).toThrow("Invalid environment configuration")
+    expect(() => loadConfig({ NODE_ENV: "test", LOGIN_ORIGIN: "invalid-url" })).toThrow("Invalid environment configuration")
   })
 })

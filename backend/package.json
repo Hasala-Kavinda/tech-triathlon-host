@@ -17,7 +17,9 @@
     "seed:preflight": "tsx src/database/seed/preflight-cli.ts ../CSC/products.demo.csv",
     "seed:reference": "tsx src/database/seed/index.ts reference",
     "seed:users": "tsx src/database/seed/index.ts users",
-    "seed:demo": "tsx src/database/seed/index.ts demo"
+    "seed:demo": "tsx src/database/seed/index.ts demo",
+    "db:migrate": "tsx src/db/migrations/cli.ts",
+    "db:migrate:test": "vitest run runner.test"
   },
   "dependencies": {
     "@fastify/cors": "11.1.0",

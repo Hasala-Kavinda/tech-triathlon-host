@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify"
 import { stableHash } from "./crypto.js"
 import { conflict } from "./errors.js"
-import { IdempotencyRecord } from "../database/models/index.js"
+import { MutationLedgerCommandPort } from "../modules/audit/mutation-ledger.command-port.js"
 
 export async function findIdempotentResult(request: FastifyRequest, operation: string, payload: unknown) {
   const key = request.headers["idempotency-key"]
@@ -9,11 +9,11 @@ export async function findIdempotentResult(request: FastifyRequest, operation: s
     throw conflict("IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required.")
   }
   const requestHash = stableHash(payload)
-  const existing = await IdempotencyRecord.findOne({ key, userId: request.auth!.userId, operation })
+  const existing = await MutationLedgerCommandPort.findIdempotentRecord(key, request.auth!.userId, operation)
   if (existing && existing.requestHash !== requestHash) {
     throw conflict("IDEMPOTENCY_KEY_REUSED", "This idempotency key was already used with a different request.")
   }
-  return { key, requestHash, existing }
+  return { key, requestHash, existing: existing ? { ...existing, statusCode: existing.statusCode as number } : null }
 }
 
 export async function saveIdempotentResult(input: {
@@ -24,5 +24,12 @@ export async function saveIdempotentResult(input: {
   statusCode: number
   response: unknown
 }) {
-  await IdempotencyRecord.create({ ...input, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+  await MutationLedgerCommandPort.recordIdempotentResult({
+    mutationId: input.key,
+    requestHash: input.requestHash,
+    operation: input.operation,
+    actorId: input.userId,
+    statusCode: input.statusCode,
+    response: input.response
+  })
 }

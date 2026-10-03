@@ -1,6 +1,6 @@
-import { createApp } from "./app.js"
+import { createApp } from "./app/create-app.js"
 import { loadConfig } from "./config/env.js"
-import { connectDatabase, disconnectDatabase } from "./database/connection.js"
+import { connectDatabase, disconnectDatabase } from "./db/connection.js"
 
 const config = loadConfig()
 await connectDatabase(config.mongodbUri)

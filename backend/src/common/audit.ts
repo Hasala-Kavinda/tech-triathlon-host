@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify"
-import { OperationalEvent } from "../database/models/index.js"
+import { OperationalEventCommandPort } from "../modules/audit/operational-event.command-port.js"
 
 export async function audit(
   request: FastifyRequest,
@@ -8,7 +8,7 @@ export async function audit(
   entityId: string,
   data?: Record<string, unknown>,
 ) {
-  await OperationalEvent.create({
+  await OperationalEventCommandPort.emitEvent(undefined, {
     eventType,
     entityType,
     entityId,

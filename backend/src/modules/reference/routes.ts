@@ -5,7 +5,11 @@ import { badRequest, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Outlet, Product, User, Vehicle } from "../../database/models/index.js"
+import { Outlet } from "./persistence/outlet.model.js"
+import { Product } from "./persistence/product.model.js"
+import { VehicleReadPort } from "./vehicle.read-port.js"
+import { CalendarDayReadPort } from "./calendar-day.read-port.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 
 const clean = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -29,11 +33,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     const query = z.object({ serviceDate: z.string(), depot: z.string().optional(), type: z.string().optional(), temp: z.string().optional() }).safeParse(request.query)
     if (!query.success) throw badRequest("serviceDate is required.")
     parseServiceDate(query.data.serviceDate)
-    const filter: Record<string, unknown> = { active: true }
-    if (query.data.depot) filter.depot = query.data.depot
-    if (query.data.type) filter.type = query.data.type
-    if (query.data.temp) filter.temperatureClass = query.data.temp
-    const rows = await Vehicle.find(filter).sort({ vehicleId: 1 }).lean()
+    const rows = await VehicleReadPort.findActiveByFilter({ depot: query.data.depot, type: query.data.type, temp: query.data.temp })
     return ok(request, rows)
   })
 
@@ -43,7 +43,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     if (!query.success) throw badRequest("Invalid Driver filters.")
     const filter: Record<string, unknown> = { role: "driver", active: true }
     if (query.data.depot) filter.depot = query.data.depot
-    const rows = await User.find(filter).select("employeeId name depot").sort({ name: 1 }).lean()
+    const rows = await UserReadPort.findByFilter(filter)
     return ok(request, rows)
   })
 
@@ -65,7 +65,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     const parsed = z.object({ date: z.string() }).safeParse(request.params)
     if (!parsed.success) throw badRequest("A date is required.")
     parseServiceDate(parsed.data.date)
-    const day = await CalendarDay.findOne({ date: parsed.data.date }).lean()
+    const day = await CalendarDayReadPort.findByDate(parsed.data.date)
     if (!day) throw notFound("The requested date is outside the imported operating calendar.")
     return ok(request, { ...day, ...cutoffContext(parsed.data.date) })
   })

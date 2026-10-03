@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto"
 import mongoose from "mongoose"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
@@ -9,12 +8,20 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { parseServiceDate } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { LoadRecord, Order, Trip, User, Vehicle } from "../../database/models/index.js"
+import { Trip } from "../../database/models/index.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { LoadingCommandPort } from "../loading/loading.command-port.js"
+import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
+import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/order.commands.js"
+import { UserReadPort } from "../auth/user.read-port.js"
+import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
+import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const tripBody = z.object({
   serviceDate: z.string(), departureAt: z.coerce.date(), plannedEndAt: z.coerce.date(), vehicleId: z.string().min(1), driverId: z.string().min(1),
   distanceKm: z.number().min(0),
+  routeIndex: z.number().int().min(1).optional().default(1),
   stops: z.array(z.object({ orderId: z.string().min(1), plannedArrivalAt: z.coerce.date() })).min(1),
 })
 
@@ -34,10 +41,8 @@ export async function planningRoutes(app: FastifyInstance) {
     const query = z.object({ serviceDate: z.string(), brand: z.string().optional(), status: z.string().optional() }).merge(paginationSchema).safeParse(request.query)
     if (!query.success) throw badRequest("A valid serviceDate and filters are required.")
     parseServiceDate(query.data.serviceDate)
-    const filter: Record<string, unknown> = { requestedDate: query.data.serviceDate, status: query.data.status ?? { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }
-    if (query.data.brand) filter.brand = query.data.brand
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
-    const [rows, total] = await Promise.all([Order.find(filter).sort({ cutoffBucket: 1, createdAt: 1 }).skip(skip).limit(limit).lean(), Order.countDocuments(filter)])
+    const { rows, total } = await OrderReadPort.findEligibleForDatePaged(query.data.serviceDate, query.data.brand, query.data.status, skip, limit)
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
@@ -47,23 +52,34 @@ export async function planningRoutes(app: FastifyInstance) {
     if (!parsed.success) throw badRequest("The trip draft is invalid.", parsed.error.flatten())
     parseServiceDate(parsed.data.serviceDate)
     const [driver, vehicle] = await Promise.all([
-      User.findOne({ _id: parsed.data.driverId, role: "driver", active: true }).lean(),
-      Vehicle.findOne({ vehicleId: parsed.data.vehicleId, active: true }).lean(),
+      UserReadPort.findDriverById(parsed.data.driverId),
+      VehicleReadPort.findByVehicleId(parsed.data.vehicleId),
     ])
     if (!driver) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
     if (!vehicle) throw unprocessable("VEHICLE_UNAVAILABLE", "The selected vehicle is unavailable.")
     const validation = await buildValidation(parsed.data)
-    const orders = await Order.find({ _id: { $in: parsed.data.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(parsed.data.stops.map((stop) => stop.orderId))
     const orderMap = new Map(orders.map((order) => [String(order._id), order]))
-    const trip = await Trip.create({
-      tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
-      ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
-      stops: parsed.data.stops.map((stop, index) => ({ stopId: `STOP-${index + 1}`, orderId: stop.orderId, outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
-      constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
-      statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
-    })
-    await audit(request, "trip.draft_created", "trip", trip.id, { valid: validation.valid })
-    return reply.status(201).send(ok(request, trip.toObject()))
+    let trip!: InstanceType<typeof Trip>
+    const session = await mongoose.startSession()
+    try {
+      await session.withTransaction(async () => {
+        const seq = await CounterCommandPort.getNextSequence("trip", session)
+        trip = (await Trip.create(
+          [{
+            tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${String(seq).padStart(6, "0")}`,
+            ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
+            totals: { distanceKm: parsed.data.distanceKm, weightKg: 0, volumeM3: 0, fuelLitres: 0 },
+            stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
+            constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },
+            statusHistory: [{ status: "draft", at: new Date(), actorId: auth.userId }],
+          }],
+          { session },
+        ))[0]!
+      })
+    } finally { await session.endSession() }
+    await audit(request, "trip.draft_created", "trip", trip!.id, { valid: validation.valid })
+    return reply.status(201).send(ok(request, trip!.toObject()))
   })
 
   app.post("/planning/trips/:tripId/validate", { preHandler: app.authenticate }, async (request) => {
@@ -72,11 +88,11 @@ export async function planningRoutes(app: FastifyInstance) {
     if (!params.success) throw badRequest("A trip ID is required.")
     const trip = await Trip.findById(params.data.tripId)
     if (!trip) throw notFound()
-    const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
+    const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
     const validation = await buildValidation(data, trip.id)
     trip.set("constraintCheck", { checkedAt: new Date(), valid: validation.valid, rules: validation.rules })
     await trip.save()
-    return ok(request, { ...validation, version: trip.version })
+    return ok(request, { ...validation, version: (trip as any).version })
   })
 
   app.post("/planning/trips/:tripId/publish", { preHandler: app.authenticate }, async (request) => {
@@ -91,16 +107,69 @@ export async function planningRoutes(app: FastifyInstance) {
       await session.withTransaction(async () => {
         const trip = await Trip.findOne({ _id: params.data.tripId, status: "draft", version }).session(session)
         if (!trip) throw conflict("STALE_OR_INVALID_STATE", "The trip changed or is no longer a draft.")
-        const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
+        const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
         const validation = await buildValidation(data, trip.id)
         if (!validation.valid) throw unprocessable("TRIP_CONSTRAINTS_FAILED", "The trip does not satisfy all hard constraints.", validation)
-        const orderIds = trip.stops.map((stop) => stop.orderId)
-        const update = await Order.updateMany({ _id: { $in: orderIds }, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "allocated", allocatedTripId: trip._id }, $push: { statusHistory: { status: "allocated", at: new Date(), actorId: auth.userId } } }, { session })
-        if (update.modifiedCount !== orderIds.length) throw conflict("ORDER_ALLOCATION_CONFLICT", "One or more orders were allocated concurrently.")
-        const orders = await Order.find({ _id: { $in: orderIds } }).session(session).lean()
+        const orderIds = trip.stops.flatMap((stop) => stop.orderIds || [stop.orderId])
+        const uniqueOrderIds = Array.from(new Set(orderIds.map(String)))
+        const { modifiedCount } = await allocateOrdersToTrip(uniqueOrderIds, trip._id, auth.userId, session)
+        if (modifiedCount !== uniqueOrderIds.length) throw conflict("ORDER_ALLOCATION_CONFLICT", "One or more orders were allocated concurrently.")
+        const orders = await OrderReadPort.findByIdsInSession(uniqueOrderIds, session)
         const orderMap = new Map(orders.map((order) => [String(order._id), order]))
-        const loadItems = [...trip.stops].reverse().flatMap((stop) => (orderMap.get(String(stop.orderId))?.items ?? []).map((item) => ({ itemId: `${stop.stopId}-${item.sku}`, stopId: stop.stopId, orderId: stop.orderId, sku: item.sku, name: item.name, expectedQuantity: item.quantity })))
-        await LoadRecord.create([{ tripId: trip._id, depot: trip.depot, status: "available", items: loadItems }], { session })
+        const loadItems = [...trip.stops].reverse().flatMap((stop) => {
+          const stopOrders = stop.orderIds.map((id) => orderMap.get(String(id))).filter(Boolean)
+          const itemsBySku = new Map<string, { sku: string, name: string, quantity: number, orderIds: Set<string> }>()
+          for (const order of stopOrders) {
+            for (const item of order!.items) {
+              const existing = itemsBySku.get(item.sku)
+              if (existing) {
+                existing.quantity += item.quantity
+                existing.orderIds.add(String(order!._id))
+              } else {
+                itemsBySku.set(item.sku, { sku: item.sku, name: item.name, quantity: item.quantity, orderIds: new Set([String(order!._id)]) })
+              }
+            }
+          }
+          return Array.from(itemsBySku.values()).map((item) => ({
+            itemId: `${stop.tripStopId}-${item.sku}`,
+            tripStopId: stop.tripStopId as mongoose.Types.ObjectId,
+            orderIds: Array.from(item.orderIds).map(id => new mongoose.Types.ObjectId(id)),
+            sku: item.sku,
+            name: item.name,
+            expectedQuantity: item.quantity,
+          }))
+        })
+        await LoadingCommandPort.createLoadJob({ tripId: trip._id as mongoose.Types.ObjectId, depot: trip.depot, items: loadItems }, session)
+        
+        const deliveryRecords = trip.stops.map(stop => {
+          const stopOrders = stop.orderIds.map((id) => orderMap.get(String(id))).filter(Boolean)
+          const itemsBySku = new Map<string, { sku: string, quantity: number, orderIds: Set<string> }>()
+          for (const order of stopOrders) {
+            for (const item of order!.items) {
+              const existing = itemsBySku.get(item.sku)
+              if (existing) {
+                existing.quantity += item.quantity
+                existing.orderIds.add(String(order!._id))
+              } else {
+                itemsBySku.set(item.sku, { sku: item.sku, quantity: item.quantity, orderIds: new Set([String(order!._id)]) })
+              }
+            }
+          }
+          const items = Array.from(itemsBySku.values()).map(item => ({
+            sku: item.sku,
+            orderIds: Array.from(item.orderIds).map(id => new mongoose.Types.ObjectId(id)),
+            expectedQuantity: item.quantity
+          }))
+          return {
+            tripId: trip._id as mongoose.Types.ObjectId,
+            tripStopId: stop.tripStopId as mongoose.Types.ObjectId,
+            outletId: stop.outletId,
+            driverId: trip.driverId as mongoose.Types.ObjectId,
+            items
+          }
+        })
+        await DeliveryCommandPort.createDeliveryRecordsForPublishedTrip(deliveryRecords, session)
+
         trip.status = "published"
         trip.set("constraintCheck", { checkedAt: new Date(), valid: true, rules: validation.rules })
         trip.statusHistory.push({ status: "published", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId) })
@@ -118,10 +187,10 @@ export async function planningRoutes(app: FastifyInstance) {
     const body = z.object({ nextDate: z.string(), reasonCode: z.string().min(1), note: z.string().max(1000).optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("A valid deferral request is required.")
     parseServiceDate(body.data.nextDate)
-    const order = await Order.findOneAndUpdate({ _id: params.data.orderId, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "deferred", deferredTo: body.data.nextDate, deferralReason: body.data.reasonCode }, $push: { statusHistory: { status: "deferred", at: new Date(), actorId: auth.userId, note: body.data.note ?? body.data.reasonCode } } }, { new: true })
+    const order = await deferOrder(params.data.orderId, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId)
     if (!order) throw conflict("ORDER_NOT_DEFERRABLE", "The order is no longer available for deferral.")
-    await audit(request, "order.deferred", "order", order.id, { nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
-    return ok(request, order.toObject())
+    await audit(request, "order.deferred", "order", String(order._id), { nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
+    return ok(request, order)
   })
 
   app.post("/orders/defer-batch", { preHandler: app.authenticate }, async (request) => {
@@ -129,11 +198,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const body = z.object({ orderIds: z.array(z.string()).min(1).max(100), nextDate: z.string(), reasonCode: z.string().min(1), note: z.string().max(1000).optional() }).safeParse(request.body)
     if (!body.success) throw badRequest("A valid batch deferral request is required.")
     parseServiceDate(body.data.nextDate)
-    const results = []
-    for (const orderId of body.data.orderIds) {
-      const order = await Order.findOneAndUpdate({ _id: orderId, status: { $in: ["submitted", "deferred"] }, allocatedTripId: { $exists: false } }, { $set: { status: "deferred", deferredTo: body.data.nextDate, deferralReason: body.data.reasonCode }, $push: { statusHistory: { status: "deferred", at: new Date(), actorId: auth.userId, note: body.data.note ?? body.data.reasonCode } } }, { new: true }).lean()
-      results.push({ orderId, result: order ? "deferred" : "conflict", order })
-    }
+    const results = await deferOrderBatch(body.data.orderIds, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId)
     await audit(request, "order.batch_deferred", "order_batch", request.id, { count: body.data.orderIds.length, nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
     return ok(request, results)
   })
@@ -170,7 +235,7 @@ export async function planningRoutes(app: FastifyInstance) {
     if (auth.role === "driver") filter.driverId = auth.userId
     const trip = await Trip.findOne(filter).lean()
     if (!trip) throw notFound()
-    const orders = await Order.find({ _id: { $in: trip.stops.map((stop) => stop.orderId) } }).lean()
+    const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
     return ok(request, { ...trip, orders })
   })
 }

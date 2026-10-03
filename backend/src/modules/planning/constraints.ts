@@ -1,5 +1,9 @@
 import { DateTime } from "luxon"
-import { CalendarDay, Order, Outlet, Trip, Vehicle } from "../../database/models/index.js"
+import { Trip } from "../../database/models/index.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { VehicleReadPort } from "../reference/vehicle.read-port.js"
+import { OutletReadPort } from "../reference/outlet.read-port.js"
+import { CalendarDayReadPort } from "../reference/calendar-day.read-port.js"
 import { OPERATING_ZONE } from "../../common/time.js"
 
 export type RuleResult = { code: string; passed: boolean; message: string; actual?: unknown; threshold?: unknown }
@@ -18,9 +22,9 @@ export async function validateTrip(input: {
   excludeTripId?: string
 }) {
   const [day, vehicle, orders, existingVehicleRoutes, overlappingDriverTrip] = await Promise.all([
-    CalendarDay.findOne({ date: input.serviceDate }).lean(),
-    Vehicle.findOne({ vehicleId: input.vehicleId, active: true }).lean(),
-    Order.find({ _id: { $in: input.orderIds } }).lean(),
+    CalendarDayReadPort.findByDate(input.serviceDate),
+    VehicleReadPort.findByVehicleId(input.vehicleId),
+    OrderReadPort.findByIds(input.orderIds),
     Trip.countDocuments({
       ...(input.excludeTripId ? { _id: { $ne: input.excludeTripId } } : {}),
       serviceDate: input.serviceDate,
@@ -64,7 +68,7 @@ export async function validateTrip(input: {
   const plannedFuelL = vehicle ? input.distanceKm / vehicle.kmPerL : Number.POSITIVE_INFINITY
   rules.push(passFail("WEEKLY_FUEL_QUOTA", Boolean(vehicle) && usedFuelL + plannedFuelL <= vehicle!.weeklyFuelQuotaL, "The trip must fit the vehicle's weekly fuel quota.", usedFuelL + plannedFuelL, vehicle?.weeklyFuelQuotaL))
 
-  const outlets = await Outlet.find({ outletId: { $in: orders.map((order) => order.outletId) } }).lean()
+  const outlets = await OutletReadPort.findManyByOutletIds(orders.map((order) => order.outletId))
   const outletMap = new Map(outlets.map((outlet) => [outlet.outletId, outlet]))
   for (const order of orders.filter((candidate) => candidate.brand.toLowerCase() === "fresh")) {
     const outlet = outletMap.get(order.outletId)

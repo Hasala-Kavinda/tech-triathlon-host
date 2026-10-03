@@ -4,20 +4,11 @@ import helmet from "@fastify/helmet"
 import rateLimit from "@fastify/rate-limit"
 import swagger from "@fastify/swagger"
 import { ZodError } from "zod"
-import mongoose from "mongoose"
-import type { AppConfig } from "./config/env.js"
-import { authenticateRequest } from "./common/auth.js"
-import { AppError } from "./common/errors.js"
-import { ok } from "./common/response.js"
-import { databaseReady } from "./database/connection.js"
-import { authRoutes } from "./modules/auth/routes.js"
-import { referenceRoutes } from "./modules/reference/routes.js"
-import { orderRoutes } from "./modules/orders/routes.js"
-import { planningRoutes } from "./modules/planning/routes.js"
-import { loadingRoutes } from "./modules/loading/routes.js"
-import { driverRoutes } from "./modules/driver/routes.js"
-import { operationRoutes } from "./modules/operations/routes.js"
-import { fileRoutes } from "./modules/files/routes.js"
+import type { AppConfig } from "../config/env.js"
+import { authenticateRequest } from "../common/auth.js"
+import { AppError } from "../common/errors.js"
+import { healthRoutes } from "./health.routes.js"
+import { registerModules } from "./module-registry.js"
 
 export async function createApp(config: AppConfig): Promise<FastifyInstance> {
   const app = Fastify({
@@ -71,26 +62,9 @@ export async function createApp(config: AppConfig): Promise<FastifyInstance> {
     return payload
   })
 
-  app.get("/health/live", async (request) => ok(request, { status: "alive", version: "1.0.0" }))
-  app.get("/health/ready", async (request, reply) => {
-    const ready = databaseReady()
-    return reply.status(ready ? 200 : 503).send({
-      success: ready,
-      data: { status: ready ? "ready" : "not_ready", database: mongoose.connection.readyState },
-      requestId: request.id,
-    })
-  })
+  await app.register(healthRoutes)
 
-  await app.register(async (api) => {
-    await api.register(authRoutes)
-    await api.register(referenceRoutes)
-    await api.register(orderRoutes)
-    await api.register(planningRoutes)
-    await api.register(loadingRoutes)
-    await api.register(driverRoutes)
-    await api.register(operationRoutes)
-    await api.register(fileRoutes)
-  }, { prefix: "/api/v1" })
+  await app.register(registerModules, { prefix: "/api/v1" })
 
   app.get("/docs/openapi.json", async (_request, reply) => reply.send(app.swagger()))
 

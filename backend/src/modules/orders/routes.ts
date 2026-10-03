@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import mongoose from "mongoose"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
@@ -8,7 +8,12 @@ import { findIdempotentResult, saveIdempotentResult } from "../../common/idempot
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { cutoffContext, parseServiceDate } from "../../common/time.js"
-import { CalendarDay, Order, Outlet, Product, User } from "../../database/models/index.js"
+import { Order } from "./persistence/order.model.js"
+import { UserReadPort } from "../auth/user.read-port.js"
+import { OutletReadPort } from "../reference/outlet.read-port.js"
+import { ProductReadPort } from "../reference/product.read-port.js"
+import { CalendarDayReadPort } from "../reference/calendar-day.read-port.js"
+import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const createBody = z.object({
   orderType: z.string().min(1).max(40),
@@ -17,9 +22,9 @@ const createBody = z.object({
 })
 
 async function managerContext(userId: string) {
-  const user = await User.findById(userId).lean()
+  const user = await UserReadPort.findById(userId)
   if (!user?.outletId) throw forbidden("The Store Manager is not assigned to an outlet.")
-  const outlet = await Outlet.findOne({ outletId: user.outletId, active: true }).lean()
+  const outlet = await OutletReadPort.findByOutletId(user.outletId)
   if (!outlet) throw forbidden("The assigned outlet is unavailable.")
   return { user, outlet }
 }
@@ -35,8 +40,8 @@ export async function orderRoutes(app: FastifyInstance) {
     parseServiceDate(parsed.data.requestedDate)
     const [{ outlet }, calendar, products] = await Promise.all([
       managerContext(auth.userId),
-      CalendarDay.findOne({ date: parsed.data.requestedDate }).lean(),
-      Product.find({ _id: { $in: parsed.data.items.map((item) => item.productId) }, active: true }).lean(),
+      CalendarDayReadPort.findByDate(parsed.data.requestedDate),
+      ProductReadPort.findActiveByIds(parsed.data.items.map((item) => item.productId)),
     ])
     if (!calendar?.isOperating) throw unprocessable("NON_OPERATING_DAY", "Orders cannot be requested for a non-operating day.")
     if (products.length !== new Set(parsed.data.items.map((item) => item.productId)).size) throw unprocessable("UNKNOWN_PRODUCT", "One or more products are unavailable.")
@@ -60,21 +65,32 @@ export async function orderRoutes(app: FastifyInstance) {
     })
     const now = new Date()
     const cutoff = cutoffContext(parsed.data.requestedDate)
-    const order = await Order.create({
-      orderNumber: `ORD-${now.toISOString().slice(2, 10).replaceAll("-", "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
-      outletId: outlet.outletId,
-      storeManagerId: auth.userId,
-      brand: outlet.brand,
-      orderType: parsed.data.orderType,
-      requestedDate: parsed.data.requestedDate,
-      cutoffBucket: cutoff.cutoffBucket,
-      items,
-      totalWeightKg: items.reduce((total, item) => total + item.unitWeightKg * item.quantity, 0),
-      totalVolumeM3: items.reduce((total, item) => total + item.unitVolumeM3 * item.quantity, 0),
-      statusHistory: [{ status: "submitted", at: now, actorId: auth.userId }],
-    })
-    await audit(request, "order.submitted", "order", order.id, { orderNumber: order.orderNumber, outletId: outlet.outletId, cutoffBucket: cutoff.cutoffBucket })
-    const response = ok(request, order.toObject())
+    let order!: InstanceType<typeof Order>
+    const session = await mongoose.startSession()
+    try {
+      await session.withTransaction(async () => {
+        const seq = await CounterCommandPort.getNextSequence("order", session)
+        const dateTag = now.toISOString().slice(2, 10).replaceAll("-", "")
+        order = (await Order.create(
+          [{
+            orderNumber: `ORD-${dateTag}-${String(seq).padStart(6, "0")}`,
+            outletId: outlet.outletId,
+            storeManagerId: auth.userId,
+            brand: outlet.brand,
+            orderType: parsed.data.orderType,
+            requestedDate: parsed.data.requestedDate,
+            cutoffBucket: cutoff.cutoffBucket,
+            items,
+            totalWeightKg: items.reduce((total, item) => total + item.unitWeightKg * item.quantity, 0),
+            totalVolumeM3: items.reduce((total, item) => total + item.unitVolumeM3 * item.quantity, 0),
+            statusHistory: [{ status: "submitted", at: now, actorId: auth.userId }],
+          }],
+          { session },
+        ))[0]!
+      })
+    } finally { await session.endSession() }
+    await audit(request, "order.submitted", "order", order!.id, { orderNumber: order!.orderNumber, outletId: outlet.outletId, cutoffBucket: cutoff.cutoffBucket })
+    const response = ok(request, order!.toObject())
     await saveIdempotentResult({ key: idem.key, requestHash: idem.requestHash, operation: "orders.create", userId: auth.userId, statusCode: 201, response })
     return reply.status(201).send(response)
   })

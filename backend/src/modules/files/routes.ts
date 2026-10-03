@@ -5,7 +5,8 @@ import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
 import { AppError, badRequest, forbidden, notFound } from "../../common/errors.js"
 import { ok } from "../../common/response.js"
-import { FileAsset } from "../../database/models/index.js"
+import { FileAssetCommandPort } from "./file-asset.command-port.js"
+import { FileAsset } from "./persistence/file-asset.model.js"
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"])
 const MAX_BYTES = 8 * 1024 * 1024
@@ -38,7 +39,7 @@ export async function fileRoutes(app: FastifyInstance) {
     if (!body.data.publicId.startsWith(`waylink/${auth.userId}/`)) throw forbidden("The uploaded asset does not belong to this user.")
     const expected = cloudinary.utils.api_sign_request({ public_id: body.data.publicId, version: body.data.providerVersion }, app.config.cloudinary.apiSecret)
     if (!safeEqual(expected, body.data.providerSignature)) throw forbidden("The image provider signature is invalid.")
-    const asset = await FileAsset.create({ ...body.data, ownerId: auth.userId })
+    const asset = await FileAssetCommandPort.recordVerifiedAsset({ ...body.data, ownerId: auth.userId })
     return reply.status(201).send(ok(request, asset.toObject()))
   })
 

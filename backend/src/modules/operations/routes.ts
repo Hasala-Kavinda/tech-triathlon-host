@@ -6,10 +6,14 @@ import { badRequest, conflict, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, OperationalEvent, Order, Trip, TripLocation, User } from "../../database/models/index.js"
+import { DeliveryRecord, OperationalEvent, Trip, TripLocation } from "../../database/models/index.js"
+import { RemarkCommandPort } from "../audit/remark.command-port.js"
+import { RemarkReadPort } from "../audit/remark.read-port.js"
+import { OrderReadPort } from "../orders/order.read-port.js"
+import { UserReadPort } from "../auth/user.read-port.js"
 
 async function storeOutlet(userId: string) {
-  const user = await User.findById(userId).lean()
+  const user = await UserReadPort.findById(userId)
   if (!user?.outletId) throw notFound()
   return user.outletId
 }
@@ -19,7 +23,7 @@ export async function operationRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "store_manager")
     const outletId = await storeOutlet(auth.userId)
     const [recentOrders, upcomingDeliveries, attentionCount] = await Promise.all([
-      Order.find({ outletId }).sort({ createdAt: -1 }).limit(5).lean(),
+      OrderReadPort.findRecentByOutlet(outletId, 5),
       DeliveryRecord.find({ outletId, status: { $ne: "completed" } }).sort({ createdAt: 1 }).limit(5).lean(),
       DeliveryRecord.countDocuments({ outletId, outcome: { $in: ["partial", "failed"] } }),
     ])
@@ -59,7 +63,8 @@ export async function operationRoutes(app: FastifyInstance) {
     if (!delivery) throw notFound()
     const trip = await Trip.findById(delivery.tripId).lean()
     const lastLocation = await TripLocation.findOne({ tripId: delivery.tripId }).sort({ recordedAt: -1 }).lean()
-    return ok(request, { delivery, trip, tracking: lastLocation ? { lastLocation, lastSeenAt: lastLocation.recordedAt } : null })
+    const trackingLoc = lastLocation ? { ...lastLocation, latitude: lastLocation.location.coordinates[1], longitude: lastLocation.location.coordinates[0], location: undefined } : null
+    return ok(request, { delivery, trip, tracking: trackingLoc ? { lastLocation: trackingLoc, lastSeenAt: trackingLoc.recordedAt } : null })
   })
 
   app.post("/store/deliveries/:deliveryId/receipt", { preHandler: app.authenticate }, async (request) => {
@@ -82,7 +87,8 @@ export async function operationRoutes(app: FastifyInstance) {
     const trips = await Trip.find({ serviceDate: query.data.serviceDate, status: { $in: ["published", "load_confirmed", "claimed", "in_transit", "completed"] } }).sort({ departureAt: 1 }).lean()
     const latest = await Promise.all(trips.map((trip) => TripLocation.findOne({ tripId: trip._id }).sort({ recordedAt: -1 }).lean()))
     return ok(request, trips.map((trip, index) => {
-      const location = latest[index]
+      const loc = latest[index]
+      const location = loc ? { ...loc, latitude: loc.location.coordinates[1], longitude: loc.location.coordinates[0], location: undefined } : null
       const ageSeconds = location ? Math.floor((Date.now() - location.recordedAt.getTime()) / 1000) : null
       return { ...trip, lastLocation: location, trackingState: trip.status === "completed" ? "completed" : !location ? "offline_unknown" : ageSeconds! <= 120 ? "live" : ageSeconds! <= 600 ? "delayed" : "gps_gap", lastSeenSecondsAgo: ageSeconds }
     }))
@@ -92,18 +98,26 @@ export async function operationRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "dispatcher", "loader", "driver", "store_manager")
     const body = z.object({ entityType: z.string().min(1), id: z.string().min(1), text: z.string().min(1).max(2000), audienceRoles: z.array(z.enum(["dispatcher", "loader", "driver", "store_manager"])) }).safeParse(request.body)
     if (!body.success) throw badRequest("The remark is invalid.")
-    const event = await OperationalEvent.create({ eventType: "remark.created", entityType: body.data.entityType, entityId: body.data.id, actorId: auth.userId, actorRole: auth.role, requestId: request.id, data: { text: body.data.text, audienceRoles: body.data.audienceRoles, reviewed: false } })
-    return reply.status(201).send(ok(request, event.toObject()))
+    const remark = await RemarkCommandPort.createRemark({
+      text: body.data.text,
+      entityType: body.data.entityType,
+      entityId: body.data.id,
+      actorId: auth.userId,
+      actorRole: auth.role,
+      audienceRoles: body.data.audienceRoles,
+      requestId: request.id,
+    })
+    return reply.status(201).send(ok(request, remark.toObject()))
   })
 
-  app.patch("/remarks/:eventId/review", { preHandler: app.authenticate }, async (request) => {
-    requireRole(request, "dispatcher")
-    const params = z.object({ eventId: z.string() }).safeParse(request.params)
+  app.patch("/remarks/:remarkId/review", { preHandler: app.authenticate }, async (request) => {
+    const auth = requireRole(request, "dispatcher")
+    const params = z.object({ remarkId: z.string() }).safeParse(request.params)
     const body = z.object({ response: z.string().min(1).max(2000), notifyRoles: z.array(z.string()).default([]) }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("The review is invalid.")
-    const event = await OperationalEvent.findOneAndUpdate({ _id: params.data.eventId, eventType: "remark.created" }, { $set: { "data.reviewed": true, "data.response": body.data.response, "data.notifyRoles": body.data.notifyRoles } }, { new: true })
-    if (!event) throw notFound()
-    return ok(request, event.toObject())
+    const remark = await RemarkCommandPort.reviewRemark({ remarkId: params.data.remarkId, reviewedBy: auth.userId, response: body.data.response, notifyRoles: body.data.notifyRoles })
+    if (!remark) throw notFound()
+    return ok(request, remark.toObject())
   })
 
   app.get("/audit/orders", { preHandler: app.authenticate }, async (request) => {
