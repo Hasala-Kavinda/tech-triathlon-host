@@ -1,56 +1,53 @@
 import {
-  AlertCircle,
-  ArrowRight,
-  Bell,
-  Bolt,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ClipboardList,
-  Clock,
-  Clock3,
-  Home,
-  LayoutDashboard,
-  Lock,
-  LogOut,
-  MessageSquareText,
-  Phone,
-  Search,
-  Settings,
-  Snowflake,
-  Truck,
-  UserRound,
-  X,
+    AlertCircle,
+    ArrowRight,
+    Bolt,
+    Check,
+    CheckCircle2,
+    ChevronRight,
+    Clock,
+    Lock,
+    Search,
+    Settings,
+    Snowflake,
+    Truck,
+    X
 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
-import wayTrackLogo from "./assets/waytrack-logo.png"
+import { useEffect, useMemo, useState } from "react"
 import { planningApi, type DriverReference, type TripInput } from "./api/planning"
-import { apiRequest } from "./api/client"
-import { clearSession } from "./auth/session"
 import { CalendarModal } from "./components/CalendarModal"
 import { CheckModal } from "./components/CheckModal"
 import { DeferModal } from "./components/DeferModal"
 import { DriverHoverCard } from "./components/DriverHoverCard"
+import { AppShell } from './components/layout/AppShell'
 import { ManageVehiclesModal } from "./components/ManageVehiclesModal"
 import { OrderDetailsModal } from "./components/OrderDetailsModal"
 import { OrderLogPage } from "./components/OrderLogPage"
+import { DayPlannerCard } from "./components/planning/DayPlannerCard"
+import { FilterCard } from "./components/planning/FilterCard"
+import { blockedReason, canGo, dayLabel, isAtQuota, isDayLimit, openOrderDetails, orderRowOpenProps, orderVolume, recordTurn, routeNameFor, vehicleDay, volumeOf } from "./components/planning/helpers"
+import { OrderRow } from "./components/planning/OrderRow"
+import { PersonBadge } from "./components/planning/PersonBadge"
+import { ReachMap } from "./components/planning/ReachMap"
+import { RouteLineMap } from "./components/planning/RouteLineMap"
+import { RouteRow } from "./components/planning/RouteRow"
+import { TurnsToday } from "./components/planning/TurnsToday"
+import { VehicleGraphic } from "./components/planning/VehicleGraphic"
+import { VolumeRow } from "./components/planning/VolumeRow"
 import { RemarksModal } from "./components/RemarksModal"
 import { ReviewModal } from "./components/ReviewModal"
 import { RouteSummaryModal } from "./components/RouteSummaryModal"
 import {
-  Button,
-  Heading,
-  PageTitle,
-  ProgressBar,
-  ShopTag,
-  TextInput,
-  UnstyledButton,
+    Button,
+    Heading,
+    PageTitle,
+    ProgressBar,
+    ShopTag,
+    TextInput,
+    UnstyledButton,
 } from "./components/ui"
-import type { Order, Person, Remark, RouteRecord, ShopType, Vehicle } from "./types/dispatcher";
-import { completedRouteRecord, initialOrders, initialRemarks, initialRoutes, initialVehicles, people, DAILY_TURN_LIMIT, OPEN_ORDER_EVENT, TODAY, TODAY_ORDER_IDS, DEPOT } from "./lib/constants";
-import { AppShell } from './components/layout/AppShell';
+import { completedRouteRecord, DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT, people, TODAY, TODAY_ORDER_IDS } from "./lib/constants"
+import type { Order, Remark, RouteRecord, ShopType, Vehicle } from "./types/dispatcher"
 
 function getInitialPath() {
   if (window.location.pathname.startsWith("/monitor/")) {
@@ -60,173 +57,6 @@ function getInitialPath() {
   return window.location.pathname.startsWith("/schedule")
     ? "/schedule"
     : "/home"
-}
-
-
-function RouteRow({
-  item,
-  onOpen,
-}: {
-  item: RouteRecord
-  onOpen: (remarksOpen: boolean) => void
-}) {
-  return (
-    <UnstyledButton
-      className="route-row"
-      onClick={(event) =>
-        onOpen(
-          Boolean((event.target as HTMLElement).closest(".remarks-count")),
-        )
-      }
-    >
-      <span className="route-row__identity">
-        <span className="route-row__top">
-          <span className="data-text">{item.id}</span>
-          {item.tags.map((tag) => (
-            <ShopTag key={tag} type={tag} />
-          ))}
-        </span>
-        <span className="route-row__name">{item.route}</span>
-      </span>
-      <span className="route-row__progress">
-        <strong>
-          {item.done}/{item.total} shops
-        </strong>
-        <ProgressBar value={(item.done / item.total) * 100} />
-      </span>
-      <span className="route-row__end">
-        {item.remarks ? (
-          <span className="remarks-count">
-            <Bell aria-hidden="true" size={18} />
-            <strong>{item.remarks}</strong>
-          </span>
-        ) : null}
-        <ChevronRight
-          className="route-row__chevron"
-          aria-hidden="true"
-          size={22}
-        />
-      </span>
-    </UnstyledButton>
-  )
-}
-
-function FilterCard({
-  type,
-  count,
-  active,
-  onClick,
-}: {
-  type: ShopType
-  count: number
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <UnstyledButton
-      className={`filter-card ${active ? "filter-card--active" : ""}`}
-      onClick={onClick}
-    >
-      {count ? <span className="filter-card__count">{count}</span> : null}
-      <strong>Waypoint {type}</strong>
-      <span>
-        {active ? "Filter on · click to clear" : "Shop type · active routes"}
-      </span>
-      {active ? (
-        <X className="filter-card__x" aria-hidden="true" size={20} />
-      ) : null}
-    </UnstyledButton>
-  )
-}
-
-function DayPlannerCard({
-  day,
-  filter,
-  onOpenCalendar,
-  onSelectDay,
-}: {
-  day: number
-  filter: ShopType | null
-  onOpenCalendar: () => void
-  onSelectDay: (day: number) => void
-}) {
-  const [clock, setClock] = useState(() => new Date(2026, 8, 27, 10, 42))
-  const isToday = day === 27
-  const scope = filter ?? "All"
-  const todayDue = scope === "Fresh" ? 2 : scope === "Tech" ? 1 : scope === "Style" ? 2 : 5
-  const todayUnscheduled =
-    scope === "Fresh" || scope === "Style" ? 1 : scope === "Tech" ? 0 : 2
-  const nextDue = scope === "Fresh" ? 3 : scope === "Tech" ? 2 : scope === "Style" ? 2 : 7
-  const week = [
-    { label: "Sun", day: 27, count: 5 },
-    { label: "Mon", day: 28, count: 3 },
-    { label: "Tue", day: 29, count: 0 },
-    { label: "Wed", day: 30, count: 4 },
-    { label: "Thu", day: 1, count: 0 },
-    { label: "Fri", day: 2, count: 3 },
-    { label: "Sat", day: 3, count: 0 },
-  ]
-
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setClock((current) => new Date(current.getTime() + 60_000)),
-      60_000,
-    )
-    return () => window.clearInterval(timer)
-  }, [])
-
-  return (
-    <div className="day-planner-card">
-      <div className="day-planner-card__top">
-        <span className="day-planner-date">
-          <small>{isToday ? "Sun" : "Mon"}</small>
-          <strong>{day}</strong>
-          <b>Sep</b>
-        </span>
-        <span className="day-planner-clock">
-          <strong>
-            {clock.toLocaleTimeString("en", {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </strong>
-          <span>
-            <i /> Live{isToday ? "" : " · today Sun 27"}
-          </span>
-        </span>
-        <UnstyledButton onClick={onOpenCalendar}>
-          Open calendar →
-        </UnstyledButton>
-      </div>
-      <div className="day-planner-stats">
-        <div className="day-stat day-stat--due">
-          <strong>{isToday ? todayDue : 3}</strong>
-          <b>{isToday ? "Due today" : "Due Mon 28"}</b>
-          <span>
-            {isToday ? todayUnscheduled : 2} not scheduled yet
-          </span>
-        </div>
-        <div className="day-stat">
-          <strong>{isToday ? nextDue : 1}</strong>
-          <b>{isToday ? "Due next 3 days" : "Route scheduled"}</b>
-          <span>{isToday ? "Mon 28 – Wed 30" : "WP PK-7741 · 07:00"}</span>
-        </div>
-      </div>
-      <div className="week-strip">
-        {week.map((item) => (
-          <UnstyledButton
-            className={item.day === day ? "week-day week-day--active" : "week-day"}
-            key={`${item.label}-${item.day}`}
-            onClick={() => onSelectDay(item.day)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.day}</strong>
-            {item.count ? <b>{item.count}</b> : null}
-          </UnstyledButton>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function HomePage({
@@ -532,260 +362,6 @@ function HomePage({
 /* Daily turns (max 2 per vehicle per day) and load volume.            */
 /* Values here extend sampleData without changing its Vehicle type.    */
 /* ------------------------------------------------------------------ */
-const VEHICLE_DAY: Record<string, { turnsToday: number; volumeM3: number }> = {
-  "WP PH-2210": { turnsToday: 1, volumeM3: 6 },
-  "WP PK-7741": { turnsToday: 2, volumeM3: 6 },
-  "WP LC-8870": { turnsToday: 0, volumeM3: 18 },
-  "WP LE-1123": { turnsToday: 1, volumeM3: 30 },
-  "WP LR-5006": { turnsToday: 0, volumeM3: 12 },
-}
-
-function vehicleDay(v: Vehicle) {
-  const known = VEHICLE_DAY[v.id]
-  const fallbackVolume =
-    v.type === "Van" ? 6 : v.type === "Refrigerated" ? 12 : v.capacityKg >= 3000 ? 30 : 18
-  return {
-    turnsToday: known?.turnsToday ?? 0,
-    volumeM3: known?.volumeM3 ?? fallbackVolume,
-  }
-}
-
-function isAtQuota(v: Vehicle) {
-  return v.turns >= v.turnQuota || v.km >= v.kmQuota
-}
-
-function isDayLimit(v: Vehicle) {
-  return vehicleDay(v).turnsToday >= DAILY_TURN_LIMIT
-}
-
-function canGo(v: Vehicle) {
-  return !isAtQuota(v) && !isDayLimit(v)
-}
-
-/** Count one more turn today for this vehicle (after a route is scheduled). */
-function recordTurn(v: Vehicle) {
-  const day = vehicleDay(v)
-  VEHICLE_DAY[v.id] = { ...day, turnsToday: day.turnsToday + 1 }
-}
-
-/** Estimated volume of an order in m³, from its items (e.g. "12 crates"). */
-function orderVolume(o: Order) {
-  const match = o.items.match(/(\d+)\s*(crate|box|bag|pallet)/i)
-  if (!match) return Math.round((o.kg / 250) * 100) / 100
-  const perUnit: Record<string, number> = { crate: 0.06, box: 0.04, bag: 0.03, pallet: 1.2 }
-  return Math.round(Number(match[1]) * perUnit[match[2].toLowerCase()] * 100) / 100
-}
-
-function volumeOf(list: Order[]) {
-  return Math.round(list.reduce((sum, o) => sum + orderVolume(o), 0) * 10) / 10
-}
-
-function TurnsToday({ vehicle }: { vehicle: Vehicle }) {
-  const { turnsToday } = vehicleDay(vehicle)
-  const full = turnsToday >= DAILY_TURN_LIMIT
-  return (
-    <span className={`turns-today ${full ? "turns-today--full" : ""}`}>
-      Turns today {turnsToday} / {DAILY_TURN_LIMIT}
-    </span>
-  )
-}
-
-function VolumeRow({ vehicle, used }: { vehicle: Vehicle; used: number }) {
-  const total = vehicleDay(vehicle).volumeM3
-  const percent = Math.round((used / total) * 100)
-  return (
-    <>
-      <div className="selected-card__load selected-card__load--volume">
-        <strong>
-          Volume {used.toFixed(1)} / {total} m³
-        </strong>
-        <b>{percent}%</b>
-      </div>
-      <ProgressBar value={percent} warning={percent >= 90} />
-    </>
-  )
-}
-
-/** Why a vehicle can't be picked, or null if it can. */
-function blockedReason(v: Vehicle) {
-  if (isAtQuota(v)) return "Quota reached"
-  if (isDayLimit(v)) return `Day limit · ${DAILY_TURN_LIMIT}/${DAILY_TURN_LIMIT} turns`
-  return null
-}
-
-function VehicleGraphic({
-  vehicle,
-  large = false,
-}: {
-  vehicle: Vehicle
-  large?: boolean
-}) {
-  return (
-    <div className={`vehicle-graphic ${large ? "vehicle-graphic--large" : ""}`}>
-      <Truck
-        aria-hidden="true"
-        size={large ? 88 : vehicle.capacityKg > 2500 ? 62 : 52}
-        strokeWidth={1.7}
-      />
-      {vehicle.type === "Refrigerated" ? (
-        <Snowflake
-          className="vehicle-graphic__snow"
-          aria-hidden="true"
-          size={16}
-        />
-      ) : null}
-      {large ? (
-        <span className="vehicle-graphic__length">↔ {vehicle.length}</span>
-      ) : null}
-    </div>
-  )
-}
-
-function openOrderDetails(order: Order) {
-  window.dispatchEvent(new CustomEvent<Order>(OPEN_ORDER_EVENT, { detail: order }))
-}
-
-/** Click / Enter on an order row opens its details, except on its buttons. */
-function orderRowOpenProps(order: Order) {
-  return {
-    role: "button" as const,
-    tabIndex: 0,
-    title: "Open order details",
-    onClick: (e: React.MouseEvent<HTMLElement>) => {
-      if ((e.target as HTMLElement).closest("button")) return
-      openOrderDetails(order)
-    },
-    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
-      if (e.key === "Enter" && e.target === e.currentTarget) openOrderDetails(order)
-    },
-  }
-}
-
-function OrderRow({
-  order,
-  selectedVehicle,
-  added,
-  toggleAdded,
-  aiSuggested,
-  highlighted,
-  datePreset,
-}: {
-  order: Order
-  selectedVehicle: Vehicle | null
-  added: boolean
-  toggleAdded: (id: string) => void
-  aiSuggested?: boolean
-  highlighted?: boolean
-  datePreset?: string
-}) {
-  const isDuePresetDay = datePreset && order.dueDay === 28
-
-  return (
-    <div
-      className={`order-row ${order.emergency ? "order-row--emergency" : ""} ${selectedVehicle && !order.inReach ? "order-row--disabled" : ""
-        } ${highlighted ? "order-row--highlighted" : ""} order-row--clickable`}
-      {...orderRowOpenProps(order)}
-    >
-      {order.emergency ? (
-        <AlertCircle
-          className="order-row__alert"
-          aria-hidden="true"
-          size={26}
-        />
-      ) : (
-        <span className="order-row__alert-space" />
-      )}
-      <div className="order-row__content">
-        <div className="order-row__line">
-          <span className="data-text">{order.id}</span>
-          <ShopTag type={order.type} />
-          {isDuePresetDay ? (
-            <span
-              style={{
-                padding: "2px 8px",
-                borderRadius: "999px",
-                background: "var(--sunburst-100)",
-                color: "var(--sunburst-900)",
-                fontWeight: 700,
-                fontSize: "11px",
-              }}
-            >
-              Due Mon 28
-            </span>
-          ) : null}
-          {selectedVehicle && (aiSuggested ?? order.suggested) ? (
-            <Bolt
-              className="suggestion-star"
-              aria-label="Suggested order"
-              size={20}
-            />
-          ) : null}
-          <strong className="order-row__kg">{order.kg} kg</strong>
-          {selectedVehicle ? (
-            order.inReach ? (
-              <Button
-                className="order-row__action"
-                onClick={() => toggleAdded(order.id)}
-                variant={added ? "primary" : "secondary"}
-              >
-                {added ? "✓ Added" : "+ Add"}
-              </Button>
-            ) : (
-              <span className="out-of-reach">Out of reach</span>
-            )
-          ) : null}
-        </div>
-        <span className="order-row__meta">
-          {order.shop} · {order.town} · {order.items}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-function ReachMap({ packed }: { packed: boolean }) {
-  return (
-    <div className="map-wrap">
-      <div
-        className="reach-map"
-        aria-label="Vehicle reach map from Galle to Matara"
-      >
-        <span className="map-label map-label--akuressa">
-          Akuressa · out of reach
-        </span>
-        <span className="out-pin" />
-        <span className="map-label map-label--depot">Galle depot</span>
-        <span className="depot-pin" />
-        <div className="reach-zone" />
-        {packed ? <div className="route-line" /> : null}
-        {[8, 25, 56, 70, 91].map((left) => (
-          <span
-            className={`shop-pin ${packed ? "shop-pin--covered" : ""}`}
-            key={left}
-            style={{ left: `${left}%` }}
-          />
-        ))}
-        <span className="map-label map-label--weligama">Weligama</span>
-        <span className="map-label map-label--matara">Matara</span>
-      </div>
-      <div className="shop-reach">
-        <strong>{packed ? "Shops covered" : "Shops in reach"} · 5</strong>
-        {[
-          "Sunrise Mart",
-          "Lanka Super Stores",
-          "Coastal Traders",
-          "Mirissa Mart",
-          "Matara City Mart",
-        ].map((shop) => (
-          <span key={shop}>
-            {packed ? <Check aria-hidden="true" size={17} /> : <i />} {shop}
-          </span>
-        ))}
-        <p>Hill View Stores, Akuressa, is out of reach</p>
-      </div>
-    </div>
-  )
-}
 
 function SchedulePage({
   navigateHome,
@@ -1272,144 +848,6 @@ const ROUTE_EXTRAS_BY_DAY: Record<number, Order[]> = {
 }
 
 // Rough map positions (viewBox 520 × 300) for towns around Galle.
-const TOWN_POS: Record<string, { x: number; y: number }> = {
-  "Galle Fort": { x: 70, y: 262 },
-  Galle: { x: 92, y: 244 },
-  Hikkaduwa: { x: 36, y: 170 },
-  Baddegama: { x: 120, y: 120 },
-  Unawatuna: { x: 150, y: 256 },
-  Ahangama: { x: 225, y: 258 },
-  Weligama: { x: 300, y: 248 },
-  Mirissa: { x: 360, y: 258 },
-  Matara: { x: 452, y: 250 },
-  Imaduwa: { x: 250, y: 160 },
-  Akuressa: { x: 405, y: 92 },
-}
-
-function dayLabel(day: number) {
-  const date = new Date(2026, 8, day)
-  return {
-    weekday: date.toLocaleString("en", { weekday: "short" }),
-    short: `${date.toLocaleString("en", { weekday: "short" })} ${day} Sep`,
-  }
-}
-
-function pinsFor(list: Order[]) {
-  const seen: Record<string, number> = {}
-  const pins: Record<string, { x: number; y: number }> = {}
-  list.forEach((o, i) => {
-    const base = TOWN_POS[o.town] ?? { x: 120 + i * 70, y: 200 - (i % 2) * 40 }
-    const n = seen[o.town] ?? 0
-    seen[o.town] = n + 1
-    pins[o.id] = { x: base.x + n * 22, y: base.y + n * 16 }
-  })
-  return pins
-}
-
-function RouteLineMap({
-  locked,
-  extras,
-  added,
-}: {
-  locked: Order[]
-  extras: Order[]
-  added: string[]
-}) {
-  const all = [...locked, ...extras]
-  const pins = pinsFor(all)
-  const isOn = (o: Order) => locked.includes(o) || added.includes(o.id)
-  const onRoute = all.filter(isOn).map((o) => pins[o.id]).sort((a, b) => a.x - b.x)
-  const line = [DEPOT, ...onRoute].map((p) => `${p.x},${p.y}`).join(" ")
-  const xs = [DEPOT.x, ...Object.values(pins).map((p) => p.x)]
-  const ys = [DEPOT.y, ...Object.values(pins).map((p) => p.y)]
-  const box = {
-    x: Math.max(Math.min(...xs) - 30, 4),
-    y: Math.max(Math.min(...ys) - 30, 4),
-    w: Math.min(Math.max(...xs) - Math.min(...xs) + 60, 512),
-    h: Math.min(Math.max(...ys) - Math.min(...ys) + 60, 292),
-  }
-  const towns = Array.from(new Set(all.map((o) => o.town))).filter(
-    (t) => !t.startsWith("Galle") && TOWN_POS[t],
-  )
-  const lastTown = all.length
-    ? all.reduce((far, o) => (pins[o.id].x > pins[far.id].x ? o : far)).town
-    : "Galle"
-
-  return (
-    <div className="map-wrap calendar-route-layout">
-      <div
-        aria-label={`Route map from Galle depot to ${lastTown}`}
-        className="calendar-route-map"
-        role="img"
-      >
-        <svg preserveAspectRatio="none" viewBox="0 0 520 300">
-          <rect
-            className="calendar-route-map__reach"
-            height={box.h}
-            rx="40"
-            width={box.w}
-            x={box.x}
-            y={box.y}
-          />
-          {onRoute.length ? (
-            <polyline className="calendar-route-map__line" points={line} />
-          ) : null}
-          <rect
-            className="calendar-route-map__depot"
-            height="22"
-            rx="4"
-            width="22"
-            x={DEPOT.x - 11}
-            y={DEPOT.y - 11}
-          />
-          {all.map((o) => (
-            <circle
-              className={isOn(o) ? "calendar-route-map__added" : "calendar-route-map__open"}
-              cx={pins[o.id].x}
-              cy={pins[o.id].y}
-              key={o.id}
-              r="9"
-            />
-          ))}
-        </svg>
-        <span className="calendar-map-label calendar-map-label--depot">
-          Galle depot
-        </span>
-        {towns.map((t) => (
-          <span
-            className="calendar-map-label"
-            key={t}
-            style={{
-              left: `${((TOWN_POS[t].x - 36) / 520) * 100}%`,
-              top: `${((TOWN_POS[t].y - 46) / 300) * 100}%`,
-              right: "auto",
-              bottom: "auto",
-            }}
-          >
-            {t}
-          </span>
-        ))}
-      </div>
-      <div className="calendar-route-shops">
-        <strong>Shops on this route</strong>
-        {all.map((o) => (
-          <span key={o.id}>
-            {isOn(o) ? <Check aria-hidden="true" size={17} /> : <i />}
-            {o.shop}
-          </span>
-        ))}
-        <small>✓ added · ○ can add</small>
-      </div>
-    </div>
-  )
-}
-
-function routeNameFor(list: Order[]) {
-  const pins = pinsFor(list)
-  if (!list.length) return "Galle"
-  const far = list.reduce((a, b) => (pins[b.id].x > pins[a.id].x ? b : a))
-  return `Galle → ${far.town}`
-}
 
 function DueSchedulePage({
   day,
@@ -1913,48 +1351,6 @@ function DueSchedulePage({
         />
       ) : null}
     </section>
-  )
-}
-
-function PersonBadge({
-  person,
-  size = "medium",
-  showRole = false,
-}: {
-  person: Person
-  size?: "small" | "medium" | "large"
-  showRole?: boolean
-}) {
-  return (
-    <div className={`person-badge person-badge--${size}`}>
-      <UnstyledButton
-        aria-label={`View ${person.name}, ${person.role}`}
-        className="person-trigger"
-      >
-        <UserRound aria-hidden="true" size={size === "large" ? 38 : 25} />
-      </UnstyledButton>
-      {showRole ? <strong>{person.role}</strong> : null}
-      <div className="person-card" role="tooltip">
-        <span className="person-card__portrait">
-          <UserRound aria-hidden="true" size={40} />
-        </span>
-        <span className="person-card__details">
-          <strong>{person.name}</strong>
-          <span>
-            {person.role} {person.shop ? `· ${person.shop}` : ""}
-          </span>
-          <UnstyledButton
-            className="person-card__phone"
-            onClick={() => {
-              window.location.href = `tel:${person.phone.replace(/ /g, "")}`
-            }}
-          >
-            <Phone aria-hidden="true" size={14} />
-            {person.phone}
-          </UnstyledButton>
-        </span>
-      </div>
-    </div>
   )
 }
 
