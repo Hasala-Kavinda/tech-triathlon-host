@@ -85,7 +85,7 @@ export default function App() {
       outlet: stopMeta.get(stopId)?.outletId ?? stopId,
       deliveryWindow: "Server planned",
       orderId: String(items[0]?.orderId ?? ""),
-      items: items.map((item) => ({ id: item.itemId, name: item.name, quantity: String(item.expectedQuantity), status: item.status === "pending" ? "pending" : item.status === "loaded" ? "loaded" : "flagged" })),
+      items: items.map((item) => ({ id: item.itemId, name: item.name, quantity: String(item.expectedQuantity), status: (item.status === "pending" ? "pending" : item.status === "loaded" ? "loaded" : "flagged") as "pending" | "loaded" | "flagged" })),
     })).sort((a, b) => b.stopNumber - a.stopNumber))
   }
 
