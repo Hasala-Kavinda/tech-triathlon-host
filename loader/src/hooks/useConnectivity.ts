@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { ConnectivityState } from "../components/loader-ui"
+import type { ConnectivityState } from "../types/loader"
 
 /**
  * Centralised connectivity hook shared across all pages.

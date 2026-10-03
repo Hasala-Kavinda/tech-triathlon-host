@@ -1,3 +1,4 @@
+import type { ConnectivityState } from "../types/loader";
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,17 +12,15 @@ import {
   Warehouse,
 } from "lucide-react"
 import { useEffect } from "react"
-import {
-  BottomActionBar,
-  Button,
-  Card,
-  LoaderShell,
-  PageHeader,
-  Progress,
-  StatusPill,
-  Text,
-  LoadDepartureTimer,
-} from "../components/loader-ui"
+import { BottomActionBar } from "../components/ui/BottomActionBar";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Progress } from "../components/ui/Progress";
+import { StatusPill } from "../components/ui/StatusPill";
+import { Text } from "../components/ui/Text";
+import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
 import type { ActiveStop, LoadCase } from "../data/mock-data"
 import { useConnectivity } from "../hooks/useConnectivity"
 

@@ -1,3 +1,4 @@
+import type { ConnectivityState, LoadItemData, LoadItemException } from "../types/loader";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -14,22 +15,17 @@ import {
   Scale,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import {
-  BottomActionBar,
-  Button,
-  Card,
-  ExceptionSheet,
-  LoaderShell,
-  PageHeader,
-  Progress,
-  StatusPill,
-  StopCard,
-  Text,
-  type ConnectivityState,
-  type LoadItemData,
-  type LoadItemException,
-  LoadDepartureTimer,
-} from "../components/loader-ui"
+import { BottomActionBar } from "../components/ui/BottomActionBar";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { ExceptionSheet } from "../components/exceptions/ExceptionSheet";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Progress } from "../components/ui/Progress";
+import { StatusPill } from "../components/ui/StatusPill";
+import { StopCard } from "../components/load/StopCard";
+import { Text } from "../components/ui/Text";
+import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
 import type { ActiveStop, LoadCase } from "../data/mock-data"
 import { useConnectivity } from "../hooks/useConnectivity"
 
