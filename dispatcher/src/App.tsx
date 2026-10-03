@@ -48,20 +48,8 @@ import {
   TextInput,
   UnstyledButton,
 } from "./components/ui"
-import {
-  completedRouteRecord,
-  initialOrders,
-  initialRemarks,
-  initialRoutes,
-  initialVehicles,
-  people,
-  type Order,
-  type Person,
-  type Remark,
-  type RouteRecord,
-  type ShopType,
-  type Vehicle,
-} from "./data/sampleData"
+import type { Order, Person, Remark, RouteRecord, ShopType, Vehicle } from "./types/dispatcher";
+import { completedRouteRecord, initialOrders, initialRemarks, initialRoutes, initialVehicles, people, DAILY_TURN_LIMIT, OPEN_ORDER_EVENT, TODAY, TODAY_ORDER_IDS, DEPOT } from "./lib/constants";
 
 function getInitialPath() {
   if (window.location.pathname.startsWith("/monitor/")) {
@@ -702,9 +690,6 @@ function HomePage({
 /* Daily turns (max 2 per vehicle per day) and load volume.            */
 /* Values here extend sampleData without changing its Vehicle type.    */
 /* ------------------------------------------------------------------ */
-
-const DAILY_TURN_LIMIT = 2
-
 const VEHICLE_DAY: Record<string, { turnsToday: number; volumeM3: number }> = {
   "WP PH-2210": { turnsToday: 1, volumeM3: 6 },
   "WP PK-7741": { turnsToday: 2, volumeM3: 6 },
@@ -814,8 +799,6 @@ function VehicleGraphic({
   )
 }
 
-/** Open the store order details pop-up from anywhere in the app. */
-const OPEN_ORDER_EVENT = "waytrack:open-order"
 function openOrderDetails(order: Order) {
   window.dispatchEvent(new CustomEvent<Order>(OPEN_ORDER_EVENT, { detail: order }))
 }
@@ -1432,10 +1415,6 @@ function SchedulePage({
 /* pre-added and locked, the system suggests the best vehicle, and     */
 /* other orders along the same route can be added.                     */
 /* ------------------------------------------------------------------ */
-
-const TODAY = 27
-const TODAY_ORDER_IDS = ["ORD-1047", "ORD-1056"]
-
 // Extra orders that lie on the typical route for a day. If sampleData has an
 // order with the same id, that one is used instead.
 const ROUTE_EXTRAS_BY_DAY: Record<number, Order[]> = {
@@ -1464,7 +1443,6 @@ const TOWN_POS: Record<string, { x: number; y: number }> = {
   Imaduwa: { x: 250, y: 160 },
   Akuressa: { x: 405, y: 92 },
 }
-const DEPOT = { x: 50, y: 232 }
 
 function dayLabel(day: number) {
   const date = new Date(2026, 8, day)

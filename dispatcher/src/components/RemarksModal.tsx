@@ -1,7 +1,7 @@
 import { AlertTriangle, Flag, Hammer, Send, User, X } from "lucide-react"
 import { useState } from "react"
-import type { Remark } from "../data/sampleData"
 import { Button, Heading, IconButton } from "./ui"
+import type { Remark } from "../types/dispatcher";
 
 type RemarksModalProps = {
   vehicleId: string

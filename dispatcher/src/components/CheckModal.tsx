@@ -1,7 +1,7 @@
 import { Lock, X } from "lucide-react"
 import type React from "react"
-import type { Order, Vehicle } from "../data/sampleData"
 import { Button, Heading, IconButton } from "./ui"
+import type { Order, Vehicle } from "../types/dispatcher";
 
 type CheckModalProps = {
   vehicle: Vehicle

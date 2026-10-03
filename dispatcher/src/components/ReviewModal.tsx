@@ -1,6 +1,6 @@
 import { Bolt, X } from "lucide-react"
-import type { Order, Vehicle } from "../data/sampleData"
 import { Button, Heading, IconButton, ShopTag } from "./ui"
+import type { Order, Vehicle } from "../types/dispatcher";
 
 type ReviewModalProps = {
   vehicle: Vehicle

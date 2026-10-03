@@ -1,7 +1,7 @@
 import { Clock, Package, Phone, Save, UserRound, X } from "lucide-react"
 import { useState } from "react"
-import type { Order } from "../data/sampleData"
 import { Button, Heading, IconButton, ShopTag, UnstyledButton } from "./ui"
+import type { Order } from "../types/dispatcher";
 
 /* Details sent by the store manager when the order was submitted
    (see the store "Review order" screen). Built from the order so every

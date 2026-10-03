@@ -1,7 +1,7 @@
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { useState } from "react"
-import type { Order } from "../data/sampleData"
 import { Button, Heading, IconButton, ShopTag, UnstyledButton } from "./ui"
+import type { Order } from "../types/dispatcher";
 
 type CalendarModalProps = {
   initialDay: number
