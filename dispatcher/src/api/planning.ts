@@ -23,3 +23,7 @@ export const planningApi = {
   publishTrip: (tripId: string, version: number) => apiRequest<TripDraft>(`/planning/trips/${tripId}/publish`, { method: "POST", headers: { "If-Match": String(version) }, body: JSON.stringify({ expectedVersion: version }) }),
   deferBatch: (orderIds: string[], nextDate: string, reasonCode: string, note?: string) => apiRequest<Array<{ orderId: string; result: "deferred" | "conflict" }>>("/orders/defer-batch", { method: "POST", body: JSON.stringify({ orderIds, nextDate, reasonCode, note }) }),
 }
+
+export const monitorApi = {
+  trips: () => apiRequest<any[]>("/monitor/trips"),
+}

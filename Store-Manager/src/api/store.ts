@@ -23,6 +23,8 @@ export function submitStoreOrder(input: { business: keyof typeof brandName; type
 
 export const storeDeliveryApi = {
   list: () => apiRequest<StoreDelivery[]>("/store/deliveries"),
+  dashboard: () => apiRequest<any>("/store/dashboard"),
+  orderHistory: () => apiRequest<any[]>("/store/order-history"),
   issuePin: (deliveryId: string) => apiRequest<{ pin: string; expiresAt: string }>(`/store/deliveries/${deliveryId}/pin`, { method: "POST" }),
   confirmFullReceipt: (delivery: StoreDelivery) => apiRequest<StoreDelivery>(`/store/deliveries/${delivery._id}/receipt`, {
     method: "POST",

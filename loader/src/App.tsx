@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { initialLoadCases, initialStops } from "./data/mock-data"
 import type { ActiveStop, LoadCase } from "./data/mock-data"
 import ActiveLoadPage from "./pages/ActiveLoadPage"
 import AvailableWorkPage from "./pages/AvailableWorkPage"
@@ -39,13 +38,13 @@ export default function App() {
    * state, item statuses, and quantities survive the transition from
    * ActiveLoadPage → ReconciliationPage → LoadConfirmedPage.
    */
-  const [stops, setStops] = useState<ActiveStop[]>(initialStops)
+  const [stops, setStops] = useState<ActiveStop[]>([])
 
   /**
    * Load cases — authoritative list of loads and their states.
    * Lifted to App so state persists when returning to Available Work.
    */
-  const [loadCases, setLoadCases] = useState<LoadCase[]>(initialLoadCases)
+  const [loadCases, setLoadCases] = useState<LoadCase[]>([])
 
   /**
    * Currently active vehicle that is being loaded.
@@ -71,7 +70,7 @@ export default function App() {
       })))
     }).catch((error) => {
       console.error("Load jobs request failed", error)
-      if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== "true") setLoadCases([])
+      setLoadCases([])
     })
     return () => { active = false }
   }, [])

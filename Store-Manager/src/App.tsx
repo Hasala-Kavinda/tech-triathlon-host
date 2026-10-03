@@ -776,7 +776,9 @@ function CutoffBanner({ closed = false }: { closed?: boolean }) {
   )
 }
 
-function AttentionCard({ highlighted = false, onOpen }: { highlighted?: boolean, onOpen?: () => void }) {
+function AttentionCard({ highlighted = false, onOpen, count = 0 }: { highlighted?: boolean, onOpen?: () => void, count?: number }) {
+  if (count === 0) return null;
+
   return (
     <motion.div
       className={`attention-card ${
@@ -790,14 +792,10 @@ function AttentionCard({ highlighted = false, onOpen }: { highlighted?: boolean,
         <ReceiptText />
       </span>
       <div className="attention-copy">
-        <strong>Delivery awaiting confirmation</strong>
-        <p>
-          <span className="data-id">ORD-1045</span> · Driver completed delivery
-          at 06:52.
-        </p>
-        <small>Confirm the received quantities when ready.</small>
+        <strong>{count} {count === 1 ? 'Delivery' : 'Deliveries'} awaiting confirmation</strong>
+        <p>Review and confirm received quantities when ready.</p>
       </div>
-      <Button tone="secondary" onClick={onOpen}>Review delivery</Button>
+      <Button tone="secondary" onClick={onOpen}>Review</Button>
     </motion.div>
   )
 }
@@ -1510,7 +1508,16 @@ function HomeSectionHeader({
 
 
 
-function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () => void, business?: "fresh" | "style" | "tech" }) {
+function NextDeliveryHero({ onOpen, business = "fresh", delivery }: { onOpen?: () => void, business?: "fresh" | "style" | "tech", delivery?: any }) {
+  if (!delivery) {
+    return (
+      <div className="next-delivery-card empty-state" style={{ padding: "var(--space-6)", textAlign: "center" }}>
+        <CalendarDays />
+        <p>No upcoming deliveries expected.</p>
+      </div>
+    )
+  }
+
   return (
     <motion.div
       className="next-delivery-card"
@@ -1523,30 +1530,30 @@ function NextDeliveryHero({ onOpen, business = "fresh" }: { onOpen?: () => void,
         <div className="next-delivery-heading">
           <span className="delivery-date">
             <CalendarDays />
-            Tomorrow · Thursday, 1 October
+            {delivery.date || "Expected soon"}
           </span>
-          <StatusPill kind="scheduled" />
+          <StatusPill kind={delivery.status === "deferred" ? "deferred" : "scheduled"} />
         </div>
         <div className="delivery-name">{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</div>
         <span className="order-reference">
-          Order <strong className="data-id">ORD-1062</strong>
+          Order <strong className="data-id">{delivery.orderNumber || delivery.id || delivery._id || "N/A"}</strong>
         </span>
       </div>
 
       <div className="next-delivery-eta">
         <span className="field-label">Expected arrival</span>
-        <strong>06:40–07:00</strong>
-        <span>Tomorrow morning</span>
+        <strong>{delivery.eta || delivery.arrivedAt || "Pending"}</strong>
+        <span>{delivery.reason || ""}</span>
       </div>
 
       <div className="next-delivery-meta">
         <div>
           <span>Trip</span>
-          <strong className="data-id">PLG-03</strong>
+          <strong className="data-id">{delivery.tripId || "Pending"}</strong>
         </div>
         <div>
           <span>Vehicle</span>
-          <strong className="data-id">WP-014</strong>
+          <strong className="data-id">{delivery.vehicleId || "Pending"}</strong>
         </div>
       </div>
 
@@ -1588,36 +1595,26 @@ function getUpcomingDeliveries(business: "fresh" | "style" | "tech") {
   ]
 }
 
-function UpcomingDeliveryRow({ business, delivery, onOpen }: { business: "fresh" | "style" | "tech", delivery: UpcomingDelivery, onOpen?: () => void }) {
+function UpcomingDeliveryRow({ business, delivery, onOpen }: { business: "fresh" | "style" | "tech", delivery: any, onOpen?: () => void }) {
   return (
-    <motion.button
+    <motion.div
       className="upcoming-row"
-      type="button"
-      layout
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 8 }}
       onClick={onOpen}
-      whileTap={{ scale: 0.99 }}
-      transition={calmSpring}
     >
-      <span className="upcoming-record">
-        <strong className="data-id">{delivery.id}</strong>
-        <span>{delivery.type}</span>
-      </span>
-      <span className="upcoming-date">
-        <CalendarDays />
-        {delivery.date}
-      </span>
-      <span className="upcoming-status">
-        <StatusPill kind={delivery.status} />
-        {delivery.reason && (
-          <small>
-            <AlertTriangle />
-            {delivery.reason}
-          </small>
-        )}
-      </span>
-      <span className="upcoming-eta">{delivery.eta}</span>
-      <ArrowRight className="row-arrow" />
-    </motion.button>
+      <div className="upcoming-row-main">
+        <strong>{delivery.orderNumber || delivery.id || delivery._id || "N/A"}</strong>
+        <span>{formatOrderType(business, getDefaultOrderType(business))} · {delivery.date || "Expected soon"}</span>
+        {delivery.reason && <span className="deferred-reason">{delivery.reason}</span>}
+      </div>
+      <div className="upcoming-row-meta">
+        <StatusPill kind={delivery.status === "deferred" ? "deferred" : "scheduled"} />
+        <span className="upcoming-eta">{delivery.eta || delivery.arrivedAt || "Pending"}</span>
+      </div>
+      <ArrowRight className="row-chevron" />
+    </motion.div>
   )
 }
 
@@ -1711,98 +1708,138 @@ function HomePage({
   onBusinessChange?: (b: "fresh" | "style" | "tech") => void
   onNavigate: (label: string) => void
 }) {
+  const [dashboard, setDashboard] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let active = true
+    storeDeliveryApi.dashboard()
+      .then((data) => {
+        if (active) {
+          setDashboard(data)
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err.message || "Failed to load dashboard")
+          setLoading(false)
+        }
+      })
+    return () => { active = false }
+  }, [business])
+
   return (
     <div className="home-page">
       <div className="home-page-header">
         <div>
-          <span className="home-greeting">Good morning, Dilini</span>
+          <span className="home-greeting">Good morning, Store Manager</span>
           <div className="page-title">Home</div>
           <p>Here's what's happening at your store today.</p>
         </div>
-        
       </div>
 
-      {business && onBusinessChange && (
-        <div className="prototype-state-control" style={{ marginBottom: 24 }}>
-          <span className="prototype-only-label">Prototype only</span>
-          <label style={{ gridColumn: "1 / -1" }}>
-            <span>Outlet type</span>
-            <span className="prototype-select-wrap">
-              <select
-                value={business}
-                onChange={(event) => onBusinessChange(event.target.value as "fresh" | "style" | "tech")}
-              >
-                <option value="fresh">Waypoint Fresh</option>
-                <option value="style">Waypoint Style</option>
-                <option value="tech">Waypoint Tech</option>
-              </select>
-              <ChevronDown />
-            </span>
-          </label>
+      {loading && <div style={{ padding: "var(--space-8)", textAlign: "center" }}>Loading dashboard...</div>}
+      
+      {error && !loading && (
+        <div style={{ padding: "var(--space-8)", textAlign: "center", color: "var(--issue-text)" }}>
+          {error}
+          <br /><br />
+          <Button onClick={() => window.location.reload()} tone="primary">Retry</Button>
         </div>
       )}
-      
 
-      
-
-      
-
-      <motion.section className="home-section" layout transition={calmSpring}>
-        <HomeSectionHeader title="Next delivery" />
-        <NextDeliveryHero business={business} onOpen={() => onOpenOrder("ORD-1062", "order-detail", "scheduled")} />
-      </motion.section>
-
-<AnimatePresence initial={false}>
-        {showAttention && (
-          <motion.section
-            className="home-section attention-section"
-            layout
-            initial={{ opacity: 0, height: 0, y: -8 }}
-            animate={{ opacity: 1, height: "auto", y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -8 }}
-            transition={calmSpring}
-          >
-            <HomeSectionHeader title="Needs attention" />
-            <AttentionCard onOpen={() => onOpenOrder("ORD-1045", "verify-delivery", "verify")} />
+      {!loading && !error && dashboard && (
+        <>
+          <motion.section className="home-section" layout transition={calmSpring}>
+            <HomeSectionHeader title="Next delivery" />
+            <NextDeliveryHero 
+              business={business} 
+              delivery={dashboard.upcomingDeliveries?.[0]} 
+              onOpen={() => dashboard.upcomingDeliveries?.[0] && onOpenOrder(dashboard.upcomingDeliveries[0].orderNumber || dashboard.upcomingDeliveries[0]._id, "order-detail", "scheduled")} 
+            />
           </motion.section>
-        )}
-      </AnimatePresence>
 
-      <motion.div className="home-bottom-grid" layout transition={calmSpring}>
-        <section className="home-panel upcoming-panel">
-          <HomeSectionHeader title="Upcoming deliveries" action="View all" onAction={() => onNavigate("Orders")} />
-          <AnimatePresence mode="wait" initial={false}>
-            {showUpcoming ? (
-              <motion.div
-                className="upcoming-list"
-                key="upcoming-list"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
+          <AnimatePresence initial={false}>
+            {dashboard.attentionCount > 0 && (
+              <motion.section
+                className="home-section attention-section"
+                layout
+                initial={{ opacity: 0, height: 0, y: -8 }}
+                animate={{ opacity: 1, height: "auto", y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -8 }}
                 transition={calmSpring}
               >
-                {getUpcomingDeliveries(business || "fresh").map((delivery) => (
-                  <UpcomingDeliveryRow business={business}
-                    delivery={delivery}
-                    key={delivery.id}
-                    onOpen={
-                      delivery.id === "ORD-1065" ? onOpenDeferred : undefined
-                    }
-                  />
-                ))}
-              </motion.div>
-            ) : (
-              <UpcomingEmptyState key="upcoming-empty" />
+                <HomeSectionHeader title="Needs attention" />
+                <AttentionCard 
+                  count={dashboard.attentionCount} 
+                  onOpen={() => onNavigate("Deliveries")} 
+                />
+              </motion.section>
             )}
           </AnimatePresence>
-        </section>
 
-        <section className="home-panel activity-panel">
-          <HomeSectionHeader title="Recent activity" action="View all" onAction={() => onNavigate("Deliveries")} />
-          <RecentActivityList />
-        </section>
-      </motion.div>
-      <FloatingNewOrder onClick={onNewOrder} />
+          <motion.div className="home-bottom-grid" layout transition={calmSpring}>
+            <section className="home-panel upcoming-panel">
+              <HomeSectionHeader title="Upcoming deliveries" action="View all" onAction={() => onNavigate("Orders")} />
+              <AnimatePresence mode="wait" initial={false}>
+                {dashboard.upcomingDeliveries?.length > 1 ? (
+                  <motion.div
+                    className="upcoming-list"
+                    key="upcoming-list"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={calmSpring}
+                  >
+                    {dashboard.upcomingDeliveries.slice(1).map((delivery: any) => (
+                      <UpcomingDeliveryRow 
+                        business={business}
+                        delivery={delivery}
+                        key={delivery._id}
+                        onOpen={() =>
+                          onOpenOrder(delivery.orderNumber || delivery._id, "order-detail", delivery.status)
+                        }
+                      />
+                    ))}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="upcoming-list empty-state"
+                    key="empty-state"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={calmSpring}
+                  >
+                    <CalendarDays />
+                    <p>No more deliveries expected today.</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </section>
+
+            <section className="home-panel action-panel">
+              <HomeSectionHeader title="Quick actions" />
+              <div className="action-grid">
+                <button className="action-button" onClick={onNewOrder}>
+                  <Plus />
+                  New Order
+                </button>
+                <button className="action-button">
+                  <span className="placeholder-icon" />
+                  Stock Check
+                </button>
+                <button className="action-button">
+                  <span className="placeholder-icon" />
+                  Messages
+                </button>
+              </div>
+            </section>
+          </motion.div>
+        </>
+      )}
     </div>
   )
 }
@@ -3972,7 +4009,7 @@ function ReceiptFlowPage({
     "cooking-oil": 1,
   })
   const [issueSearch, setIssueSearch] = useState("")
-  const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null)
+  const [expandedIssueId, setExpandedIssueId] = useState<string | undefined>(undefined)
   const [remark, setRemark] = useState(
     "One bottle was damaged during unloading.",
   )
@@ -4127,7 +4164,7 @@ function ReceiptFlowPage({
                   issueType={issueTypes[product.id] ?? "good"}
                   damaged={damaged[product.id] ?? 0}
                   isExpanded={expandedIssueId === product.id}
-                  onToggle={() => setExpandedIssueId((current: string | null) => current === product.id ? null : product.id)}
+                  onToggle={() => setExpandedIssueId((current: string | undefined) => current === product.id ? undefined : product.id)}
                   onReceivedChange={(quantity) =>
                     setReceived((current) => ({
                       ...current,
@@ -4301,112 +4338,74 @@ const deferredStages = [
 
 
 
-function OrdersPage({ business, onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
+function OrdersPage({
+  business,
+  onOpenOrder,
+  onNewOrder,
+}: {
+  business: "fresh" | "style" | "tech"
+  onOpenOrder: (id: string, view: string, state: string) => void
+  onNewOrder: () => void
+}) {
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState("All")
-  
-  const statuses = [
-    "All", "Order confirmed", "Scheduled", "On the way", 
-    "Deferred", "Awaiting confirmation", "Receipt confirmed"
-  ]
-
-  const orders = [
-    { id: "ORD-1082", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, view: "order-detail", state: "confirmed" },
-    { id: "ORD-1065", type: formatOrderType(business || "fresh", business === "fresh" ? "chilled" : getDefaultOrderType(business || "fresh")), date: "Friday, 2 October", statusLabel: "Deferred", status: "deferred" as StatusKind, subtext: business === "fresh" ? "Refrigerated capacity" : "Vehicle capacity constraints", view: "order-detail", state: "deferred" },
-    { id: "ORD-1062", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Thursday, 1 October", statusLabel: "Scheduled", status: "scheduled" as StatusKind, eta: "Expected arrival 06:40–07:00", view: "order-detail", state: "scheduled" },
-    { id: "ORD-1071", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Monday, 5 October", statusLabel: "Order confirmed", status: "confirmed" as StatusKind, eta: "Not scheduled yet", view: "order-detail", state: "confirmed" },
-    { id: "ORD-1045", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today", statusLabel: "Awaiting confirmation", status: "awaiting" as StatusKind, subtext: "Driver completed delivery at 06:52", view: "verify-delivery", state: "verify" },
-    { id: "ORD-1037", type: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")), date: "Today · 06:57", statusLabel: "Receipt confirmed", status: "received" as StatusKind, view: "order-detail", state: "receipt-confirmed" }
-  ]
-
-  const filtered = orders.filter(o => 
-    o.id.toLowerCase().includes(search.toLowerCase()) && 
-    (statusFilter === "All" || o.statusLabel === statusFilter)
-  )
+  useEffect(() => {
+    let active = true
+    storeDeliveryApi.orderHistory()
+      .then((data: any) => {
+        if (active) {
+          setOrders(data.items || data || [])
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err.message || "Failed to load order history")
+          setLoading(false)
+        }
+      })
+    return () => { active = false }
+  }, [business])
 
   return (
-    <div className="list-container">
+    <div className="home-page" style={{ padding: "var(--space-8)" }}>
       <div className="home-page-header">
         <div>
-          <div className="page-title">Orders</div>
-          <p>Track your store orders from submission through delivery.</p>
+          <div className="page-title">Order History</div>
+          <p>Review past orders and receipts.</p>
         </div>
-          <Button icon={<Plus />} tone="primary" onClick={onNewOrder}>
-            New order
-          </Button>
-        </div>
+      </div>
 
-      <div style={{ marginTop: "var(--space-6)" }}>
-        <label className="field" style={{ marginBottom: 16 }}>
-          <span className="input-wrap input-wrap--icon">
-            <Search />
-            <input 
-              placeholder="Search by order ID" 
-              value={search} 
-              onChange={(e) => setSearch(e.target.value)} 
-            />
-          </span>
-        </label>
-        
-        <div className="pill-collection hide-scrollbar" style={{ flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 12 }}>
-          {statuses.map(s => (
-            <button
-              key={s}
-              type="button"
-              style={{
-                minHeight: 30, padding: "0 var(--space-3)", border: "1px solid var(--border)", borderRadius: "var(--radius-pill)",
-                color: statusFilter === s ? "var(--cobalt-600)" : "var(--text-secondary)", 
-                background: statusFilter === s ? "var(--cobalt-50)" : "var(--white)",
-                borderColor: statusFilter === s ? "var(--cobalt-500)" : "var(--border)",
-                fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
-                cursor: "pointer"
-              }}
-              onClick={() => setStatusFilter(s)}
-            >
-              {s}
-            </button>
+      {loading && <div style={{ padding: "var(--space-8)", textAlign: "center" }}>Loading orders...</div>}
+      
+      {error && !loading && (
+        <div style={{ padding: "var(--space-8)", textAlign: "center", color: "var(--issue-text)" }}>
+          {error}
+          <br /><br />
+          <Button onClick={() => window.location.reload()} tone="primary">Retry</Button>
+        </div>
+      )}
+
+      {!loading && !error && orders.length === 0 && (
+        <div style={{ padding: "var(--space-8)", textAlign: "center", color: "var(--text-secondary)" }}>
+          <p>No order history available.</p>
+        </div>
+      )}
+
+      {!loading && !error && orders.length > 0 && (
+        <div className="upcoming-list" style={{ marginTop: "var(--space-6)" }}>
+          {orders.map((order) => (
+            <div key={order._id || order.id || order.orderNumber} className="upcoming-row" onClick={() => onOpenOrder(order.orderNumber || order.id || order._id, "order-detail", order.status || "confirmed")}>
+              <div className="upcoming-row-main">
+                <strong>{order.orderNumber || order.id || order._id}</strong>
+                <span>{order.status || "Unknown"}</span>
+              </div>
+            </div>
           ))}
         </div>
-      </div>
-
-      <div className="upcoming-list" style={{ marginTop: "var(--space-6)" }}>
-        {filtered.length > 0 ? filtered.map(order => (
-          <motion.button
-            key={order.id}
-            className="upcoming-row"
-            type="button"
-            layout
-            onClick={() => onOpenOrder(order.id, order.view, order.state)}
-            whileTap={{ scale: 0.99 }}
-            transition={calmSpring}
-          >
-            <span className="upcoming-record">
-              <strong className="data-id">{order.id}</strong>
-              <span>{order.type}</span>
-            </span>
-            <span className="upcoming-date">
-              <CalendarDays />
-              {order.date}
-            </span>
-            <span className="upcoming-status">
-              <StatusPill kind={order.status} />
-              {(order.eta || order.subtext) && (
-                <small style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {order.eta && <span>{order.eta}</span>}
-                  {order.subtext && <span style={{ opacity: 0.8 }}>{order.subtext}</span>}
-                </small>
-              )}
-            </span>
-            <ArrowRight className="row-arrow" />
-          </motion.button>
-        )) : (
-          <div style={{ textAlign: "center", padding: "var(--space-8) 0", color: "var(--text-secondary)" }}>
-            <Search style={{ margin: "0 auto var(--space-2)", opacity: 0.5, display: "block" }} />
-            <p style={{ margin: 0 }}>No orders found. Try another order ID or status filter.</p>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }
@@ -4477,7 +4476,7 @@ function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | "style"
                 <div className="upcoming-row" key={delivery._id}>
                   <span className="upcoming-record"><strong className="data-id">{delivery._id.slice(-8).toUpperCase()}</strong><span>{delivery.items.length} products</span></span>
                   <span className="upcoming-date">{delivery.arrivedAt ? new Date(delivery.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Scheduled"}</span>
-                  <span className="upcoming-status"><strong>{delivery.status.replaceAll("_", " ")}</strong></span>
+                  <span className="upcoming-status"><strong>{delivery.status.replace(/_/g, " ")}</strong></span>
                   {delivery.status === "arrived" ? <Button onClick={() => void issuePin(delivery)}>Issue PIN</Button> : null}
                   {delivery.status === "completed" && !delivery.receipt ? <Button onClick={() => void confirmReceipt(delivery)}>Confirm receipt</Button> : null}
                 </div>
@@ -4559,11 +4558,11 @@ export default function App() {
     setBusiness(newBusiness)
     setOrderType(getDefaultOrderType(newBusiness))
   }
-  const [drafts, setDrafts] = useState<OrderDrafts>(prototypeState === "empty" ? { dry: {}, chilled: {}, products: {} } as unknown as OrderDrafts : mockDrafts[business])
+  const [drafts, setDrafts] = useState<OrderDrafts>({ dry: {}, chilled: {}, products: {} } as unknown as OrderDrafts)
 
   useEffect(() => {
     if (prototypeState !== "empty") {
-      setDrafts(mockDrafts[business])
+      
     }
   }, [business])
   const [view, setView] =
@@ -4612,7 +4611,7 @@ export default function App() {
               : "verify"
   const [receiptFlowState, setReceiptFlowState] =
     useState<ReceiptFlowState>(initialReceiptState)
-  const [selectedOrderId, setSelectedOrderId] = useState<string>("ORD-1082")
+  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
 
   
     function handleOpenOrder(id: string, nextView: string, state: string) {

@@ -48,20 +48,7 @@ import {
   TextInput,
   UnstyledButton,
 } from "./components/ui"
-import {
-  completedRouteRecord,
-  initialOrders,
-  initialRemarks,
-  initialRoutes,
-  initialVehicles,
-  people,
-  type Order,
-  type Person,
-  type Remark,
-  type RouteRecord,
-  type ShopType,
-  type Vehicle,
-} from "./data/sampleData"
+
 
 function getInitialPath() {
   if (window.location.pathname.startsWith("/monitor/")) {
@@ -2421,17 +2408,16 @@ export default function App() {
     new URLSearchParams(window.location.search).get("date") ? 28 : 27,
   )
 
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles)
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [drivers, setDrivers] = useState<DriverReference[]>([])
-  const [orders, setOrders] = useState<Order[]>(initialOrders)
-  const [routes, setRoutes] = useState<RouteRecord[]>(initialRoutes)
-  const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [routes, setRoutes] = useState<RouteRecord[]>([])
+  const [remarks, setRemarks] = useState<Remark[]>([])
 
   useEffect(() => {
-    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true") return
-    const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
-    void Promise.all([planningApi.orders(serviceDate), planningApi.vehicles(serviceDate), planningApi.drivers()])
-      .then(([apiOrders, apiVehicles, apiDrivers]) => {
+        const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
+    void Promise.all([planningApi.orders(serviceDate), planningApi.vehicles(serviceDate), planningApi.drivers(), monitorApi.trips()])
+      .then(([apiOrders, apiVehicles, apiDrivers, apiTrips]) => {
         setOrders(apiOrders.map((order) => ({
           apiId: order._id,
           id: order.orderNumber,
@@ -2455,7 +2441,23 @@ export default function App() {
           kmQuota: Math.round(vehicle.weeklyFuelQuotaL * vehicle.kmPerL),
           fuel: 100,
         })))
+        
+        setRoutes((apiTrips || []).map((t) => ({
+          id: t._id || t.tripId || t.tripNumber,
+          route: t.tripNumber || t._id,
+          tags: ["Fresh"],
+          done: 0,
+          total: t.stops ? t.stops.length : 0,
+          remarks: 0,
+          start: t.departureAt || "06:00",
+          estEnd: t.plannedEndAt || "09:00",
+          stops: (t.stops || []).map((s) => ({
+            shop: s.outletId || s.orderId || "Unknown",
+            eta: s.plannedArrivalAt || "00:00"
+          }))
+        })))
         setDrivers(apiDrivers)
+
       })
       .catch((error) => {
         console.error("Dispatcher planning data request failed", error)
@@ -2728,3 +2730,4 @@ export default function App() {
     </AppShell>
   )
 }
+
