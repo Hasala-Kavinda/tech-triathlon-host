@@ -1,7 +1,24 @@
 import { apiRequest } from "./client"
 
 export type ApiProduct = { _id: string; sku: string; name: string; brand: string; orderTypes: string[]; unit: string }
-export type CreatedOrder = { _id: string; orderNumber: string; status: string; cutoffBucket: "before_cutoff" | "after_cutoff"; version: number }
+export type CreatedOrder = {
+  _id: string
+  orderNumber: string
+  status: string
+  cutoffBucket: "before_cutoff" | "after_cutoff"
+  version: number
+  statusHistory?: Array<{ status: string; at: string }>
+  createdAt?: string
+}
+export type CalendarDay = {
+  date: string
+  dayOfWeek: string
+  isOperating: boolean
+  cutoffBucket: "before_cutoff" | "after_cutoff"
+  cutoffDeadlineAt: string
+  secondsRemaining: number
+  serverNow: string
+}
 export type StoreDelivery = { _id: string; orderId: string; status: string; outcome?: string; version: number; arrivedAt?: string; completedAt?: string; receipt?: unknown; items: Array<{ sku: string; expected: number; delivered: number; short: number; damaged: number }> }
 
 const brandName = { fresh: "Fresh", style: "Style", tech: "Tech" } as const
@@ -10,6 +27,10 @@ const orderTypeName = (business: keyof typeof brandName, type: string) => busine
 export function getCatalogue(business: keyof typeof brandName, type: string) {
   const query = new URLSearchParams({ brand: brandName[business], orderType: orderTypeName(business, type), pageSize: "100" })
   return apiRequest<ApiProduct[]>(`/catalog/products?${query}`)
+}
+
+export function getCalendarDay(date: string) {
+  return apiRequest<CalendarDay>(`/calendar/${date}`)
 }
 
 export function submitStoreOrder(input: { business: keyof typeof brandName; type: string; items: Array<{ id: string; quantity: number }> }) {
@@ -25,6 +46,8 @@ export const storeDeliveryApi = {
   list: () => apiRequest<StoreDelivery[]>("/store/deliveries"),
   dashboard: () => apiRequest<any>("/store/dashboard"),
   orderHistory: () => apiRequest<any[]>("/store/order-history"),
+  getOrder: (orderId: string) => apiRequest<any>(`/orders/${orderId}`),
+  getDelivery: (deliveryId: string) => apiRequest<any>(`/store/deliveries/${deliveryId}`),
   issuePin: (deliveryId: string) => apiRequest<{ pin: string; expiresAt: string }>(`/store/deliveries/${deliveryId}/pin`, { method: "POST" }),
   confirmFullReceipt: (delivery: StoreDelivery) => apiRequest<StoreDelivery>(`/store/deliveries/${delivery._id}/receipt`, {
     method: "POST",
@@ -32,3 +55,4 @@ export const storeDeliveryApi = {
     body: JSON.stringify({ result: "full", expectedVersion: delivery.version, itemOutcomes: delivery.items.map((item) => ({ sku: item.sku, received: item.delivered })), evidenceFileIds: [] }),
   }),
 }
+

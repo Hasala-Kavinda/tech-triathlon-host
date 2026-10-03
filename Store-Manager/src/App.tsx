@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, type ReactNode } from "react"
-import { getCatalogue, submitStoreOrder, storeDeliveryApi, type StoreDelivery } from "./api/store"
+import { getCatalogue, getCalendarDay, submitStoreOrder, storeDeliveryApi, type StoreDelivery } from "./api/store"
 import { AnimatePresence, motion, useMotionValue, animate, useTransform } from "motion/react"
 import wayTrackLogo from "./assets/waytrack-logo.png"
 import {
@@ -102,13 +102,14 @@ function IconButton({
   )
 }
 
-type StatusKind = "confirmed" | "scheduled" | "transit" | "arrived" | "deferred" | "awaiting" | "received" | "issue"
+type StatusKind = "submitted" | "confirmed" | "scheduled" | "transit" | "arrived" | "deferred" | "awaiting" | "received" | "issue"
 
 const statusDetails: Record<StatusKind, {
   label: string
   icon: ReactNode
 }> = {
   confirmed: { label: "Order confirmed", icon: <CheckCircle2 /> },
+  submitted: { label: "Order submitted", icon: <CheckCircle2 /> },
   scheduled: { label: "Scheduled", icon: <CalendarDays /> },
   transit: { label: "On the way", icon: <Truck /> },
   arrived: { label: "Arrived", icon: <CheckCircle2 /> },
@@ -1854,50 +1855,9 @@ type CatalogProduct = {
 }
 
 const productCatalog: Record<"fresh" | "style" | "tech", Partial<Record<OrderType, CatalogProduct[]>>> = {
-  fresh: {
-    dry: [
-      { id: "rice", name: "Rice", unit: "bag" },
-      { id: "milk-powder", name: "Milk powder", unit: "carton" },
-      { id: "flour", name: "Flour", unit: "bag" },
-      { id: "cooking-oil", name: "Cooking oil", unit: "bottle" },
-      { id: "canned-goods", name: "Canned goods", unit: "carton" },
-    ],
-    chilled: [
-      { id: "fresh-milk", name: "Fresh milk", unit: "carton" },
-      { id: "chicken", name: "Chicken", unit: "kg" },
-      { id: "frozen-vegetables", name: "Frozen vegetables", unit: "box" },
-      { id: "yoghurt", name: "Yoghurt", unit: "crate" },
-      { id: "frozen-meat", name: "Frozen meat", unit: "box" },
-    ],
-  },
-  style: {
-    products: [
-      { id: "t-shirts", name: "T-shirts", unit: "piece" },
-      { id: "shirts", name: "Shirts", unit: "piece" },
-      { id: "trousers", name: "Trousers", unit: "piece" },
-      { id: "dresses", name: "Dresses", unit: "piece" },
-      { id: "jackets", name: "Jackets", unit: "piece" },
-      { id: "shoes", name: "Shoes", unit: "pair" },
-      { id: "sandals", name: "Sandals", unit: "pair" },
-      { id: "bags", name: "Bags", unit: "piece" },
-      { id: "belts", name: "Belts", unit: "piece" },
-      { id: "caps", name: "Caps", unit: "piece" },
-    ],
-  },
-  tech: {
-    products: [
-      { id: "laptops", name: "Laptops", unit: "unit" },
-      { id: "smartphones", name: "Smartphones", unit: "unit" },
-      { id: "monitors", name: "Monitors", unit: "unit" },
-      { id: "tablets", name: "Tablets", unit: "unit" },
-      { id: "keyboards", name: "Keyboards", unit: "unit" },
-      { id: "mice", name: "Mice", unit: "unit" },
-      { id: "chargers", name: "Chargers", unit: "unit" },
-      { id: "headsets", name: "Headsets", unit: "unit" },
-      { id: "cables", name: "Cables", unit: "unit" },
-      { id: "battery-packs", name: "Battery packs", unit: "unit" },
-    ],
-  },
+  fresh: { dry: [], chilled: [] },
+  style: { products: [] },
+  tech: { products: [] },
 }
 
 const mockDrafts: Record<"fresh" | "style" | "tech", Record<OrderType, Record<string, number>>> = {
@@ -2128,7 +2088,7 @@ function ProductSelectionRow({
   )
 }
 
-function OrderPlanningContext({ afterCutoff }: { afterCutoff: boolean }) {
+function OrderPlanningContext({ afterCutoff, cutdownLabel }: { afterCutoff: boolean; cutdownLabel?: string }) {
   return (
     <motion.div
       className={`order-planning-context ${
@@ -2141,14 +2101,16 @@ function OrderPlanningContext({ afterCutoff }: { afterCutoff: boolean }) {
         {afterCutoff ? <AlertTriangle /> : <CalendarDays />}
       </span>
       <div>
-        <span>{afterCutoff ? "Target planning run" : "Target delivery"}</span>
+        <span>{afterCutoff ? "Ordering closed" : "Next-day cutoff"}</span>
         <strong>
-          {afterCutoff ? "Friday, 2 October" : "Tomorrow · Thursday, 1 October"}
+          {afterCutoff
+            ? "Orders enter the following planning run"
+            : cutdownLabel || "Loading cutoff time…"}
         </strong>
         <small>
           {afterCutoff
             ? "Next-day ordering closed · Orders now enter the following planning run."
-            : "Next-day cutoff · 2h 14m remaining"}
+            : "Submit before 4:00 PM (Asia/Colombo) for next-day delivery."}
         </small>
       </div>
     </motion.div>
@@ -2334,8 +2296,9 @@ function MobileOrderSummarySheet({ business,
   )
 }
 
-function NewOrderPage({ business, 
+function NewOrderPage({ business,
   afterCutoff = false,
+  cutdownLabel = "",
   type,
   onTypeChange,
   quantities,
@@ -2343,7 +2306,7 @@ function NewOrderPage({ business,
   initialSearch = "",
   initialSummaryOpen = false,
   onReview,
-}: { business: "fresh" | "style" | "tech", afterCutoff?: boolean
+}: { business: "fresh" | "style" | "tech"; afterCutoff?: boolean; cutdownLabel?: string
   type: OrderType
   onTypeChange: (type: OrderType) => void
   quantities: OrderDrafts
@@ -2355,24 +2318,28 @@ function NewOrderPage({ business,
   const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen)
   const [, setCatalogueVersion] = useState(0)
+  const [catalogueError, setCatalogueError] = useState(false)
 
+  // --- Catalogue fetch: always clear on error, never fall back to seeds ---
   useEffect(() => {
     let active = true
+    setCatalogueError(false)
     void getCatalogue(business, type)
       .then((rows) => {
         if (!active) return
         productCatalog[business][type] = rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit }))
-        setCatalogueVersion((version) => version + 1)
+        setCatalogueVersion((v) => v + 1)
       })
       .catch((error) => {
-        if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== "true") {
-          productCatalog[business][type] = []
-          setCatalogueVersion((version) => version + 1)
-        }
+        if (!active) return
+        productCatalog[business][type] = []
+        setCatalogueError(true)
+        setCatalogueVersion((v) => v + 1)
         console.error("Catalogue request failed", error)
       })
     return () => { active = false }
   }, [business, type])
+
 
   const products = getCatalog(business, type)
   const filteredProducts = products.filter((product) =>
@@ -2414,7 +2381,7 @@ function NewOrderPage({ business,
             quantities.
           </p>
         </div>
-        <OrderPlanningContext afterCutoff={afterCutoff} />
+        <OrderPlanningContext afterCutoff={afterCutoff} cutdownLabel={cutdownLabel} />
       </div>
 
       <div className="new-order-layout">
@@ -2449,6 +2416,20 @@ function NewOrderPage({ business,
           </div>
 
           <AnimatePresence mode="wait" initial={false}>
+            {catalogueError ? (
+              <motion.div
+                key="catalogue-error"
+                className="product-search-empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
+              >
+                <AlertTriangle style={{ color: "var(--issue-text)" }} />
+                <strong>Product catalogue unavailable</strong>
+                <p>Could not load products from the server. Please check your connection and try again.</p>
+              </motion.div>
+            ) : (
             <motion.div
               className="catalog-product-list"
               key={`${type}-${searchQuery}`}
@@ -2476,6 +2457,7 @@ function NewOrderPage({ business,
                 </div>
               )}
             </motion.div>
+            )}
           </AnimatePresence>
         </motion.section>
 
@@ -2651,7 +2633,7 @@ function ReviewOrderPage({ business,
   afterCutoff: boolean
   forceError: boolean
   onBack: () => void
-  onConfirmed: () => void
+  onConfirmed: (order: import('./api/store').CreatedOrder) => void
 }) {
   const [submissionState, setSubmissionState] =
     useState<SubmissionState>("idle")
@@ -2662,8 +2644,8 @@ function ReviewOrderPage({ business,
     setSubmissionState("submitting")
     if (forceError) { setSubmissionState("error"); return }
     try {
-      await submitStoreOrder({ business, type, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
-      onConfirmed()
+      const createdOrder = await submitStoreOrder({ business, type, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
+      onConfirmed(createdOrder)
     } catch (error) {
       console.error("Order submission failed", error)
       setSubmissionState("error")
@@ -2792,26 +2774,31 @@ function ConfirmationCard({ business,
   type,
   afterCutoff,
   items,
-
+  createdOrder,
 }: { business: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
-
   items: Array<CatalogProduct & { quantity: number }>
+  createdOrder?: import('./api/store').CreatedOrder
 }) {
   const totalUnits = items.reduce((total, item) => total + item.quantity, 0)
+  // Use the authoritative submission timestamp from statusHistory[0].at in the POST /orders response
+  const submittedAt = (() => {
+    const at = createdOrder?.statusHistory?.[0]?.at ?? createdOrder?.createdAt
+    if (!at) return '-'
+    const d = new Date(at)
+    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) +
+      ' · ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  })()
   const details = [
-    { label: "Order number", value: "ORD-1082", data: true },
-    { label: "Status", value: <StatusPill kind="confirmed" /> },
-    {
-      label: "Submitted",
-      value: "Wednesday, 30 September · 13:46",
-    },
+    { label: "Order number", value: createdOrder?.orderNumber ?? '-', data: true },
+    { label: "Status", value: <StatusPill kind="submitted" /> },
+    { label: "Submitted", value: submittedAt },
     {
       label: "Order type",
       value: formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh")),
     },
     {
       label: "Target planning run",
-      value: afterCutoff ? "Friday, 2 October" : "Thursday, 1 October",
+      value: afterCutoff ? "Following planning run" : "Tomorrow's planning run",
     },
     { label: "Outlet", value: formatOutlet(business) },
     {
@@ -2843,12 +2830,14 @@ function OrderConfirmationPage({ business,
   type,
   quantities,
   afterCutoff,
+  createdOrder,
   onHome,
   onViewOrder,
 }: { business: "fresh" | "style" | "tech"
   type: OrderType
   quantities: OrderDrafts
   afterCutoff: boolean
+  createdOrder?: import('./api/store').CreatedOrder
   onHome: () => void
   onViewOrder: () => void
 }) {
@@ -2874,7 +2863,7 @@ function OrderConfirmationPage({ business,
       </motion.div>
 
       <div className="confirmation-layout">
-        <ConfirmationCard business={business} type={type} afterCutoff={afterCutoff} items={items} />
+        <ConfirmationCard business={business} type={type} afterCutoff={afterCutoff} items={items} createdOrder={createdOrder} />
         <div className="confirmation-side">
           <div className="next-steps-card">
             <span className="next-steps-icon">
@@ -2903,7 +2892,7 @@ function OrderConfirmationPage({ business,
   )
 }
 
-type OrderDetailState = "confirmed" | "deferred" | "scheduled" | "on-way" | "arrived" | "awaiting-confirmation" | "receipt-confirmed" | "receipt-issue"
+type OrderDetailState = "submitted" | "confirmed" | "deferred" | "scheduled" | "on-way" | "arrived" | "awaiting-confirmation" | "receipt-confirmed" | "receipt-issue"
 
 const orderDetailStages = [
   "Order confirmed",
@@ -2913,69 +2902,27 @@ const orderDetailStages = [
   "Receipt confirmation",
 ]
 
-const orderDetailTimestamps: Record<OrderDetailState, string[]> = {
-  deferred: ["Wed � 13:46", "-", "-", "-", "-", "-"],
-  confirmed: ["Wed · 13:46", "-", "-", "-", "-", "-"],
-  scheduled: ["Wed · 13:46", "Wed · 16:35", "-", "-", "-", "-"],
-  "on-way": ["Wed · 13:46", "Wed · 16:35", "Thu · 05:48", "-", "-", "-"],
-  arrived: ["Wed · 13:46", "Wed · 16:35", "Thu · 05:48", "Thu · 06:43", "-", "-"],
 
-  "awaiting-confirmation": [
-    "Wed · 13:46",
-    "Wed · 16:35",
-    "Thu · 05:48",
-    "Thu · 06:43",
-    "Thu · 06:45",
-    "Current",
-  ],
-  "receipt-confirmed": [
-    "Wed · 13:46",
-    "Wed · 16:35",
-    "Thu · 05:48",
-    "Thu · 06:43",
-    "Thu · 06:45",
-    "Thu · 06:57",
-  ],
-  "receipt-issue": [
-    "Wed · 13:46",
-    "Wed · 16:35",
-    "Thu · 05:48",
-    "Thu · 06:43",
-    "Thu · 06:45",
-    "Thu · 06:59",
-  ],
-}
 
-const orderDetailStep: Record<OrderDetailState, number> = {
-  deferred: 0,
-  confirmed: 0,
-  scheduled: 1,
-  "on-way": 2,
-  arrived: 3,
-  
-  "awaiting-confirmation": 5,
-  "receipt-confirmed": 5,
-  "receipt-issue": 5,
-}
-function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState, wasDeferred: boolean }) {
-  
+
+function OrderDetailLifecycle({ state, wasDeferred, statusHistory }: { state: OrderDetailState, wasDeferred: boolean, statusHistory?: any[] }) {
   const stages = wasDeferred ? [
-    "Order confirmed",
-    "Deferred",
-    "Scheduled",
-    "On the way",
-    "Arrived",
-    "Receipt confirmation",
+    { label: "Order submitted", backendState: "submitted" },
+    { label: "Deferred", backendState: "deferred" },
+    { label: "Scheduled", backendState: "allocated" },
+    { label: "On the way", backendState: "in_transit" },
+    { label: "Arrived", backendState: "delivered" },
+    { label: "Receipt confirmation", backendState: "completed" },
   ] : [
-    "Order confirmed",
-    "Scheduled",
-    "On the way",
-    "Arrived",
-    "Receipt confirmation",
+    { label: "Order submitted", backendState: "submitted" },
+    { label: "Scheduled", backendState: "allocated" },
+    { label: "On the way", backendState: "in_transit" },
+    { label: "Arrived", backendState: "delivered" },
+    { label: "Receipt confirmation", backendState: "completed" },
   ];
 
   let currentStep = 0;
-  if (state === "confirmed") currentStep = 0;
+  if (state === "submitted" || state === "confirmed") currentStep = 0;
   else if (state === "deferred") currentStep = 1;
   else if (state === "scheduled") currentStep = wasDeferred ? 2 : 1;
   else if (state === "on-way") currentStep = wasDeferred ? 3 : 2;
@@ -2984,20 +2931,28 @@ function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState,
 
   const receiptComplete = state === "receipt-confirmed" || state === "receipt-issue";
   
+  const formatTime = (isoString?: string) => {
+    if (!isoString) return "-";
+    const d = new Date(isoString);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getEventTime = (backendState: string) => {
+    if (!statusHistory) return "-";
+    const event = statusHistory.find((e: any) => e.status === backendState);
+    return formatTime(event?.at);
+  };
+
   const timestamps = stages.map((s, i) => {
     if (i > currentStep && !receiptComplete) return "-";
-    if (s === "Order confirmed") return "Wed · 13:46";
-    if (s === "Deferred") return "Wed · 16:42";
-    if (s === "Scheduled") return "Wed · 16:35";
-    if (s === "On the way") return "Thu · 05:48";
-    if (s === "Arrived") return "Thu · 06:43";
-    if (s === "Receipt confirmation") {
-      if (state === "receipt-confirmed") return "Thu · 06:57";
-      if (state === "receipt-issue") return "Thu · 06:59";
+    if (s.label === "Receipt confirmation") {
+      if (state === "receipt-confirmed" || state === "receipt-issue") {
+        return getEventTime("completed");
+      }
       if (state === "awaiting-confirmation") return "Current";
       return "-";
     }
-    return "-";
+    return getEventTime(s.backendState);
   });
 
   return (
@@ -3014,14 +2969,14 @@ function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState,
           return (
             <motion.div
               className={`lifecycle-step lifecycle-step--${mode}`}
-              key={stage}
+              key={stage.label}
               layout
               transition={calmSpring}
             >
               <motion.span className="step-marker" layout>
                 {mode === "complete" ? <Check /> : index + 1}
               </motion.span>
-              <span className="step-label">{stage}</span>
+              <span className="step-label">{stage.label}</span>
               <small>{timestamps[index]}</small>
             </motion.div>
           )
@@ -3085,7 +3040,7 @@ function OrderDetailHero({ onConfirmArrived,
           <div className="planning-facts">
             <span>
               <small>Target planning run</small>
-              <strong>Thursday, 1 October</strong>
+              <strong>-</strong>
             </span>
             <span>
               <small>Expected arrival</small>
@@ -3102,11 +3057,11 @@ function OrderDetailHero({ onConfirmArrived,
           </span>
           <div className="order-hero-copy">
             <span className="field-label">Expected arrival</span>
-            <div className="tracking-eta">06:40–07:00</div>
+            <div className="tracking-eta">Scheduled</div>
             <p>
               {state === "on-way"
-                ? "Vehicle departed at 05:48 · On schedule"
-                : "Thursday, 1 October · Please have receiving staff ready."}
+                ? "Vehicle is on the way"
+                : "Please have receiving staff ready."}
             </p>
           </div>
         </>
@@ -3126,13 +3081,7 @@ function OrderDetailHero({ onConfirmArrived,
               ))}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13, color: "var(--text-primary)", fontWeight: 500, marginBottom: 8, flexWrap: "wrap" }}>
-              <span>ORD-1082</span>
-              <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>WP-014</span>
-              <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>PLG-03</span>
-              <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>Arrived 06:43</span>
+              <span>Delivery verification required</span>
             </div>
             <p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Note: Only share this code with the driver handling this delivery.</p>
           </div>
@@ -3158,7 +3107,7 @@ function OrderDetailHero({ onConfirmArrived,
               Delivery awaiting confirmation
             </div>
             <p>
-              Driver completed delivery at 06:52. Confirm what arrived at the
+              The driver has completed the delivery. Confirm what arrived at the
               store.
             </p>
           </div>
@@ -3183,8 +3132,8 @@ function OrderDetailHero({ onConfirmArrived,
             </div>
             <p>
               {state === "receipt-confirmed"
-                ? "The store confirmed all 4 products at 06:57."
-                : "The store recorded missing and damaged goods at 06:59."}
+                ? "The store has confirmed receipt of all products."
+                : "The store recorded missing or damaged goods."}
             </p>
           </div>
         </>
@@ -3194,11 +3143,11 @@ function OrderDetailHero({ onConfirmArrived,
         <div className="tracking-meta">
           <span>
             <small>Trip</small>
-            <strong className="data-id">PLG-03</strong>
+            <strong className="data-id">-</strong>
           </span>
           <span>
             <small>Vehicle</small>
-            <strong className="data-id">WP-014</strong>
+            <strong className="data-id">-</strong>
           </span>
         </div>
       )}
@@ -3216,62 +3165,56 @@ function OrderDetailHero({ onConfirmArrived,
   )
 }
 
-const orderActivity = [
-  {
-    label: "Order received",
-    time: "Wed · 13:46",
-    step: 0,
-    icon: <PackageCheck />,
-  },
-  {
-    label: "Scheduled",
-    time: "Wed · 16:35",
-    step: 1,
-    icon: <CalendarDays />,
-  },
-  {
-    label: "Vehicle departed",
-    time: "Thu · 05:48",
-    step: 2,
-    icon: <Truck />,
-  },
-  {
-    label: "Arrived",
-    time: "Thu · 06:43",
-    step: 3,
-    icon: <CheckCircle2 />,
-  },
-  {
-    label: "Driver completed delivery",
-    time: "Thu · 06:52",
-    step: 4,
-    icon: <ReceiptText />,
-  },
-]
 
-function OrderActivity({ state }: { state: OrderDetailState }) {
-  const currentStep = orderDetailStep[state]
-  const receiptComplete =
-    state === "receipt-confirmed" || state === "receipt-issue"
+
+function OrderActivity({ state, statusHistory }: { state: OrderDetailState, statusHistory?: any[] }) {
+  const receiptComplete = state === "receipt-confirmed" || state === "receipt-issue";
+  
+  const mapIcon = (status: string) => {
+    if (status === "submitted") return <PackageCheck />;
+    if (status === "allocated") return <CalendarDays />;
+    if (status === "in_transit") return <Truck />;
+    if (status === "delivered") return <CheckCircle2 />;
+    if (status === "completed") return <ReceiptText />;
+    if (status === "deferred") return <Clock3 />;
+    if (status === "cancelled") return <AlertTriangle />;
+    return <CheckCircle2 />;
+  };
+
+  const mapLabel = (status: string) => {
+    if (status === "submitted") return "Order submitted";
+    if (status === "allocated") return "Scheduled";
+    if (status === "in_transit") return "On the way";
+    if (status === "delivered") return "Arrived";
+    if (status === "completed") return "Receipt confirmed";
+    if (status === "deferred") return "Deferred";
+    if (status === "cancelled") return "Cancelled";
+    return status;
+  };
+
+  const formatTime = (isoString?: string) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + " · " + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <div className="order-activity-list">
-      {orderActivity
-        .filter((activity) => activity.step <= currentStep)
-        .map((activity) => (
-          <motion.div
-            className="order-activity-row"
-            key={activity.label}
-            initial={{ opacity: 0, x: 6 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={calmSpring}
-          >
-            <span>{activity.icon}</span>
-            <div>
-              <strong>{activity.label}</strong>
-              <small>{activity.time}</small>
-            </div>
-          </motion.div>
-        ))}
+      {(statusHistory || []).map((activity: any, idx: number) => (
+        <motion.div
+          className="order-activity-row"
+          key={idx}
+          initial={{ opacity: 0, x: 6 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={calmSpring}
+        >
+          <span>{mapIcon(activity.status)}</span>
+          <div>
+            <strong>{mapLabel(activity.status)}</strong>
+            <small>{formatTime(activity.at)}{activity.note ? ` - ${activity.note}` : ""}</small>
+          </div>
+        </motion.div>
+      ))}
       {receiptComplete && (
         <motion.div
           className="order-activity-row"
@@ -3279,22 +3222,12 @@ function OrderActivity({ state }: { state: OrderDetailState }) {
           animate={{ opacity: 1, x: 0 }}
           transition={calmSpring}
         >
-          <span>
-            {state === "receipt-confirmed" ? (
-              <PackageCheck />
-            ) : (
-              <AlertTriangle />
-            )}
+          <span className="activity-icon--issue">
+            <AlertTriangle />
           </span>
           <div>
-            <strong>
-              {state === "receipt-confirmed"
-                ? "Receipt confirmed"
-                : "Receipt confirmed with issue"}
-            </strong>
-            <small>
-              {state === "receipt-confirmed" ? "Thu · 06:57" : "Thu · 06:59"}
-            </small>
+            <strong>Report an issue</strong>
+            <small>Contact operations</small>
           </div>
         </motion.div>
       )}
@@ -3369,12 +3302,13 @@ function PrototypeStateControl<T extends string>({
 }
 
 function OrderDetailPage({
-  orderId = "ORD-1082",
+  orderId,
   business,
-  state,
+  state: _legacyState,
   onBack,
   onStateChange,
   onReviewDelivery,
+  onOpenOrder,
   onBusinessChange,
   onSimulatePin,
   onNavigateDeferred,
@@ -3385,52 +3319,97 @@ function OrderDetailPage({
   onBack: () => void
   onStateChange: (state: OrderDetailState) => void
   onReviewDelivery: () => void
-    onOpenOrder: (id: string, view: string, state: string) => void
-    onBusinessChange?: (b: "fresh" | "style" | "tech") => void
+  onOpenOrder: (id: string, view: string, state: string) => void
+  onBusinessChange?: (b: "fresh" | "style" | "tech") => void
   onSimulatePin?: () => void
   onNavigateDeferred: () => void
 }) {
-  
-  const [warehouseIssue, setWarehouseIssue] = useState(false)
-  const [wasDeferred, setWasDeferred] = useState(state === "deferred")
-  
+  const [order, setOrder] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
   useEffect(() => {
-    if (state === "deferred") setWasDeferred(true)
-  }, [state])
+    if (!orderId) return;
+    let active = true
+    setLoading(true)
+    storeDeliveryApi.getOrder(orderId)
+      .then((res) => {
+        if (active) {
+          setOrder(res.data || res)
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err.message || "Failed to load order details")
+          setLoading(false)
+        }
+      })
+    return () => { active = false }
+  }, [orderId])
+
+  if (loading) {
+    return (
+      <div className="order-detail-page">
+        <div className="order-detail-utility-row">
+          <button className="order-back-link" type="button" onClick={onBack}>
+            <ArrowLeft /> Back to Home
+          </button>
+        </div>
+        <div style={{ padding: "var(--space-8)", textAlign: "center" }}>Loading order details...</div>
+      </div>
+    )
+  }
+
+  if (error || !order) {
+    return (
+      <div className="order-detail-page">
+        <div className="order-detail-utility-row">
+          <button className="order-back-link" type="button" onClick={onBack}>
+            <ArrowLeft /> Back to Home
+          </button>
+        </div>
+        <div style={{ padding: "var(--space-8)", textAlign: "center", color: "var(--issue-text)" }}>
+          {error || "Order not found"}
+        </div>
+      </div>
+    )
+  }
+
+  // Map backend status to UI state
+  let state: OrderDetailState = "submitted";
+  if (order.status === "deferred") state = "deferred" as OrderDetailState;
+  if (order.status === "allocated") state = "scheduled" as OrderDetailState;
+  if (order.status === "in_transit") state = "on-way" as OrderDetailState;
+  if (order.status === "delivered") state = "arrived" as OrderDetailState;
+  if (order.status === "completed") state = "receipt-confirmed" as OrderDetailState;
 
   const statusKind: Record<OrderDetailState, StatusKind> = {
+    submitted: "submitted",
     deferred: "deferred",
     confirmed: "confirmed",
     scheduled: "scheduled",
     "on-way": "transit",
     arrived: "arrived",
-    
     "awaiting-confirmation": "awaiting",
     "receipt-confirmed": "received",
     "receipt-issue": "issue",
   }
-  const items = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")))
-  const showAction = state === "awaiting-confirmation"
-    const stateOptions: Array<{
-      value: string
-      label: string
-    }> = [
-      { value: "confirmed", label: "Order confirmed" },
-      { value: "deferred", label: "Deferred" },
-      { value: "scheduled", label: "Scheduled" },
-      { value: "on-way", label: "On the way" },
-      { value: "on-way-issue", label: "On the way (Warehouse issue)" },
-      { value: "arrived", label: "Arrived" },
-      { value: "awaiting-confirmation", label: "Awaiting confirmation" },
-      { value: "receipt-confirmed", label: "Receipt confirmed" },
-      { value: "receipt-issue", label: "Receipt confirmed with issue" },
-    ]
 
-  const activeOptions = stateOptions.filter(o => {
-    if (o.value === "on-way-issue") return false;
-    if (o.value === "deferred" && state !== "confirmed" && state !== "deferred") return false;
-    return true;
-  });
+  const showAction = (state as string) === "awaiting-confirmation"
+  const wasDeferred = order.status === "deferred";
+
+  const totalQuantity = order.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+  const itemCount = order.items?.length || 0;
+
+  const items = order.items?.map((item: any) => ({
+    id: item.sku,
+    name: item.name,
+    category: item.category || "General",
+    quantity: item.quantity,
+    unit: item.unit,
+    image: "",
+  })) || [];
 
   return (
     <div className="order-detail-page">
@@ -3439,34 +3418,12 @@ function OrderDetailPage({
           <ArrowLeft />
           Back to Home
         </button>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-            <PrototypeStateControl
-              value={state}
-              options={activeOptions}
-              onChange={(val) => {
-                onStateChange(val as OrderDetailState)
-              }}
-              onSimulatePin={onSimulatePin}
-            />
-
-            {state === "on-way" && (
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", background: "var(--slate-50)", padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border)" }}>
-                <input 
-                  type="checkbox" 
-                  checked={warehouseIssue} 
-                  onChange={(e) => setWarehouseIssue(e.target.checked)} 
-                />
-                Simulate warehouse issue
-              </label>
-            )}
-          </div>
       </div>
 
       <div className="order-detail-header">
         <div>
           <div className="order-detail-title-row">
-            <div className="page-title data-title">{orderId}</div>
+            <div className="page-title data-title">{order.orderNumber || (order._id && order._id.slice(-8).toUpperCase()) || "ORDER"}</div>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={state}
@@ -3479,73 +3436,17 @@ function OrderDetailPage({
               </motion.div>
             </AnimatePresence>
           </div>
-          <p>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {formatOutlet(business)}</p>
+          <p>{formatOrderType(order.brand?.toLowerCase() || business || "fresh", getDefaultOrderType(business || "fresh"))} · Outlet · {order.outletId}</p>
         </div>
       </div>
 
-      <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} />
+      <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} statusHistory={order.statusHistory} />
 
       <div className="order-detail-layout">
         <div className="order-detail-primary">
-          
-          
-          
+          <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => {}} />
 
-
-          <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} />
-
-{state === "deferred" && (
-            <motion.div className="delivery-update-card" style={{ marginTop: -16, marginBottom: 24 }} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={calmSpring}>
-              <div className="order-detail-section-heading">
-                <div>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <CircleAlert size={16} /> Delivery deferred
-                  </span>
-                  <small>No action required.</small>
-                </div>
-              </div>
-              <div className="delivery-update-grid">
-                <span>
-                  <small>Original plan</small>
-                  <strong>Thursday, 1 October</strong>
-                </span>
-                <span className="delivery-update-new">
-                  <small>New expected delivery</small>
-                  <strong>Friday, 2 October</strong>
-                </span>
-                <span>
-                  <small>Reason</small>
-                  <strong>{business === "fresh" ? "Refrigerated delivery capacity unavailable" : "Vehicle capacity constraints"}</strong>
-                </span>
-              </div>
-            </motion.div>
-          )}
-
-
-          <AnimatePresence>
-            {state === "on-way" && warehouseIssue && (
-              <motion.div
-                className="warehouse-issue-card"
-                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                animate={{ opacity: 1, height: "auto", marginBottom: 24 }}
-                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                transition={calmSpring}
-                style={{ overflow: "hidden" }}
-              >
-                <div style={{ display: "flex", gap: "12px", padding: "16px", background: "var(--sunburst-50)", border: "1px solid var(--sunburst-200)", borderRadius: "8px" }}>
-                  <AlertTriangle style={{ color: "var(--sunburst-600)", width: 20, height: 20, flexShrink: 0 }} />
-                  <div>
-                    <strong style={{ display: "block", color: "var(--sunburst-900)", fontSize: 14, marginBottom: 4 }}>Order out for delivery with an issue</strong>
-                    <p style={{ margin: "0 0 8px 0", color: "var(--sunburst-900)", fontSize: 13, lineHeight: 1.4 }}>2 cartons of Milk powder were unavailable during loading.</p>
-                    <span style={{ color: "var(--sunburst-700)", fontSize: 12 }}>Reported during loading &middot; 05:32</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-
-          {state === "confirmed" && (
+          {state === "submitted" && (
             <div className="order-detail-info">
               <span className="next-steps-icon">
                 <Clock3 />
@@ -3566,7 +3467,7 @@ function OrderDetailPage({
                 <span>Ordered products</span>
                 <small>The quantities originally requested.</small>
               </div>
-              <span>4 products · 80 units</span>
+              <span>{itemCount} product{itemCount === 1 ? '' : 's'} · {totalQuantity} unit{totalQuantity === 1 ? '' : 's'}</span>
             </div>
             <ReviewProductList items={items} />
           </section>
@@ -3579,20 +3480,20 @@ function OrderDetailPage({
               <small>Activity for this order.</small>
             </div>
           </div>
-          <OrderActivity state={state} />
+          <OrderActivity state={state} statusHistory={order.statusHistory} />
 
           <div className="order-record-meta">
             <span>
               <small>Order type</small>
-              <strong>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
+              <strong>{formatOrderType(order.brand?.toLowerCase() || business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
             </span>
             <span>
               <small>Target date</small>
-              <strong>Thursday, 1 October</strong>
+              <strong>{new Date(order.requestedDate || order.createdAt || Date.now()).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
             </span>
             <span>
               <small>Outlet</small>
-              <strong>{formatOutlet(business)}</strong>
+              <strong>Outlet · {order.outletId}</strong>
             </span>
           </div>
         </aside>
@@ -3881,7 +3782,7 @@ function ReceiptIssueRow({
 }
 
 function ReceiptConfirmationState({
-  orderId = "ORD-1082",
+  orderId = "",
   withIssue,
   onViewOrder,
   onHome,
@@ -4044,7 +3945,7 @@ function ReceiptFlowPage({
       {!success && (
         <div className="receipt-page-header">
           <div>
-            <span className="page-kicker">ORD-1082 · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
+            <span className="page-kicker">{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
             <div className="page-title">
               {state === "verify"
                 ? "Verify delivery"
@@ -4054,7 +3955,7 @@ function ReceiptFlowPage({
                     ? "Review delivery issues"
                     : "Verify delivery issues"}
             </div>
-            <p>Driver completed delivery at 06:52.</p>
+            <p>The driver has completed the delivery.</p>
           </div>
           <StatusPill kind="awaiting" />
         </div>
@@ -4548,7 +4449,7 @@ export default function App() {
   const initialBusiness = (params.get("business") as "fresh" | "style" | "tech") || "fresh"
   const [business, setBusiness] = useState<"fresh" | "style" | "tech">(initialBusiness)
   const showAttention = prototypeState !== "no-attention"
-  const afterCutoff = prototypeState === "after-cutoff"
+  // afterCutoff is derived from the real GET /calendar/:date API (fetched below)
   const showUpcoming = prototypeState !== "no-upcoming"
   const initialOrderType: OrderType =
     prototypeState === "chilled" ? "chilled" : "dry"
@@ -4559,6 +4460,24 @@ export default function App() {
     setOrderType(getDefaultOrderType(newBusiness))
   }
   const [drafts, setDrafts] = useState<OrderDrafts>({ dry: {}, chilled: {}, products: {} } as unknown as OrderDrafts)
+
+  // Real calendar/cutoff state — fetched once on mount
+  const [afterCutoff, setAfterCutoff] = useState(false)
+  const [cutdownLabel, setCutdownLabel] = useState("")
+  useEffect(() => {
+    const serviceDate = (import.meta.env.VITE_SERVICE_DATE as string | undefined) ?? new Date().toISOString().slice(0, 10)
+    getCalendarDay(serviceDate)
+      .then((day) => {
+        setAfterCutoff(day.cutoffBucket === "after_cutoff")
+        if (day.cutoffBucket === "before_cutoff") {
+          const mins = Math.floor(day.secondsRemaining / 60)
+          const hrs = Math.floor(mins / 60)
+          const remainMins = mins % 60
+          setCutdownLabel(hrs > 0 ? `${hrs}h ${remainMins}m remaining` : `${mins}m remaining`)
+        }
+      })
+      .catch(() => console.error("Calendar fetch failed"))
+  }, [])
 
   useEffect(() => {
     if (prototypeState !== "empty") {
@@ -4612,6 +4531,7 @@ export default function App() {
   const [receiptFlowState, setReceiptFlowState] =
     useState<ReceiptFlowState>(initialReceiptState)
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
+  const [lastCreatedOrder, setLastCreatedOrder] = useState<import('./api/store').CreatedOrder | null>(null)
 
   
     function handleOpenOrder(id: string, nextView: string, state: string) {
@@ -4703,6 +4623,7 @@ export default function App() {
             >
               <NewOrderPage business={business}
                 afterCutoff={afterCutoff}
+                cutdownLabel={cutdownLabel}
                 type={orderType}
                 onTypeChange={setOrderType}
                 quantities={drafts}
@@ -4728,7 +4649,10 @@ export default function App() {
                 afterCutoff={afterCutoff}
                 forceError={prototypeState === "submit-error"}
                 onBack={() => setView("new-order")}
-                onConfirmed={() => setView("confirmation")}
+                onConfirmed={(order) => {
+                  setLastCreatedOrder(order)
+                  setView("confirmation")
+                }}
               />
             </motion.div>
           )}
@@ -4745,9 +4669,11 @@ export default function App() {
                 type={orderType}
                 quantities={drafts}
                 afterCutoff={afterCutoff}
+                createdOrder={lastCreatedOrder ?? undefined}
                 onHome={() => setView("home")}
                 onViewOrder={() => {
-                  setOrderDetailState("confirmed")
+                  if (lastCreatedOrder) setSelectedOrderId(lastCreatedOrder.orderNumber)
+                  setOrderDetailState("submitted")
                   setView("order-detail")
                 }}
               />

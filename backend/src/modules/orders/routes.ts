@@ -122,7 +122,12 @@ export async function orderRoutes(app: FastifyInstance) {
     const auth = requireRole(request, "store_manager", "dispatcher")
     const params = z.object({ orderId: z.string() }).safeParse(request.params)
     if (!params.success) throw badRequest("An order ID is required.")
-    const order = await Order.findById(params.data.orderId).lean()
+    let order = null;
+    if (mongoose.Types.ObjectId.isValid(params.data.orderId)) {
+      order = await Order.findById(params.data.orderId).lean()
+    } else if (params.data.orderId.startsWith("ORD-")) {
+      order = await Order.findOne({ orderNumber: params.data.orderId }).lean()
+    }
     if (!order) throw notFound()
     if (auth.role === "store_manager") {
       const { outlet } = await managerContext(auth.userId)
