@@ -21,7 +21,7 @@ import { Progress } from "../components/ui/Progress";
 import { StatusPill } from "../components/ui/StatusPill";
 import { Text } from "../components/ui/Text";
 import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
-import type { ActiveStop, LoadCase } from "../data/mock-data"
+import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
 // ── Types ────────────────────────────────────────────────────────────────────

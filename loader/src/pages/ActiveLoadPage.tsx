@@ -26,7 +26,7 @@ import { StatusPill } from "../components/ui/StatusPill";
 import { StopCard } from "../components/load/StopCard";
 import { Text } from "../components/ui/Text";
 import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
-import type { ActiveStop, LoadCase } from "../data/mock-data"
+import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
 // Prototype URL override for connectivity state

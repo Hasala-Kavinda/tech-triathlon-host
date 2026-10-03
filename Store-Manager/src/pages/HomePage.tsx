@@ -12,6 +12,22 @@ import { statusDetails, calmSpring } from "../lib/constants";
 const deliveryStatusKind: Record<string, StatusKind> = { pending: "scheduled", arrived: "arrived", delivered: "received", failed: "issue" };
 const orderStatusKind: Record<string, StatusKind> = { submitted: "awaiting", deferred: "deferred", allocated: "scheduled", loading: "scheduled", load_confirmed: "scheduled", in_transit: "transit", delivered: "received", delivery_failed: "issue", cancelled: "issue" };
 
+type UpcomingDeliveryData = DashboardPayload["upcomingDeliveries"][number];
+
+const deliveryOrderLabel = (delivery: UpcomingDeliveryData) =>
+  delivery.orders.map((order) => order.orderNumber).join(", ") || delivery._id;
+
+// Planned arrival from the published trip; falls back to when the delivery was created.
+const deliveryWhen = (delivery: UpcomingDeliveryData) =>
+  new Date(delivery.arrivedAt ?? delivery.trip?.plannedArrivalAt ?? delivery.trip?.departureAt ?? delivery.createdAt);
+
+const deliveryEta = (delivery: UpcomingDeliveryData) => {
+  const planned = delivery.trip?.plannedArrivalAt;
+  if (!planned) return "Scheduled";
+  const time = new Date(planned).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `ETA ${time}${delivery.trip ? ` · ${delivery.trip.vehicleId}` : ""}`;
+};
+
 export function HomePage({
       showAttention = true,
       afterCutoff = false,
@@ -121,11 +137,11 @@ export function HomePage({
                       <UpcomingDeliveryRow
                         key={delivery._id}
                         delivery={{
-                          id: delivery._id,
-                          type: `${delivery.items.length} item${delivery.items.length === 1 ? "" : "s"}`,
-                          date: new Date(delivery.arrivedAt ?? delivery.createdAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+                          id: deliveryOrderLabel(delivery),
+                          type: `${delivery.items.length} product${delivery.items.length === 1 ? "" : "s"}${delivery.orders[0] ? ` · ${delivery.orders[0].orderType}` : ""}`,
+                          date: deliveryWhen(delivery).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
                           status: delivery.status === "arrived" ? "confirmed" : "scheduled",
-                          eta: delivery.status === "arrived" ? "Arrived" : "Scheduled",
+                          eta: delivery.status === "arrived" ? "Arrived" : deliveryEta(delivery),
                         }}
                         onOpen={() => onOpenOrder(delivery._id, "order-detail", "scheduled")}
                       />
@@ -194,13 +210,15 @@ export function NextDeliveryHero({ onOpen, delivery }: { onOpen?: () => void, de
         <div className="next-delivery-heading">
           <span className="delivery-date">
             <CalendarDays />
-            {new Date(delivery.arrivedAt ?? delivery.createdAt).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+            {deliveryWhen(delivery).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
           </span>
           <StatusPill kind={kind} />
         </div>
         <div className="delivery-name">{delivery.status === "arrived" ? "Delivery arrived" : "Delivery scheduled"}</div>
         <span className="order-reference">
-          Delivery <strong className="data-id">{delivery._id}</strong>
+          Order <strong className="data-id">{deliveryOrderLabel(delivery)}</strong>
+          {delivery.trip ? <> · Trip {delivery.trip.tripNumber} · Vehicle {delivery.trip.vehicleId}</> : null}
+          {delivery.status !== "arrived" && delivery.trip?.plannedArrivalAt ? <> · {deliveryEta(delivery).split(" · ")[0]}</> : null}
         </span>
       </div>
 

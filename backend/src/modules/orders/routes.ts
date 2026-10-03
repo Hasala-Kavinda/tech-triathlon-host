@@ -7,7 +7,7 @@ import { badRequest, forbidden, notFound, unprocessable } from "../../common/err
 import { findIdempotentResult, saveIdempotentResult } from "../../common/idempotency.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
-import { cutoffContext, parseServiceDate } from "../../common/time.js"
+import { parseServiceDate, submissionContext } from "../../common/time.js"
 import { Order } from "./persistence/order.model.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
@@ -17,7 +17,9 @@ import { CounterCommandPort } from "../../database/persistence/counter.command-p
 
 const createBody = z.object({
   orderType: z.string().min(1).max(40),
-  requestedDate: z.string(),
+  // Optional: the server works out the earliest delivery day from its own clock. A client may ask
+  // for a later day, never an earlier one.
+  requestedDate: z.string().optional(),
   items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(100_000) })).min(1).max(200),
 })
 
@@ -37,13 +39,35 @@ export async function orderRoutes(app: FastifyInstance) {
     const idem = await findIdempotentResult(request, "orders.create", parsed.data)
     if (idem.existing) return reply.status(idem.existing.statusCode).send(idem.existing.response)
 
-    parseServiceDate(parsed.data.requestedDate)
+    // Both the cutoff bucket and the earliest delivery day come from the server's clock
+    // (Asia/Colombo): before 16:00 today the order joins the next operating day's planning run,
+    // at or after 16:00 it joins the operating day after that.
+    const submission = submissionContext()
+    let requestedDate: string
+    if (app.config.devMode) {
+      // Development phase: deliver today unless a date is given, and skip the earliest-day check,
+      // so the whole scheduling flow can be tried at any time of day. The cutoff bucket above is
+      // still the real one. Production (DEV_MODE=false) uses the rules below.
+      requestedDate = parsed.data.requestedDate ?? submission.submissionDay
+      parseServiceDate(requestedDate)
+    } else {
+      const firstOperatingDay = await CalendarDayReadPort.findNextOperatingDay(submission.submissionDay)
+      const earliestDay = submission.cutoffBucket === "before_cutoff"
+        ? firstOperatingDay
+        : firstOperatingDay ? await CalendarDayReadPort.findNextOperatingDay(firstOperatingDay.date) : null
+      if (!earliestDay) throw unprocessable("NO_OPERATING_DAY", "There is no upcoming operating day in the calendar to deliver this order.")
+      requestedDate = parsed.data.requestedDate ?? earliestDay.date
+      parseServiceDate(requestedDate)
+      if (requestedDate < earliestDay.date) {
+        throw unprocessable("REQUESTED_DATE_TOO_EARLY", `Orders placed now can be delivered from ${earliestDay.date} at the earliest.`, { earliestDate: earliestDay.date, cutoffBucket: submission.cutoffBucket })
+      }
+    }
     const [{ outlet }, calendar, products] = await Promise.all([
       managerContext(auth.userId),
-      CalendarDayReadPort.findByDate(parsed.data.requestedDate),
+      CalendarDayReadPort.findByDate(requestedDate),
       ProductReadPort.findActiveByIds(parsed.data.items.map((item) => item.productId)),
     ])
-    if (!calendar?.isOperating) throw unprocessable("NON_OPERATING_DAY", "Orders cannot be requested for a non-operating day.")
+    if (!app.config.devMode && !calendar?.isOperating) throw unprocessable("NON_OPERATING_DAY", "Orders cannot be requested for a non-operating day.")
     if (products.length !== new Set(parsed.data.items.map((item) => item.productId)).size) throw unprocessable("UNKNOWN_PRODUCT", "One or more products are unavailable.")
     const productMap = new Map(products.map((product) => [String(product._id), product]))
     const items = parsed.data.items.map(({ productId, quantity }) => {
@@ -64,7 +88,6 @@ export async function orderRoutes(app: FastifyInstance) {
       }
     })
     const now = new Date()
-    const cutoff = cutoffContext(parsed.data.requestedDate)
     let order!: InstanceType<typeof Order>
     const session = await mongoose.startSession()
     try {
@@ -78,8 +101,8 @@ export async function orderRoutes(app: FastifyInstance) {
             storeManagerId: auth.userId,
             brand: outlet.brand,
             orderType: parsed.data.orderType,
-            requestedDate: parsed.data.requestedDate,
-            cutoffBucket: cutoff.cutoffBucket,
+            requestedDate,
+            cutoffBucket: submission.cutoffBucket,
             items,
             totalWeightKg: items.reduce((total, item) => total + item.unitWeightKg * item.quantity, 0),
             totalVolumeM3: items.reduce((total, item) => total + item.unitVolumeM3 * item.quantity, 0),
@@ -89,7 +112,7 @@ export async function orderRoutes(app: FastifyInstance) {
         ))[0]!
       })
     } finally { await session.endSession() }
-    await audit(request, "order.submitted", "order", order!.id, { orderNumber: order!.orderNumber, outletId: outlet.outletId, cutoffBucket: cutoff.cutoffBucket })
+    await audit(request, "order.submitted", "order", order!.id, { orderNumber: order!.orderNumber, outletId: outlet.outletId, cutoffBucket: submission.cutoffBucket, requestedDate })
     const response = ok(request, order!.toObject())
     await saveIdempotentResult({ key: idem.key, requestHash: idem.requestHash, operation: "orders.create", userId: auth.userId, statusCode: 201, response })
     return reply.status(201).send(response)

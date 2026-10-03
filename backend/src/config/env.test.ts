@@ -25,6 +25,30 @@ describe("environment configuration", () => {
     expect(config.seedDemoScenario).toBe(true)
   })
 
+  describe("DEV_MODE (development phase switch)", () => {
+    it("is off unless explicitly enabled, so production logic is the default", () => {
+      expect(loadConfig({ NODE_ENV: "test" }).devMode).toBe(false)
+      expect(loadConfig({ NODE_ENV: "development", DEV_MODE: "false" }).devMode).toBe(false)
+    })
+
+    it("turns on when set to true", () => {
+      expect(loadConfig({ NODE_ENV: "development", DEV_MODE: "true" }).devMode).toBe(true)
+    })
+
+    it("refuses to run in production", () => {
+      expect(() => loadConfig({
+        NODE_ENV: "production",
+        JWT_SECRET: "a-real-secret-that-is-long-enough-123",
+        PIN_HMAC_SECRET: "a-real-pin-secret-that-is-long-enough-1",
+        DEV_MODE: "true",
+      })).toThrow("DEV_MODE")
+    })
+
+    it("rejects values that are not a boolean", () => {
+      expect(() => loadConfig({ NODE_ENV: "test", DEV_MODE: "yes" })).toThrow("Invalid environment configuration")
+    })
+  })
+
   it("rejects an unsafe production secret", () => {
     expect(() => loadConfig({ NODE_ENV: "production" })).toThrow("JWT_SECRET")
   })

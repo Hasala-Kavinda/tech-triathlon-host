@@ -1,5 +1,7 @@
 import { Bolt, Check, CheckCircle2, Clock, Search, Settings, Snowflake, Truck, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { PreparedTrip } from "../App";
+import { addDays, dateLabel } from "../lib/dates";
 import { CheckModal } from "../components/CheckModal";
 import { blockedReason, canGo, isAtQuota, isDayLimit, recordTurn, vehicleDay, volumeOf } from "../components/planning/helpers";
 import { OrderRow } from "../components/planning/OrderRow";
@@ -19,8 +21,22 @@ export default function SchedulePage({
   setOrders,
   onOpenManageVehicles,
   onOpenDefer,
+  planning,
+  today,
+  planningDate,
+  onPlanningDateChange,
 }: {
+  /** Today in Asia/Colombo and the day being planned (both YYYY-MM-DD); null until known. */
+  today: string | null
+  planningDate: string | null
+  onPlanningDateChange: (date: string) => void
   navigateHome: (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => void | Promise<void>
+  /** Live planning service. Absent in prototype mode, where navigateHome does everything. */
+  planning?: {
+    prepare: (scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => Promise<PreparedTrip>
+    publish: (prepared: PreparedTrip) => Promise<void>
+    onPublished: (message: string, scheduled: Order[]) => void
+  }
   vehicles: Vehicle[]
   setVehicles: React.Dispatch<React.SetStateAction<Vehicle[]>>
   orders: Order[]
@@ -29,14 +45,11 @@ export default function SchedulePage({
   onOpenDefer: () => void
 }) {
   const params = new URLSearchParams(window.location.search)
-  const dateParam = params.get("date")
-  const isDatePreset = Boolean(dateParam)
-  const [routeDate, setRouteDate] = useState(() =>
-    isDatePreset ? "Mon 28 Sep" : "Today · Sun 27",
-  )
-  const [departsTime, setDepartsTime] = useState(() =>
-    isDatePreset ? "07:00" : "12:30",
-  )
+  // A route planned for a day after today is a "future" plan (departure defaults to the early slot).
+  const isDatePreset = Boolean(today && planningDate && planningDate !== today)
+  const routeDate = planningDate ?? ""
+  const routeDateLabel = planningDate && today ? dateLabel(planningDate, today) : "loading date…"
+  const [departsTime, setDepartsTime] = useState(() => (isDatePreset ? "07:00" : "12:30"))
   const [dateChipOpen, setDateChipOpen] = useState(false)
 
   const [orderFilter, setOrderFilter] = useState<"All" | ShopType>("All")
@@ -48,6 +61,14 @@ export default function SchedulePage({
   const [checked, setChecked] = useState<string[]>([])
 
   const highlightedOrder = params.get("order")
+
+  // Backend validation of the route shown in the check sheet. A draft trip is created and
+  // validated whenever the sheet opens or the pack, vehicle or slot changes.
+  const [prepared, setPrepared] = useState<PreparedTrip | null>(null)
+  const [validation, setValidation] = useState<React.ComponentProps<typeof CheckModal>["validation"]>(undefined)
+  const [scheduling, setScheduling] = useState(false)
+  const [submitError, setSubmitError] = useState("")
+  const [recheck, setRecheck] = useState(0)
 
   // Vehicles that can go: under weekly quota and under the daily turn limit
   const availableVehicles = vehicles.filter(canGo)
@@ -69,6 +90,10 @@ export default function SchedulePage({
     )
   }, [openOrders, orderFilter, vehicle])
 
+  // "All" is every open (not deferred) order, emergency or not; the header uses the same list.
+  const emergencyCount = openOrders.filter((o) => o.emergency).length
+  const fleetCount = (type: Vehicle["type"]) => vehicles.filter((v) => v.type === type).length
+
   const suggestedOrders = useMemo(() => {
     return openOrders.filter((o) => o.suggested && o.inReach)
   }, [openOrders])
@@ -77,6 +102,7 @@ export default function SchedulePage({
     return openOrders.filter((o) => added.includes(o.id))
   }, [openOrders, added])
 
+  const suggestedKg = suggestedOrders.reduce((sum, o) => sum + o.kg, 0)
   const loadKg = addedOrders.reduce((sum, o) => sum + o.kg, 0)
   const capacityPercent = vehicle
     ? Math.round((loadKg / vehicle.capacityKg) * 100)
@@ -108,7 +134,53 @@ export default function SchedulePage({
 
   const openCheck = () => {
     setChecked(added)
+    // The button must stay disabled until the planning service has answered.
+    setValidation(planning ? { phase: "loading" } : undefined)
     setOverlay("check")
+  }
+
+  const packKey = addedOrders.map((o) => o.id).join("|")
+  useEffect(() => {
+    if (!planning || overlay !== "check" || !vehicle || !addedOrders.length) return
+    let stale = false
+    setPrepared(null)
+    setSubmitError("")
+    setValidation({ phase: "loading" })
+    planning.prepare(addedOrders, vehicle, routeDate, departsTime)
+      .then((trip) => {
+        if (stale) return
+        setPrepared(trip)
+        setValidation({ phase: "ready", valid: trip.valid, rules: trip.rules })
+      })
+      .catch((error) => {
+        if (!stale) setValidation({ phase: "error", message: error instanceof Error ? error.message : "The route could not be checked." })
+      })
+    return () => { stale = true }
+    // addedOrders is derived from packKey; planning callbacks are recreated on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay, vehicle?.id, packKey, routeDate, departsTime, recheck])
+
+  const schedule = async () => {
+    if (!vehicle) return
+    if (!planning) {
+      setOverlay(null)
+      recordTurn(vehicle)
+      void navigateHome(`Route ${vehicle.id} scheduled`, addedOrders, vehicle, routeDate, departsTime)
+      return
+    }
+    if (!prepared) return
+    setScheduling(true)
+    setSubmitError("")
+    try {
+      await planning.publish(prepared)
+      recordTurn(vehicle)
+      setOverlay(null)
+      planning.onPublished(`Route ${vehicle.id} scheduled`, addedOrders)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "The route could not be scheduled.")
+    } finally {
+      setScheduling(false)
+    }
   }
 
   const matchingVehicles = useMemo(() => {
@@ -137,37 +209,35 @@ export default function SchedulePage({
             >
               <Clock size={16} />
               <span>
-                Route date: {routeDate} · departs {departsTime} ▾
+                Route date: {routeDateLabel} · departs {departsTime} ▾
               </span>
             </button>
             {dateChipOpen && (
               <div className="route-date-popover">
                 <strong>Route date</strong>
                 <div className="route-date-options">
-                  <button
-                    className={`route-date-option ${routeDate.includes("27") ? "route-date-option--active" : ""}`}
-                    onClick={() => {
-                      setRouteDate("Today · Sun 27")
-                      setDepartsTime("12:30")
-                      setDateChipOpen(false)
-                    }}
-                    type="button"
-                  >
-                    <span>Today · Sun 27 Sep</span>
-                    <small>Live</small>
-                  </button>
-                  <button
-                    className={`route-date-option ${routeDate.includes("28") ? "route-date-option--active" : ""}`}
-                    onClick={() => {
-                      setRouteDate("Mon 28 Sep")
-                      setDepartsTime("07:00")
-                      setDateChipOpen(false)
-                    }}
-                    type="button"
-                  >
-                    <span>Mon 28 Sep</span>
-                    <small>Planning</small>
-                  </button>
+                  {today
+                    ? Array.from({ length: 7 }, (_, offset) => addDays(today, offset)).map((date) => (
+                      <button
+                        className={`route-date-option ${planningDate === date ? "route-date-option--active" : ""}`}
+                        key={date}
+                        onClick={() => {
+                          if (date !== planningDate) {
+                            // A different day has different orders: start a fresh pack for it.
+                            setAdded([])
+                            setVehicle(null)
+                            onPlanningDateChange(date)
+                          }
+                          setDepartsTime(date === today ? "12:30" : "07:00")
+                          setDateChipOpen(false)
+                        }}
+                        type="button"
+                      >
+                        <span>{dateLabel(date, today)}</span>
+                        <small>{date === today ? "Live" : "Planning"}</small>
+                      </button>
+                    ))
+                    : <span>Loading the date…</span>}
                 </div>
                 <strong>Departure slot</strong>
                 <div className="route-time-slots">
@@ -199,7 +269,7 @@ export default function SchedulePage({
             <div>
               <Heading>Orders</Heading>
               <span>
-                {openOrders.length} open · <b style={{ color: "var(--critical-500)" }}>2 emergency</b>
+                {openOrders.length} open · <b style={{ color: "var(--critical-500)" }}>{emergencyCount} emergency</b>
               </span>
             </div>
           </div>
@@ -225,7 +295,7 @@ export default function SchedulePage({
               <div className="suggestion-banner suggestion-banner--packed">
                 <CheckCircle2 size={24} color="var(--cobalt-500)" />
                 <div>
-                  <strong>Pack added · {added.length} of 5</strong>
+                  <strong>Pack added · {added.length} of {suggestedOrders.length}</strong>
                   <span>{loadKg.toLocaleString()} kg loaded</span>
                 </div>
                 <Button onClick={() => setAdded([])} variant="secondary">
@@ -236,8 +306,8 @@ export default function SchedulePage({
               <div className="suggestion-banner suggestion-banner--ai">
                 <Bolt size={24} color="var(--cobalt-500)" />
                 <div>
-                  <strong>AI suggested: 5 orders</strong>
-                  <span>1,260 kg, fits reach</span>
+                  <strong>AI suggested: {suggestedOrders.length} {suggestedOrders.length === 1 ? "order" : "orders"}</strong>
+                  <span>{suggestedKg.toLocaleString()} kg, fits reach</span>
                 </div>
                 <Button onClick={openReview} variant="primary">
                   Review
@@ -289,13 +359,13 @@ export default function SchedulePage({
                 ) : ""}
               </strong>
               <span>
-                <Truck aria-hidden="true" size={24} /> Van ×2
+                <Truck aria-hidden="true" size={24} /> Van ×{fleetCount("Van")}
               </span>
               <span>
-                <Truck aria-hidden="true" size={24} /> Lorry ×2
+                <Truck aria-hidden="true" size={24} /> Lorry ×{fleetCount("Lorry")}
               </span>
               <span>
-                <Snowflake aria-hidden="true" size={19} /> Refrigerated ×1
+                <Snowflake aria-hidden="true" size={19} /> Refrigerated ×{fleetCount("Refrigerated")}
               </span>
             </div>
           </div>
@@ -461,14 +531,14 @@ export default function SchedulePage({
             setAdded((prev) => prev.filter((item) => item !== id))
             setChecked((prev) => prev.filter((item) => item !== id))
           }}
-          onSchedule={() => {
-            setOverlay(null)
-            recordTurn(vehicle)
-            void navigateHome(`Route ${vehicle.id} scheduled`, addedOrders, vehicle, routeDate, departsTime)
-          }}
+          onRetryValidation={() => setRecheck((count) => count + 1)}
+          onSchedule={() => void schedule()}
           pack={addedOrders}
+          scheduling={scheduling}
           setChecked={setChecked}
           vehicle={vehicle}
+          {...(planning ? { validation } : {})}
+          {...(submitError ? { submitError } : {})}
         />
       ) : null}
     </section>

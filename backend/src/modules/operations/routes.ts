@@ -22,11 +22,27 @@ export async function operationRoutes(app: FastifyInstance) {
   app.get("/store/dashboard", { preHandler: app.authenticate }, async (request) => {
     const auth = requireRole(request, "store_manager")
     const outletId = await storeOutlet(auth.userId)
-    const [recentOrders, upcomingDeliveries, attentionCount] = await Promise.all([
+    const [recentOrders, deliveries, attentionCount] = await Promise.all([
       OrderReadPort.findRecentByOutlet(outletId, 5),
       DeliveryRecord.find({ outletId, status: { $in: ["pending", "arrived"] } }).sort({ createdAt: 1 }).limit(5).lean(),
       DeliveryRecord.countDocuments({ outletId, outcome: { $in: ["partial", "failed"] }, status: { $in: ["delivered", "failed", "receipt_confirmed", "receipt_issue"] } }),
     ])
+    // A delivery record only knows its trip and stop; add the vehicle, planned arrival and
+    // the orders it carries so the dashboard can show what is coming and when.
+    const trips = await Trip.find({ _id: { $in: deliveries.map((delivery) => delivery.tripId) } }).select("tripNumber vehicleId serviceDate departureAt stops").lean()
+    const tripById = new Map(trips.map((trip) => [String(trip._id), trip]))
+    const orders = await OrderReadPort.findByIds(deliveries.flatMap((delivery) => delivery.items.flatMap((item) => item.orderIds.map(String))))
+    const orderById = new Map(orders.map((order) => [String(order._id), order]))
+    const upcomingDeliveries = deliveries.map((delivery) => {
+      const trip = tripById.get(String(delivery.tripId))
+      const stop = trip?.stops.find((candidate) => String(candidate.tripStopId) === String(delivery.tripStopId))
+      const orderIds = [...new Set(delivery.items.flatMap((item) => item.orderIds.map(String)))]
+      return {
+        ...delivery,
+        trip: trip ? { tripNumber: trip.tripNumber, vehicleId: trip.vehicleId, serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedArrivalAt: stop?.plannedArrivalAt } : null,
+        orders: orderIds.flatMap((id) => { const order = orderById.get(id); return order ? [{ _id: id, orderNumber: order.orderNumber, orderType: order.orderType, brand: order.brand }] : [] }),
+      }
+    }).sort((a, b) => new Date(a.trip?.plannedArrivalAt ?? a.createdAt).getTime() - new Date(b.trip?.plannedArrivalAt ?? b.createdAt).getTime())
     return ok(request, { recentOrders, upcomingDeliveries, attentionCount })
   })
 

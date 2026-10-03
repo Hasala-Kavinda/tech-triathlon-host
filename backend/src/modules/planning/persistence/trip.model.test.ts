@@ -77,6 +77,7 @@ describe("Trip Model (DB-11)", () => {
       dispatcherId: new Types.ObjectId(),
       distanceKm: 50,
       routeIndex: 1,
+      status: "published",
     }
 
     const trip2 = { ...trip1, tripNumber: "TRP-302" } // Same vehicle/date/routeIndex
@@ -91,6 +92,23 @@ describe("Trip Model (DB-11)", () => {
     }
     expect(error).toBeDefined()
     expect(error.code).toBe(11000)
+  })
+
+  it("should let draft trips share a vehicle turn, so a draft can be re-validated", async () => {
+    const draft = {
+      tripNumber: "TRP-311",
+      serviceDate: "2026-10-02",
+      departureAt: new Date(),
+      depot: "Depot-1",
+      vehicleId: "V-DRAFTS",
+      driverId: new Types.ObjectId(),
+      dispatcherId: new Types.ObjectId(),
+      distanceKm: 50,
+      routeIndex: 1,
+      status: "draft",
+    }
+    await Trip.create(draft)
+    await expect(Trip.create({ ...draft, tripNumber: "TRP-312" })).resolves.toBeDefined()
   })
 
   it("should allow same vehicleId + serviceDate with different routeIndex", async () => {

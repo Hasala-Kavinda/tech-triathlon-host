@@ -18,6 +18,9 @@ const schema = z.object({
   CSC_PRODUCTS_FILE: z.string().optional(),
   ALLOW_DEMO_PRODUCTS: z.enum(["true", "false"]).default("false"),
   SEED_DEMO_SCENARIO: z.enum(["true", "false"]).default("false"),
+  // Development phase switch. When "true" the order-date and Fresh-deadline rules are relaxed so
+  // the scheduling flow can be tested at any time of day. Never allowed in production.
+  DEV_MODE: z.enum(["true", "false"]).default("false"),
   LOG_LEVEL: z.string().default("info"),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
@@ -39,6 +42,10 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
   }
   if (data.NODE_ENV === "production" && data.PIN_HMAC_SECRET.startsWith("development-only")) {
     throw new Error("PIN_HMAC_SECRET must be replaced in production")
+  }
+
+  if (data.NODE_ENV === "production" && data.DEV_MODE === "true") {
+    throw new Error("DEV_MODE must be false in production")
   }
 
   const roleOrigins = {
@@ -63,6 +70,7 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
     cscProductsFile: data.CSC_PRODUCTS_FILE || undefined,
     allowDemoProducts: data.ALLOW_DEMO_PRODUCTS === "true",
     seedDemoScenario: data.SEED_DEMO_SCENARIO === "true",
+    devMode: data.DEV_MODE === "true",
     logLevel: data.LOG_LEVEL,
     cloudinary: data.CLOUDINARY_CLOUD_NAME && data.CLOUDINARY_API_KEY && data.CLOUDINARY_API_SECRET
       ? { cloudName: data.CLOUDINARY_CLOUD_NAME, apiKey: data.CLOUDINARY_API_KEY, apiSecret: data.CLOUDINARY_API_SECRET }

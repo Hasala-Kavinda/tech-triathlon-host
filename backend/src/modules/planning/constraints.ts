@@ -20,6 +20,8 @@ export async function validateTrip(input: {
   plannedArrivals?: Record<string, Date>
   distanceKm: number
   excludeTripId?: string
+  /** Development phase (DEV_MODE): the operating-day and Fresh-deadline rules are skipped. */
+  devMode?: boolean
 }) {
   const [day, vehicle, orders, existingVehicleRoutes, overlappingDriverTrip] = await Promise.all([
     CalendarDayReadPort.findByDate(input.serviceDate),
@@ -29,20 +31,24 @@ export async function validateTrip(input: {
       ...(input.excludeTripId ? { _id: { $ne: input.excludeTripId } } : {}),
       serviceDate: input.serviceDate,
       vehicleId: input.vehicleId,
-      status: { $in: ["published", "load_confirmed", "claimed", "in_transit", "completed"] },
+      status: { $in: ["published", "loading", "load_confirmed", "claimed", "in_transit", "completed"] },
     }),
     input.plannedEndAt ? Trip.findOne({
       ...(input.excludeTripId ? { _id: { $ne: input.excludeTripId } } : {}),
       driverId: input.driverId,
       serviceDate: input.serviceDate,
-      status: { $ne: "cancelled" },
+      // Drafts are only previews of a route being checked; they must not block the Driver.
+      status: { $in: ["published", "loading", "load_confirmed", "claimed", "in_transit", "completed"] },
       departureAt: { $lt: input.plannedEndAt },
       plannedEndAt: { $gt: input.departureAt },
     }).lean() : null,
   ])
 
   const rules: RuleResult[] = []
-  rules.push(passFail("OPERATING_DAY", day?.isOperating === true, day?.isOperating ? "The service date is an operating day." : "The service date is not an operating day."))
+  const skippedInDev = (rule: string) => `${rule} (not enforced: development mode)`
+  rules.push(input.devMode
+    ? passFail("OPERATING_DAY", true, skippedInDev(day?.isOperating ? "The service date is an operating day." : "The service date is not an operating day."))
+    : passFail("OPERATING_DAY", day?.isOperating === true, day?.isOperating ? "The service date is an operating day." : "The service date is not an operating day."))
   rules.push(passFail("VEHICLE_AVAILABLE", Boolean(vehicle), vehicle ? "The vehicle is active and available in reference data." : "The selected vehicle is unavailable."))
   rules.push(passFail("ORDERS_FOUND", orders.length === new Set(input.orderIds).size, "Every selected order must exist.", orders.length, new Set(input.orderIds).size))
 
@@ -79,7 +85,8 @@ export async function validateTrip(input: {
       : eight
     const deadline = DateTime.min(eight, windowClose)
     const passed = Boolean(arrival) && DateTime.fromJSDate(arrival!).setZone(OPERATING_ZONE) <= deadline
-    rules.push(passFail("FRESH_BEFORE_DEADLINE", passed, passed ? `${order.orderNumber} is planned before its Fresh deadline.` : `${order.orderNumber} must be planned by ${deadline.toFormat("HH:mm")}.`, arrival?.toISOString(), deadline.toUTC().toISO()))
+    const message = passed ? `${order.orderNumber} is planned before its Fresh deadline.` : `${order.orderNumber} must be planned by ${deadline.toFormat("HH:mm")}.`
+    rules.push(passFail("FRESH_BEFORE_DEADLINE", input.devMode ? true : passed, input.devMode ? skippedInDev(message) : message, arrival?.toISOString(), deadline.toUTC().toISO()))
   }
 
   return { valid: rules.every((rule) => rule.passed), rules, totals: { weightKg: totalWeightKg, volumeM3: totalVolumeM3, plannedFuelL } }

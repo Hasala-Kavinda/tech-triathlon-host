@@ -18,3 +18,36 @@ export type LoadItemData = {
   quantity: string
   status: LoadItemStatus
 }
+
+export type LoadTiming = {
+  receivedAt: number
+  departureAt: number
+  finalVariance?: number
+}
+
+export type LoadRecordStatus = "available" | "claimed" | "loading" | "reconciled" | "confirmed"
+
+/** One load job as the Available Work list shows it. Built from the load record and its trip. */
+export type LoadCase = {
+  tripId: string
+  version: number
+  recordStatus: LoadRecordStatus
+  departure: string
+  items: number
+  priority: "normal" | "urgent"
+  route: string
+  state: WorkCardState
+  stops: number
+  vehicle: string
+  weight: string
+  timing: LoadTiming
+}
+
+/** One stop of the open load: the items to load for that outlet. */
+export type ActiveStop = {
+  deliveryWindow: string
+  items: LoadItemData[]
+  orderId: string
+  outlet: string
+  stopNumber: number
+}

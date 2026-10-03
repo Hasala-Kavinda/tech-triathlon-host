@@ -104,7 +104,12 @@ export const tripSchema = new Schema(
 )
 
 tripSchema.index({ tripNumber: 1 }, { unique: true })
-tripSchema.index({ vehicleId: 1, serviceDate: 1, routeIndex: 1 }, { unique: true })
+// A vehicle's daily turn is held only once a trip is published. Drafts (and cancelled
+// trips) must not block it, because the Dispatcher drafts a trip to validate it and may redo that.
+tripSchema.index(
+  { vehicleId: 1, serviceDate: 1, routeIndex: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ["published", "loading", "load_confirmed", "claimed", "in_transit", "completed"] } } },
+)
 tripSchema.index({ driverId: 1, serviceDate: 1 })
 tripSchema.index({ status: 1, serviceDate: 1 })
 tripSchema.index({ "stops.orderIds": 1 })

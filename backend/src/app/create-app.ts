@@ -62,12 +62,10 @@ export async function createApp(config: AppConfig): Promise<FastifyInstance> {
     return payload
   })
 
-  await app.register(healthRoutes)
-
-  await app.register(registerModules, { prefix: "/api/v1" })
-
-  app.get("/docs/openapi.json", async (_request, reply) => reply.send(app.swagger()))
-
+  // Fastify gives each registered plugin a copy of the handlers that exist when it loads.
+  // These must therefore be set BEFORE the routes are registered; set afterwards, every module
+  // route silently kept Fastify's default error body ({ statusCode, error, message }), which
+  // the role apps cannot read, so every API error showed up as "The request failed."
   app.setNotFoundHandler((request, reply) => {
     void reply.status(404).send({ success: false, error: { code: "NOT_FOUND", message: "The requested route was not found." }, requestId: request.id })
   })
@@ -86,9 +84,21 @@ export async function createApp(config: AppConfig): Promise<FastifyInstance> {
     if ((error as unknown as { code?: number }).code === 11000) {
       return reply.status(409).send({ success: false, error: { code: "DUPLICATE_RESOURCE", message: "A resource with this business key already exists." }, requestId: request.id })
     }
+    // Fastify's own client errors (bad JSON, empty body, wrong content type, rate limit) carry a
+    // 4xx status and a message that is safe to show; answer them as such rather than as a 500.
+    const clientStatus = (error as { statusCode?: number }).statusCode
+    if (typeof clientStatus === "number" && clientStatus >= 400 && clientStatus < 500) {
+      return reply.status(clientStatus).send({ success: false, error: { code: (error as { code?: string }).code ?? "BAD_REQUEST", message: error.message }, requestId: request.id })
+    }
     request.log.error({ err: error }, "Unhandled request error")
     return reply.status(500).send({ success: false, error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred." }, requestId: request.id })
   })
+
+  await app.register(healthRoutes)
+
+  await app.register(registerModules, { prefix: "/api/v1" })
+
+  app.get("/docs/openapi.json", async (_request, reply) => reply.send(app.swagger()))
 
   return app
 }

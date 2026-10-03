@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LoadTiming } from "../../data/mock-data";
+import type { LoadTiming } from "../../types/loader";
 import { Text } from "../ui/Text";
 import { CompletionVarianceBadge } from "./CompletionVarianceBadge";
 

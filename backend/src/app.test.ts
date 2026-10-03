@@ -37,6 +37,24 @@ describe("HTTP foundation", () => {
     expect(response.json()).toMatchObject({ success: false, error: { code: "NOT_FOUND" } })
   })
 
+  // Regression: the error handler used to be set after the module routes were registered, so
+  // module routes kept Fastify's default body and the role apps showed "The request failed."
+  it("uses the standard error envelope for errors thrown by registered module routes", async () => {
+    const app = await testApp()
+    const response = await app.inject({ method: "GET", url: "/api/v1/orders" })
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ success: false, error: { code: "UNAUTHORIZED" } })
+    expect(typeof response.json().error.message).toBe("string")
+  })
+
+  it("answers framework client errors with their own 4xx status and message", async () => {
+    const app = await testApp()
+    const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", headers: { "content-type": "application/json" } })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ success: false, error: { code: "FST_ERR_CTP_EMPTY_JSON_BODY" } })
+    expect(response.json().error.message).toContain("Body cannot be empty")
+  })
+
   it("safely formats known AppErrors", async () => {
     const app = await testApp()
     app.get("/test-error", async () => {

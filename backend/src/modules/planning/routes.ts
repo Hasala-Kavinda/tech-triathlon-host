@@ -25,12 +25,13 @@ const tripBody = z.object({
   stops: z.array(z.object({ orderId: z.string().min(1), plannedArrivalAt: z.coerce.date() })).min(1),
 })
 
-async function buildValidation(data: z.infer<typeof tripBody>, excludeTripId?: string) {
+async function buildValidation(data: z.infer<typeof tripBody>, devMode: boolean, excludeTripId?: string) {
   return validateTrip({
     serviceDate: data.serviceDate, departureAt: data.departureAt, plannedEndAt: data.plannedEndAt,
     vehicleId: data.vehicleId, driverId: data.driverId, orderIds: data.stops.map((stop) => stop.orderId),
     plannedArrivals: Object.fromEntries(data.stops.map((stop) => [stop.orderId, stop.plannedArrivalAt])),
     distanceKm: data.distanceKm,
+    devMode,
     ...(excludeTripId ? { excludeTripId } : {}),
   })
 }
@@ -57,7 +58,7 @@ export async function planningRoutes(app: FastifyInstance) {
     ])
     if (!driver) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
     if (!vehicle) throw unprocessable("VEHICLE_UNAVAILABLE", "The selected vehicle is unavailable.")
-    const validation = await buildValidation(parsed.data)
+    const validation = await buildValidation(parsed.data, app.config.devMode)
     const orders = await OrderReadPort.findByIds(parsed.data.stops.map((stop) => stop.orderId))
     const orderMap = new Map(orders.map((order) => [String(order._id), order]))
     let trip!: InstanceType<typeof Trip>
@@ -89,7 +90,7 @@ export async function planningRoutes(app: FastifyInstance) {
     const trip = await Trip.findById(params.data.tripId)
     if (!trip) throw notFound()
     const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
-    const validation = await buildValidation(data, trip.id)
+    const validation = await buildValidation(data, app.config.devMode, trip.id)
     trip.set("constraintCheck", { checkedAt: new Date(), valid: validation.valid, rules: validation.rules })
     await trip.save()
     return ok(request, { ...validation, version: (trip as any).version })
@@ -108,7 +109,7 @@ export async function planningRoutes(app: FastifyInstance) {
         const trip = await Trip.findOne({ _id: params.data.tripId, status: "draft", version }).session(session)
         if (!trip) throw conflict("STALE_OR_INVALID_STATE", "The trip changed or is no longer a draft.")
         const data = { serviceDate: trip.serviceDate, departureAt: trip.departureAt, plannedEndAt: trip.plannedEndAt!, vehicleId: trip.vehicleId, driverId: String(trip.driverId), distanceKm: trip.distanceKm, routeIndex: trip.routeIndex, stops: trip.stops.map((stop) => ({ orderId: String(stop.orderId), plannedArrivalAt: stop.plannedArrivalAt! })) }
-        const validation = await buildValidation(data, trip.id)
+        const validation = await buildValidation(data, app.config.devMode, trip.id)
         if (!validation.valid) throw unprocessable("TRIP_CONSTRAINTS_FAILED", "The trip does not satisfy all hard constraints.", validation)
         const orderIds = trip.stops.flatMap((stop) => stop.orderIds || [stop.orderId])
         const uniqueOrderIds = Array.from(new Set(orderIds.map(String)))
@@ -170,6 +171,10 @@ export async function planningRoutes(app: FastifyInstance) {
         })
         await DeliveryCommandPort.createDeliveryRecordsForPublishedTrip(deliveryRecords, session)
 
+        // The draft starts with zero totals; record the real load so the Loader (and anyone
+        // reading the trip) sees the weight and volume that was actually planned.
+        trip.set("totals.weightKg", orders.reduce((sum, order) => sum + order.totalWeightKg, 0))
+        trip.set("totals.volumeM3", orders.reduce((sum, order) => sum + order.totalVolumeM3, 0))
         trip.status = "published"
         trip.set("constraintCheck", { checkedAt: new Date(), valid: true, rules: validation.rules })
         trip.statusHistory.push({ status: "published", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId) })

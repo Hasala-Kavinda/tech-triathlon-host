@@ -10,7 +10,7 @@ export async function healthRoutes(app: FastifyInstance) {
     const ready = databaseReady()
     return reply.status(ready ? 200 : 503).send({
       success: ready,
-      data: { status: ready ? "ready" : "not_ready", database: mongoose.connection.readyState },
+      data: { status: ready ? "ready" : "not_ready", database: mongoose.connection.readyState, devMode: app.config.devMode },
       requestId: request.id,
     })
   })

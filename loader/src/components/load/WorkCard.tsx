@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle2, Clock3, MapPin, Package, PackageCheck, RefreshCw, Route, Scale, Truck } from "lucide-react";
-import type { LoadTiming } from "../../data/mock-data";
+import type { LoadTiming } from "../../types/loader";
 import { cx } from "../../lib/utils";
 import type { WorkCardState } from "../../types/loader";
 import { Button } from "../ui/Button";

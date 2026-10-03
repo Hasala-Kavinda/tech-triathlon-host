@@ -65,6 +65,9 @@ services:
       PORT: 3000
       MONGODB_URI: mongodb://mongo:27017/waylink?replicaSet=rs0
       JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me-now}
+      # Development phase: relaxes the order-date and Fresh-deadline rules for testing. Set DEV_MODE=false
+      # (the code default) for production, where it is also refused at startup.
+      DEV_MODE: ${DEV_MODE:-true}
       LOGIN_ORIGIN: http://localhost:5173
       DISPATCHER_ORIGIN: http://localhost:5174
       LOADER_ORIGIN: http://localhost:5175
@@ -91,7 +94,7 @@ services:
   dispatcher-web:
     build:
       <<: *frontend-build
-      args: { APP_DIR: dispatcher, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173, VITE_SERVICE_DATE: "${VITE_SERVICE_DATE:-2026-10-01}" }
+      args: { APP_DIR: dispatcher, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
     ports: ["5174:8080"]
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
 
@@ -112,7 +115,7 @@ services:
   store-manager-web:
     build:
       <<: *frontend-build
-      args: { APP_DIR: Store-Manager, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173, VITE_SERVICE_DATE: "${VITE_SERVICE_DATE:-2026-10-01}" }
+      args: { APP_DIR: Store-Manager, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
     ports: ["5177:8080"]
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
 

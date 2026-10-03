@@ -1,7 +1,7 @@
 import { apiRequest } from "./client"
 
 export type ApiProduct = { _id: string; sku: string; name: string; brand: string; orderTypes: string[]; unit: string }
-export type CreatedOrder = { _id: string; orderNumber: string; status: string; cutoffBucket: "before_cutoff" | "after_cutoff"; version: number }
+export type CreatedOrder = { _id: string; orderNumber: string; status: string; requestedDate: string; cutoffBucket: "before_cutoff" | "after_cutoff"; version: number }
 export type StoreDeliveryStatus = "pending" | "arrived" | "delivered" | "failed" | "receipt_confirmed" | "receipt_issue"
 export type StoreDelivery = { _id: string; orderId: string; status: StoreDeliveryStatus; outcome?: string; version: number; arrivedAt?: string; completedAt?: string; receipt?: unknown; items: Array<{ sku: string; expected: number; delivered: number; short: number; damaged: number }> }
 
@@ -14,11 +14,11 @@ export function getCatalogue(business: keyof typeof brandName, type: string) {
 }
 
 export function submitStoreOrder(input: { business: keyof typeof brandName; type: string; items: Array<{ id: string; quantity: number }> }) {
-  const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
+  // No date is sent: the server decides the delivery day and the cutoff bucket from its own clock.
   return apiRequest<CreatedOrder>("/orders", {
     method: "POST",
     headers: { "Idempotency-Key": crypto.randomUUID() },
-    body: JSON.stringify({ orderType: orderTypeName(input.business, input.type), requestedDate: serviceDate, items: input.items.map((item) => ({ productId: item.id, quantity: item.quantity })) }),
+    body: JSON.stringify({ orderType: orderTypeName(input.business, input.type), items: input.items.map((item) => ({ productId: item.id, quantity: item.quantity })) }),
   })
 }
 
@@ -31,7 +31,15 @@ export function getOrderHistory(page = 1, pageSize = 50) {
 
 export type DashboardPayload = {
   recentOrders: Array<{ _id: string; orderNumber: string; status: string; orderType: string; createdAt: string; requestedDate: string }>
-  upcomingDeliveries: Array<{ _id: string; status: string; createdAt: string; arrivedAt?: string; items: Array<{ sku: string; expected: number }> }>
+  upcomingDeliveries: Array<{
+    _id: string
+    status: string
+    createdAt: string
+    arrivedAt?: string
+    items: Array<{ sku: string; expected: number }>
+    trip: { tripNumber: string; vehicleId: string; serviceDate: string; departureAt: string; plannedArrivalAt?: string } | null
+    orders: Array<{ _id: string; orderNumber: string; orderType: string; brand: string }>
+  }>
   attentionCount: number
 }
 

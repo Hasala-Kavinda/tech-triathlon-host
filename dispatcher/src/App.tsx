@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { planningApi, type DriverReference, type TripInput } from "./api/planning"
+import { planningApi, type DriverReference, type PlanningOrder, type TripInput, type TripRule, type TripSummary } from "./api/planning"
 import { DeferModal } from "./components/DeferModal"
 import { AppShell } from './components/layout/AppShell'
 import { ManageVehiclesModal } from "./components/ManageVehiclesModal"
@@ -7,6 +7,7 @@ import { OrderDetailsModal } from "./components/OrderDetailsModal"
 import { OrderLogPage } from "./components/OrderLogPage"
 import { openOrderDetails, vehicleDay } from "./components/planning/helpers"
 import { DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT, TODAY } from "./lib/constants"
+import { addDays, colomboDate, isIsoDate } from "./lib/dates"
 import DueSchedulePage from "./pages/DueSchedulePage"
 import HomePage from "./pages/HomePage"
 import MonitorPage from "./pages/MonitorPage"
@@ -37,6 +38,44 @@ function getInitialPath() {
 // order with the same id, that one is used instead.
 // Rough map positions (viewBox 520 × 300) for towns around Galle.
 
+const PROTOTYPE_MODE = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
+// The sample data describes Sun 27 Sep 2026; prototype mode keeps that as "today".
+const PROTOTYPE_TODAY = "2026-09-27"
+
+const toOrder = (order: PlanningOrder): Order => ({
+  apiId: order._id,
+  id: order.orderNumber,
+  shop: order.outletId,
+  town: order.outletId,
+  type: order.brand,
+  items: `${order.items.reduce((sum, item) => sum + item.quantity, 0)} units`,
+  kg: order.totalWeightKg,
+  emergency: order.cutoffBucket === "after_cutoff",
+  inReach: true,
+  suggested: true,
+})
+
+const clock = (value?: string) =>
+  value ? new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : undefined
+
+const toRouteRecord = (trip: TripSummary): RouteRecord => ({
+  id: trip.vehicleId,
+  route: `${trip.tripNumber} · ${trip.stops.length} ${trip.stops.length === 1 ? "stop" : "stops"}`,
+  tags: [...new Set(trip.orders.map((order) => order.brand))],
+  done: trip.stops.filter((stop) => ["completed", "delivered"].includes(stop.status)).length,
+  total: trip.stops.length,
+  remarks: 0,
+  ...(clock(trip.departureAt) ? { start: clock(trip.departureAt)! } : {}),
+  ...(clock(trip.plannedEndAt) ? { estEnd: clock(trip.plannedEndAt)! } : {}),
+  stops: trip.stops.map((stop) => ({
+    shop: stop.outletId,
+    ...(clock(stop.plannedArrivalAt) ? { eta: clock(stop.plannedArrivalAt)! } : {}),
+  })),
+})
+
+/** A draft trip that the backend has validated and that is ready to be published. */
+export type PreparedTrip = { tripId: string; version: number; valid: boolean; rules: TripRule[] }
+
 function App() {
   const [path, setPath] = useState(getInitialPath)
   const [search, setSearch] = useState(() => window.location.search)
@@ -57,29 +96,66 @@ function App() {
     new URLSearchParams(window.location.search).get("date") ? 28 : 27,
   )
 
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles)
+  // Outside prototype mode nothing is shown until the backend answers.
+  const [vehicles, setVehicles] = useState<Vehicle[]>(PROTOTYPE_MODE ? initialVehicles : [])
   const [drivers, setDrivers] = useState<DriverReference[]>([])
-  const [orders, setOrders] = useState<Order[]>(initialOrders)
-  const [routes, setRoutes] = useState<RouteRecord[]>(initialRoutes)
+  const [orders, setOrders] = useState<Order[]>(PROTOTYPE_MODE ? initialOrders : [])
+  const [routes, setRoutes] = useState<RouteRecord[]>(PROTOTYPE_MODE ? initialRoutes : [])
   const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
 
+  // "Today" and the date being planned. Today comes from the server's clock (Asia/Colombo), the
+  // same clock that decides each order's cutoff bucket; the Dispatcher can plan another day.
+  const [today, setToday] = useState<string | null>(PROTOTYPE_MODE ? PROTOTYPE_TODAY : null)
+  const [planningDate, setPlanningDate] = useState<string | null>(() => {
+    const requested = new URLSearchParams(window.location.search).get("date")
+    if (isIsoDate(requested)) return requested
+    return PROTOTYPE_MODE ? PROTOTYPE_TODAY : null
+  })
+
   useEffect(() => {
-    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true") return
-    const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
-    void Promise.all([planningApi.orders(serviceDate), planningApi.vehicles(serviceDate), planningApi.drivers()])
-      .then(([apiOrders, apiVehicles, apiDrivers]) => {
-        setOrders(apiOrders.map((order) => ({
-          apiId: order._id,
-          id: order.orderNumber,
-          shop: order.outletId,
-          town: order.outletId,
-          type: order.brand,
-          items: `${order.items.reduce((sum, item) => sum + item.quantity, 0)} units`,
-          kg: order.totalWeightKg,
-          emergency: order.cutoffBucket === "after_cutoff",
-          inReach: true,
-          suggested: true,
-        })))
+    if (PROTOTYPE_MODE) return
+    let cancelled = false
+    void planningApi.today().then((date) => {
+      if (cancelled) return
+      setToday(date)
+      setPlanningDate((current) => current ?? date)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // The planning queue and the route list are always read back from the backend, so an
+  // order that was scheduled disappears because its status/allocation changed, not because
+  // the screen hid it. Orders are listed for the date being planned.
+  const refreshQueueAndRoutes = async (date: string | null = planningDate) => {
+    if (!date) return
+    const [apiOrders, tripLists] = await Promise.all([
+      planningApi.orders(date),
+      Promise.all([date, addDays(date, 1)].map((day) => planningApi.trips(day))),
+    ])
+    const liveTrips = tripLists.flat().filter((trip) => ["published", "loading", "load_confirmed", "claimed", "in_transit"].includes(trip.status))
+    const details = await Promise.all(liveTrips.map((trip) => planningApi.tripDetail(trip._id)))
+    setOrders(apiOrders.map(toOrder))
+    setRoutes(details.map(toRouteRecord))
+  }
+
+  // Changing the planned date re-queries the orders for that date.
+  useEffect(() => {
+    if (PROTOTYPE_MODE || !planningDate) return
+    let cancelled = false
+    void refreshQueueAndRoutes(planningDate).catch((error) => {
+      if (cancelled) return
+      console.error("Dispatcher planning queue request failed", error)
+      setOrders([])
+      setToast(error instanceof Error ? `The orders for ${planningDate} could not be loaded: ${error.message}` : "The orders could not be loaded.")
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planningDate])
+
+  useEffect(() => {
+    if (PROTOTYPE_MODE || !today) return
+    void Promise.all([planningApi.vehicles(today), planningApi.drivers()])
+      .then(([apiVehicles, apiDrivers]) => {
         setVehicles(apiVehicles.map((vehicle) => ({
           id: vehicle.vehicleId,
           type: vehicle.temperatureClass === "reefer" ? "Refrigerated" : vehicle.type.toLowerCase() === "van" ? "Van" : "Lorry",
@@ -94,11 +170,10 @@ function App() {
         setDrivers(apiDrivers)
       })
       .catch((error) => {
-        console.error("Dispatcher planning data request failed", error)
-        setOrders([])
+        console.error("Dispatcher fleet request failed", error)
         setVehicles([])
       })
-  }, [])
+  }, [today])
 
   const [manageVehiclesOpen, setManageVehiclesOpen] = useState(false)
   const [deferOpen, setDeferOpen] = useState(false)
@@ -124,7 +199,7 @@ function App() {
     setToast("")
   }
 
-  const serviceDate = import.meta.env.VITE_SERVICE_DATE ?? new Date().toISOString().slice(0, 10)
+  const serviceDate = today ?? colomboDate(new Date())
   const prototypeMode = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
 
   const datePlusDays = (date: string, days: number) => {
@@ -133,8 +208,9 @@ function App() {
     return value.toISOString().slice(0, 10)
   }
 
-  const publishSchedule = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string) => {
-    if (prototypeMode) return
+  // Creates a draft trip and has the backend validate it, so the review sheet can show the
+  // real constraint results. Drafts do not lock orders or the vehicle's turn; publishing does.
+  const prepareTrip = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string): Promise<PreparedTrip> => {
     const liveOrders = scheduled.filter((order): order is Order & { apiId: string } => Boolean(order.apiId))
     if (liveOrders.length !== scheduled.length) throw new Error("One or more selected orders are not backed by the planning service.")
     const driver = drivers[0]
@@ -154,11 +230,25 @@ function App() {
     }
     const draft = await planningApi.createTrip(input)
     const validation = await planningApi.validateTrip(draft._id)
-    if (!validation.valid) {
-      const failures = validation.rules.filter((rule) => !rule.passed).map((rule) => rule.message).join(" ")
+    return { tripId: draft._id, version: validation.version, valid: validation.valid, rules: validation.rules }
+  }
+
+  const publishPrepared = async (prepared: PreparedTrip) => {
+    if (!prepared.valid) {
+      const failures = prepared.rules.filter((rule) => !rule.passed).map((rule) => rule.message).join(" ")
       throw new Error(failures || "The route failed planning validation.")
     }
-    await planningApi.publishTrip(draft._id, validation.version)
+    await planningApi.publishTrip(prepared.tripId, prepared.version)
+  }
+
+  const publishSchedule = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string) => {
+    if (prototypeMode) return
+    await publishPrepared(await prepareTrip(scheduled, vehicle, targetDate, departureTime))
+  }
+
+  // Called once the backend has published the trip.
+  const onTripPublished = (message: string, scheduled: Order[]) => {
+    finishSchedule(message, scheduled)
   }
 
   const finishSchedule = (message: string, scheduled: Order[], day?: number) => {
@@ -166,6 +256,11 @@ function App() {
     setPath("/home")
     setSearch("")
     setToast(message)
+    if (!prototypeMode) {
+      // Scheduled orders leave the queue because the backend no longer lists them.
+      void refreshQueueAndRoutes().catch((error) => setToast(error instanceof Error ? `Scheduled, but the lists could not refresh: ${error.message}` : "Scheduled, but the lists could not refresh."))
+      return
+    }
     setOrders((prev) => {
       const ids = scheduled.map((o) => o.id)
       const updated = prev.map((o) =>
@@ -180,8 +275,7 @@ function App() {
 
   const completeSchedule = async (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => {
     try {
-      const targetDate = routeDate.includes("28") ? datePlusDays(serviceDate, 1) : serviceDate
-      await publishSchedule(scheduled, vehicle, targetDate, departureTime)
+      await publishSchedule(scheduled, vehicle, routeDate, departureTime)
       finishSchedule(message, scheduled)
     } catch (error) {
       setToast(error instanceof Error ? error.message : "The route could not be published.")
@@ -275,6 +369,14 @@ function App() {
         <SchedulePage
           key={search}
           navigateHome={completeSchedule}
+          today={today}
+          planningDate={planningDate}
+          onPlanningDateChange={setPlanningDate}
+          planning={prototypeMode ? undefined : {
+            prepare: prepareTrip,
+            publish: publishPrepared,
+            onPublished: onTripPublished,
+          }}
           onOpenDefer={() => setDeferOpen(true)}
           onOpenManageVehicles={() => setManageVehiclesOpen(true)}
           orders={orders}

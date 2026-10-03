@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { DateTime } from "luxon"
 import argon2 from "argon2"
 import { parse } from "csv-parse/sync"
 import { loadConfig } from "../../config/env.js"
@@ -168,17 +169,33 @@ async function upsertUsers() {
   console.info(JSON.stringify({ event: "user_seed_complete", source: users.length, matched: result.matchedCount, upserted: result.upsertedCount }))
 }
 
+// The imported calendar (Drive Data/calendar.csv) stops at 2026-06-28, so the system has no
+// operating days to deliver to. The demo scenario therefore adds a rolling window of synthetic
+// days around the day the seed runs: operating Monday to Saturday, closed Sunday, no holidays.
+const DEMO_CALENDAR_DAYS_BACK = 3
+const DEMO_CALENDAR_DAYS_AHEAD = 120
+
 async function upsertDemo() {
-  const days = [
-    { date: "2026-09-30", dayOfWeek: "Wed", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-    { date: "2026-10-01", dayOfWeek: "Thu", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-    { date: "2026-10-02", dayOfWeek: "Fri", isWeekend: false, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-    { date: "2026-10-03", dayOfWeek: "Sat", isWeekend: true, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-    { date: "2026-10-04", dayOfWeek: "Sun", isWeekend: true, isoYear: 2026, isoWeek: 40, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: false },
-    { date: "2026-10-05", dayOfWeek: "Mon", isWeekend: false, isoYear: 2026, isoWeek: 41, isPayday: false, festival: "", festivalRamp: 0, isHoliday: false, monsoon: false, isOperating: true },
-  ]
+  const today = DateTime.now().setZone("Asia/Colombo").startOf("day")
+  const days = []
+  for (let offset = -DEMO_CALENDAR_DAYS_BACK; offset <= DEMO_CALENDAR_DAYS_AHEAD; offset++) {
+    const day = today.plus({ days: offset })
+    days.push({
+      date: day.toFormat("yyyy-MM-dd"),
+      dayOfWeek: day.toFormat("ccc"),
+      isWeekend: day.weekday >= 6,
+      isoYear: day.weekYear,
+      isoWeek: day.weekNumber,
+      isPayday: false,
+      festival: "",
+      festivalRamp: 0,
+      isHoliday: false,
+      monsoon: false,
+      isOperating: day.weekday !== 7,
+    })
+  }
   await CalendarDay.bulkWrite(days.map((day) => ({ updateOne: { filter: { date: day.date }, update: { $set: day }, upsert: true } })))
-  console.warn("WARNING: loaded explicitly labelled 2026 hackathon demo calendar days")
+  console.warn(`WARNING: loaded ${days.length} synthetic demo calendar days (${days[0]!.date} to ${days.at(-1)!.date}); not authoritative CSV data`)
 }
 
 async function main() {

@@ -33,9 +33,11 @@ export default function HomePage({
   const [showAllCompleted, setShowAllCompleted] = useState(false)
   const isToday = viewDate === 27
 
-  const activeToday = routes.filter((item) =>
-    ["WP LB-4521", "WP CAB-7810", "WP KD-3301", "SP LC-2290"].includes(item.id),
-  )
+  // Live mode shows every published route the backend returns; the id filter only
+  // selects the sample routes in prototype mode.
+  const activeToday = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
+    ? routes.filter((item) => ["WP LB-4521", "WP CAB-7810", "WP KD-3301", "SP LC-2290"].includes(item.id))
+    : routes
   const shownRoutes = filter
     ? activeToday.filter((item) => item.tags.includes(filter))
     : activeToday
