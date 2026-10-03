@@ -1,11 +1,12 @@
 // src/state/store.tsx - Unified prototype store composed of modular state slices
 
-import React, { createContext, useContext, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef, ReactNode } from 'react';
 import {
   ScreenName,
   TransitionType,
   RoutePlan,
   Outlet,
+  StopOutcome,
   DriverProfile,
   MeterPhotoRecord,
   RouteMeterPhotos,
@@ -72,8 +73,16 @@ export interface StoreContextType {
   setActiveOutletId: (id: string | null) => void;
   setSelectedMapOutletId: (id: string | null) => void;
   toggleProductCheck: (outletId: string, productId: string) => void;
+  setProductIssue: (outletId: string, productId: string, issue: { short: number; damaged: number }) => void;
+  arriveAtOutlet: (outletId: string) => Promise<void>;
+  claimRoute: (routeId: number) => Promise<void>;
+  reloadRoutes: () => Promise<void>;
+  refreshRoute: (routeId: number) => Promise<void>;
+  routesStatus: 'loading' | 'ready' | 'error';
+  routesError: string;
+  whyOutletLocked: (outletId: string) => string | null;
   markUnpackingComplete: (outletId: string, complete?: boolean) => Promise<void>;
-  completeOutlet: (outletId: string, isOffline?: boolean) => void;
+  completeOutlet: (outletId: string, isOffline?: boolean, outcome?: StopOutcome) => void;
   syncPendingOutlets: () => Promise<void>;
   isSyncing: boolean;
 
@@ -117,46 +126,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const conditionsSlice = useConditionsSlice(trackingSlice.track);
   const routesSlice = useRoutesSlice(trackingSlice.track, conditionsSlice.markMeterPhotosSynced);
 
+  const { reloadRoutes, refreshRoute, setRoutes, routes } = routesSlice;
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+  const { setConditions } = conditionsSlice;
+
+  // Today's trips for the signed-in Driver, from the server.
   useEffect(() => {
     if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === 'true') return;
-    void driverApi.routesToday().then(async (trips) => {
-      const details = await Promise.all(trips.map((trip) => driverApi.tripDetail(trip._id)));
-      routesSlice.setRoutes(details.map((trip, index) => ({
-        apiId: trip._id,
-        version: trip.version,
-        vehicleId: trip.vehicleId,
-        id: index + 1,
-        routeNumber: index + 1,
-        brandName: trip.tripNumber,
-        distanceKm: trip.distanceKm,
-        status: trip.status === 'in_transit' ? 'in_progress' : trip.status === 'completed' ? 'completed' : 'pending',
-        outlets: trip.stops.map((stop) => {
-          const order = trip.orders.find((candidate) => candidate._id === String((stop as unknown as { orderId?: string }).orderId)) ?? trip.orders.find((candidate) => candidate.outletId === stop.outletId);
-          return {
-            id: stop.stopId,
-            city: stop.outletId,
-            lat: 0,
-            lng: 0,
-            visitOrder: stop.sequence,
-            managerName: 'Store Manager',
-            managerPhone: '',
-            itemCount: order?.items.length ?? 0,
-            status: stop.status === 'completed' ? 'completed' : stop.status === 'arrived' ? 'in_progress' : 'pending',
-            unpackingComplete: false,
-            syncStatus: 'synced',
-            products: (order?.items ?? []).map((item) => ({ id: item.sku, name: item.name, quantity: item.quantity, unit: item.unit, checked: false })),
-            confirmation: { approvalStatus: 'waiting', attemptsLeft: 5, locked: false, expired: false },
-          };
-        }),
-      })));
-    }).catch((error) => {
-      console.error('Driver route bootstrap list failed', error);
-      routesSlice.setRoutes([]);
-    });
-  }, []);
+    void reloadRoutes();
+  }, [reloadRoutes]);
 
   // Replay deliveries completed offline whenever the device is back online (and once on start).
-  const { setRoutes } = routesSlice;
   useEffect(() => {
     if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === 'true') return;
     const replay = () => {
@@ -167,22 +148,36 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ...route,
           outlets: route.outlets.map((outlet) => syncedStops.some((stop) => stop.tripId === route.apiId && stop.stopId === outlet.id) ? { ...outlet, syncStatus: 'synced' } : outlet),
         })));
+        // Pick up the server's on-time/late result for the stops that just synced.
+        for (const tripId of new Set(syncedStops.map((stop) => stop.tripId))) {
+          const route = routesRef.current.find((candidate) => candidate.apiId === tripId);
+          if (route) void refreshRoute(route.id).catch((error) => console.error('Route refresh failed', error));
+        }
       });
     };
     replay();
     window.addEventListener('online', replay);
     return () => window.removeEventListener('online', replay);
-  }, [setRoutes]);
+  }, [setRoutes, refreshRoute]);
 
+  // Mandatory GPS while a trip is on the road. The watch follows the active trip only (it is not
+  // rebuilt on every state change). A denied permission, a failing GPS or a long gap without a fix
+  // sets the "Tracking Degraded" state; the next fix clears it.
+  const activeTripApiId = routes.find((route) => route.status === 'in_progress' && route.apiId)?.apiId;
   useEffect(() => {
-    const activeTrip = routesSlice.routes.find((route) => route.status === 'in_progress' && route.apiId);
-    if (!activeTrip?.apiId || !navigator.geolocation) return;
+    if (!activeTripApiId || !navigator.geolocation) return;
+    const NO_FIX_LIMIT_MS = 60_000;
+    let lastFixAt = Date.now();
     let sequence = Date.now();
-    const flush = () => { if (navigator.onLine) void driverApi.flushLocations(activeTrip.apiId!).catch((error) => console.error('Location upload failed', error)); };
+    const degrade = (gpsStatus: 'blocked' | 'unavailable', reason: string) =>
+      setConditions((prev) => (prev.trackingDegraded && prev.trackingReason === reason ? prev : { ...prev, gpsStatus, trackingDegraded: true, trackingReason: reason }));
+    const flush = () => { if (navigator.onLine) void driverApi.flushLocations(activeTripApiId).catch((error) => console.error('Location upload failed', error)); };
     const watchId = navigator.geolocation.watchPosition((position) => {
+      lastFixAt = Date.now();
+      setConditions((prev) => (prev.trackingDegraded || prev.gpsStatus !== 'on' ? { ...prev, gpsStatus: 'on', trackingDegraded: false, trackingReason: '' } : prev));
       const point = {
-        key: `${activeTrip.apiId}:${sequence}`,
-        tripId: activeTrip.apiId!,
+        key: `${activeTripApiId}:${sequence}`,
+        tripId: activeTripApiId,
         sequence: sequence++,
         recordedAt: new Date(position.timestamp).toISOString(),
         latitude: position.coords.latitude,
@@ -194,14 +189,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       void queueLocation(point).then(flush);
     }, (error) => {
       console.error('Mandatory active-trip GPS gap', { code: error.code, message: error.message });
+      if (error.code === error.PERMISSION_DENIED) degrade('blocked', 'Location permission is denied. Turn it on to keep tracking.');
+      else degrade('unavailable', 'No GPS fix. Move to open sky or check location settings.');
     }, { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 });
+    const watchdog = window.setInterval(() => {
+      if (Date.now() - lastFixAt > NO_FIX_LIMIT_MS) degrade('unavailable', 'No GPS fix for over a minute.');
+    }, 10_000);
     window.addEventListener('online', flush);
     const interval = window.setInterval(flush, 30_000);
-    return () => { navigator.geolocation.clearWatch(watchId); window.removeEventListener('online', flush); window.clearInterval(interval); };
-  }, [routesSlice.routes]);
+    return () => { navigator.geolocation.clearWatch(watchId); window.removeEventListener('online', flush); window.clearInterval(interval); window.clearInterval(watchdog); };
+  }, [activeTripApiId, setConditions]);
 
   const resetDemo = useCallback(() => {
-    routesSlice.setRoutes(createInitialRoutes());
+    // Live mode shows nothing but what the server has: reset to empty and read the routes again.
+    if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === 'true') routesSlice.setRoutes(createInitialRoutes());
+    else { routesSlice.setRoutes([]); void routesSlice.reloadRoutes(); }
     routesSlice.setSelectedRouteId(null);
     routesSlice.setExpandedRouteId(null);
     routesSlice.setActiveOutletId(null);

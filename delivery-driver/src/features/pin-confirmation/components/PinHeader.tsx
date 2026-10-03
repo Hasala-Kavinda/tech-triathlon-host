@@ -32,7 +32,7 @@ export const PinHeader: React.FC<PinHeaderProps> = ({ outlet, route, onCall }) =
       {/* Manager row */}
       <div className="flex items-center justify-between pt-1.5 text-[15px] leading-tight">
         <span className="text-secondary truncate pr-2">
-          <span className="text-black dark:text-white font-normal">{outlet.managerName}</span> ·{' '}
+          <span className="text-black dark:text-white font-normal">{outlet.managerName || 'Store manager'}</span> ·{' '}
           <span className="text-success font-semibold">{outlet.city}</span>
         </span>
         <button

@@ -50,7 +50,7 @@ export async function putMutation(item: StoredMutation) { await transaction("rea
 export async function deleteMutation(id: string) { await transaction("readwrite", (store) => store.delete(id)) }
 export async function clearMutations() { await transaction("readwrite", (store) => store.clear()) }
 
-export async function saveBootstrap(payload: { assignment: Record<string, unknown>; manifest: { trip: Record<string, unknown>; orders: Array<Record<string, unknown>> }; bootstrapVersion: number; serverNow: string }) {
+export async function saveBootstrap(payload: { assignment: Record<string, unknown>; manifest: { trip: Record<string, unknown>; orders: Array<Record<string, unknown>>; deliveries?: Array<Record<string, unknown>> }; bootstrapVersion: number; serverNow: string }) {
   const db = await openDriverDb()
   const tx = db.transaction(["driverMeta", "assignments", "trips", "stops", "orders"], "readwrite")
   const tripId = String(payload.assignment._id)
@@ -58,7 +58,9 @@ export async function saveBootstrap(payload: { assignment: Record<string, unknow
   tx.objectStore("assignments").put({ key: tripId, ...payload.assignment })
   tx.objectStore("trips").put({ key: tripId, ...payload.manifest.trip })
   const stops = Array.isArray(payload.manifest.trip.stops) ? payload.manifest.trip.stops as Array<Record<string, unknown>> : []
-  for (const stop of stops) tx.objectStore("stops").put({ key: `${tripId}:${String(stop.stopId)}`, tripId, ...stop })
+  // Each stop is cached with its delivery record, so the expected quantities are available offline.
+  const deliveries = payload.manifest.deliveries ?? []
+  for (const stop of stops) tx.objectStore("stops").put({ key: `${tripId}:${String(stop.stopId)}`, tripId, ...stop, delivery: deliveries.find((delivery) => String(delivery.tripStopId) === String(stop.tripStopId)) ?? null })
   for (const order of payload.manifest.orders) tx.objectStore("orders").put({ key: String(order._id), tripId, ...order })
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error) })
   db.close()
@@ -85,4 +87,13 @@ export async function deleteLocations(keys: string[]) {
   for (const key of keys) tx.objectStore("locations").delete(key)
   await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error) })
   db.close()
+}
+
+/** True once the full route manifest (trip, stops and orders) has been saved on this phone. */
+export async function hasCachedManifest(tripId: string) {
+  const db = await openDriverDb()
+  try {
+    const trip = await requestResult(db.transaction("trips", "readonly").objectStore("trips").get(tripId))
+    return Boolean(trip)
+  } finally { db.close() }
 }

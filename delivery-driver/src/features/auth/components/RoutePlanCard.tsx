@@ -13,7 +13,10 @@ export interface RoutePlanCardProps {
   totalOutlets: number;
   totalDistance: number;
   onToggleExpand: (routeId: number) => void;
-  onStartOrClear: (routeId: number) => void;
+  /** Claim the assignment and confirm the vehicle (asks for confirmation first). */
+  onClaim: (routeId: number) => void;
+  /** Choose which claimed route to work. Expanding a card never does this. */
+  onSelect: (routeId: number) => void;
   onTrackScroll: () => void;
 }
 
@@ -27,7 +30,8 @@ export const RoutePlanCard: React.FC<RoutePlanCardProps> = ({
   totalOutlets,
   totalDistance,
   onToggleExpand,
-  onStartOrClear,
+  onClaim,
+  onSelect,
   onTrackScroll
 }) => {
   return (
@@ -57,6 +61,8 @@ export const RoutePlanCard: React.FC<RoutePlanCardProps> = ({
           const isInProg = route.status === 'in_progress';
           const isDone = route.status === 'completed';
           const otherRouteInProgress = inProgressRoute && inProgressRoute.id !== route.id;
+          // A route from the server must be claimed first; a prototype route has nothing to claim.
+          const isClaimed = route.apiId ? !!route.claimed : true;
 
           return (
             <div key={route.id} className="transition-colors duration-150">
@@ -141,8 +147,11 @@ export const RoutePlanCard: React.FC<RoutePlanCardProps> = ({
                     ))}
                   </div>
 
-                  {/* Start / Selected / Resume Button */}
-                  <div className="pt-3">
+                  {/* Claim / Select / Resume: separate actions, none of them is the expand tap */}
+                  <div className="pt-3 flex flex-col gap-2">
+                    {isClaimed && route.apiId ? (
+                      <p className="text-[13px] text-secondary text-center">Claimed · vehicle {route.vehicleId} confirmed</p>
+                    ) : null}
                     {isDone ? (
                       <button
                         type="button"
@@ -162,27 +171,35 @@ export const RoutePlanCard: React.FC<RoutePlanCardProps> = ({
                     ) : isInProg ? (
                       <button
                         type="button"
-                        onClick={() => onStartOrClear(route.id)}
+                        onClick={() => onSelect(route.id)}
                         className="w-full h-[44px] rounded-[12px] bg-action text-white text-[15px] font-semibold flex items-center justify-center cursor-pointer shadow-sm"
                       >
-                        Resume Route {route.routeNumber}
+                        {isSelected ? 'Selected · swipe to resume' : `Select Route ${route.routeNumber} to resume`}
+                      </button>
+                    ) : !isClaimed ? (
+                      <button
+                        type="button"
+                        onClick={() => onClaim(route.id)}
+                        className="w-full h-[44px] rounded-[12px] bg-action flex items-center justify-center text-[15px] font-semibold text-white shadow-sm cursor-pointer active:opacity-90 transition-opacity"
+                      >
+                        Claim Route {route.routeNumber}
                       </button>
                     ) : isSelected ? (
                       <button
                         type="button"
-                        onClick={() => onStartOrClear(route.id)}
+                        onClick={() => onSelect(route.id)}
                         className="w-full h-[44px] rounded-[12px] border border-action flex items-center justify-center gap-1.5 text-[15px] font-semibold text-action bg-transparent cursor-pointer active:opacity-75 transition-opacity"
                       >
                         <span className="material-symbols-outlined text-[18px]">check</span>
-                        <span>Selected</span>
+                        <span>Selected · tap to clear</span>
                       </button>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => onStartOrClear(route.id)}
-                        className="w-full h-[44px] rounded-[12px] bg-action flex items-center justify-center text-[15px] font-semibold text-white shadow-sm cursor-pointer active:opacity-90 transition-opacity"
+                        onClick={() => onSelect(route.id)}
+                        className="w-full h-[44px] rounded-[12px] border border-action flex items-center justify-center text-[15px] font-semibold text-action bg-transparent cursor-pointer active:opacity-75 transition-opacity"
                       >
-                        Start Route {route.routeNumber}
+                        Select this route
                       </button>
                     )}
                   </div>

@@ -16,6 +16,8 @@ import { MutationLedgerCommandPort } from "../audit/mutation-ledger.command-port
 import { TripLocationCommandPort } from "../delivery/trip-location.command-port.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { advanceOrdersForTrip, markOrdersDelivered } from "../orders/order.commands.js"
+import { OutletReadPort } from "../reference/outlet.read-port.js"
+import { isUndeliveredOutcome, STOP_OUTCOMES, timingResult, windowDeadlineAt, type StopOutcome } from "../delivery/timing.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { DateTime } from "luxon"
 
@@ -98,7 +100,7 @@ async function verifyStopPin(tripId: string, stopId: string, driverId: string, p
   return record
 }
 
-async function completeStop(tripId: string, stopId: string, driverId: string, outcome: "delivered" | "partial" | "failed", completedAt: Date, version?: number) {
+async function completeStop(tripId: string, stopId: string, driverId: string, outcome: StopOutcome, completedAt: Date, version?: number) {
   const trip = await assignedTrip(tripId, driverId)
   const stop = findStop(trip, stopId)
   const session = await mongoose.startSession()
@@ -106,11 +108,21 @@ async function completeStop(tripId: string, stopId: string, driverId: string, ou
   try {
     await session.withTransaction(async () => {
       const record = await DeliveryRecord.findOneAndUpdate(
-        { tripId, tripStopId: stop.tripStopId, driverId, status: "arrived", "proof.status": "verified", ...(version === undefined ? {} : { version }) },
-        { $set: { status: outcome === "failed" ? "failed" : "delivered", outcome, completedAt }, $inc: { version: 1 } },
+        // A delivery needs the store's PIN. A refused, closed or failed stop may have nobody to give
+        // one, so it can end without it.
+        { tripId, tripStopId: stop.tripStopId, driverId, status: "arrived", ...(isUndeliveredOutcome(outcome) ? {} : { "proof.status": "verified" }), ...(version === undefined ? {} : { version }) },
+        { $set: { status: isUndeliveredOutcome(outcome) ? "failed" : "delivered", outcome, completedAt }, $inc: { version: 1 } },
         { new: true, session },
       )
       if (!record) throw conflict("DELIVERY_COMPLETE_CONFLICT", "The delivery is not ready to complete or changed.")
+      // On time or late: the device-recorded arrival against the outlet's window close that day.
+      const outlet = await OutletReadPort.findByOutletId(record.outletId)
+      const deadline = outlet && record.arrivedAt ? windowDeadlineAt(trip.serviceDate, outlet.windowCloseTime) : null
+      if (deadline && record.arrivedAt) {
+        const timing = { timingResult: timingResult(record.arrivedAt, deadline), windowDeadlineAt: deadline, timeSource: "device" as const }
+        await DeliveryRecord.updateOne({ _id: record._id }, { $set: timing }, { session })
+        record.set(timing)
+      }
       // A stop can serve several orders; every one of them gets the outcome.
       const orderIds = [...new Set(record.items.flatMap((item) => item.orderIds.map(String)))]
       await markOrdersDelivered(orderIds, outcome, completedAt, driverId, session)
@@ -140,8 +152,9 @@ export async function driverRoutes(app: FastifyInstance) {
     ).lean()
     if (!trip) throw conflict("ASSIGNMENT_ALREADY_CLAIMED", "The assignment was already claimed or changed.")
     const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
+    const deliveries = await DeliveryRecord.find({ tripId: trip._id }).lean()
     await audit(request, "driver.assignment_claimed", "trip", params.data.tripId)
-    return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
+    return ok(request, { assignment: trip, manifest: { trip, orders, deliveries }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
 
   app.post("/driver/assignments/:tripId/unclaim", { preHandler: app.authenticate }, async (request) => {
@@ -169,7 +182,8 @@ export async function driverRoutes(app: FastifyInstance) {
     const trip = await Trip.findOneAndUpdate({ _id: params.data.tripId, driverId: auth.userId, claimedByDriverId: auth.userId, vehicleId: body.data.vehicleId, status: "claimed", version }, { $set: { vehicleConfirmedAt: new Date() }, $inc: { version: 1 } }, { new: true }).lean()
     if (!trip) throw conflict("VEHICLE_CONFIRMATION_FAILED", "The vehicle does not match the assignment or the trip changed.")
     const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
-    return ok(request, { assignment: trip, manifest: { trip, orders }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
+    const deliveries = await DeliveryRecord.find({ tripId: trip._id }).lean()
+    return ok(request, { assignment: trip, manifest: { trip, orders, deliveries }, bootstrapVersion: (trip as { version?: number }).version ?? 0, serverNow: new Date().toISOString() })
   })
 
   app.post("/trips/:tripId/start", { preHandler: app.authenticate }, async (request) => {
@@ -263,7 +277,7 @@ export async function driverRoutes(app: FastifyInstance) {
   app.post("/trips/:tripId/stops/:stopId/complete", { preHandler: app.authenticate }, async (request) => {
     const auth = requireRole(request, "driver")
     const params = z.object({ tripId: z.string(), stopId: z.string() }).safeParse(request.params)
-    const body = z.object({ outcome: z.enum(["delivered", "partial", "failed"]), completedAt: z.coerce.date(), expectedVersion: z.number().int().optional() }).safeParse(request.body)
+    const body = z.object({ outcome: z.enum(STOP_OUTCOMES), completedAt: z.coerce.date(), expectedVersion: z.number().int().optional() }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("Completion data is invalid.")
     const version = expectedVersion(request, body.data.expectedVersion)
     const record = await completeStop(params.data.tripId, params.data.stopId, auth.userId, body.data.outcome, body.data.completedAt, version)
@@ -343,7 +357,7 @@ export async function driverRoutes(app: FastifyInstance) {
           const record = await verifyStopPin(stop.data.tripId, stop.data.stopId, auth.userId, pin, mutation.clientRecordedAt)
           result = "applied"; response = { verified: true, deliveryId: record.id }
         } else if (mutation.operation === "stop_complete" && stop.success) {
-          const { outcome } = z.object({ outcome: z.enum(["delivered", "partial", "failed"]) }).parse(mutation.payload)
+          const { outcome } = z.object({ outcome: z.enum(STOP_OUTCOMES) }).parse(mutation.payload)
           const record = await completeStop(stop.data.tripId, stop.data.stopId, auth.userId, outcome, mutation.clientRecordedAt)
           result = "applied"; response = { deliveryId: record.id, status: record.status }
         } else if (mutation.operation !== "location") {

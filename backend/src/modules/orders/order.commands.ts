@@ -1,5 +1,6 @@
 import mongoose from "mongoose"
 import { Order, type OrderStatus } from "./persistence/order.model.js"
+import { isUndeliveredOutcome, type StopOutcome } from "../delivery/timing.js"
 import { conflict } from "../../common/errors.js"
 
 /**
@@ -117,12 +118,12 @@ export async function advanceOrdersForTrip(
  */
 export async function markOrdersDelivered(
   orderIds: (mongoose.Types.ObjectId | string)[],
-  outcome: "delivered" | "partial" | "failed",
+  outcome: StopOutcome,
   completedAt: Date,
   actorId: string,
   session: mongoose.ClientSession,
 ): Promise<{ modifiedCount: number }> {
-  const status: OrderStatus = outcome === "failed" ? "delivery_failed" : "delivered"
+  const status: OrderStatus = isUndeliveredOutcome(outcome) ? "delivery_failed" : "delivered"
   const update = await Order.updateMany(
     { _id: { $in: orderIds }, status: { $in: ["allocated", "loading", "load_confirmed", "in_transit"] } },
     {

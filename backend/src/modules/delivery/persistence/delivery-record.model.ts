@@ -36,7 +36,11 @@ const deliveryRecordSchema = new Schema(
     },
     arrivedAt: Date,
     completedAt: Date,
-    outcome: { type: String, enum: ["delivered", "partial", "failed"] },
+    outcome: { type: String, enum: ["delivered", "partial", "refused", "closed", "failed"] },
+    // Filled in when the stop is completed: arrival against the outlet's window close.
+    timingResult: { type: String, enum: ["on_time", "late"] },
+    windowDeadlineAt: Date,
+    timeSource: { type: String, enum: ["device", "server"] },
     proof: { type: proofSchema, default: () => ({ status: "none" }) },
     receipt: Schema.Types.Mixed,
     items: [deliveryItemSchema],

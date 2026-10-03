@@ -26,6 +26,9 @@ const MapNavigationScreen = lazy(() =>
 const ShiftSummaryScreen = lazy(() =>
   import('@/features/shift-summary').then((m) => ({ default: m.ShiftSummaryScreen }))
 );
+const HistoryScreen = lazy(() =>
+  import('@/features/history').then((m) => ({ default: m.HistoryScreen }))
+);
 const MeterPhotoScreen = lazy(() =>
   import('@/features/meter-photo').then((m) => ({ default: m.MeterPhotoScreen }))
 );
@@ -73,6 +76,7 @@ const AppShell: React.FC = () => {
               {currentScreen === 'meter_photo_end' && <MeterPhotoScreen moment="end" />}
               {currentScreen === 'map' && <MapNavigationScreen />}
               {currentScreen === 'shift_summary' && <ShiftSummaryScreen />}
+              {currentScreen === 'history' && <HistoryScreen />}
             </div>
           </Suspense>
         </ErrorBoundary>

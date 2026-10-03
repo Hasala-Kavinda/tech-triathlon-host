@@ -3,6 +3,7 @@
 import React from 'react';
 import { RoutePlan, PrototypeConditions } from '@/shared/types';
 import { SignalIndicator } from '@/shared/components/ui';
+import { useStore } from '@/state/store';
 
 export interface RouteHeaderProps {
   route: RoutePlan;
@@ -21,6 +22,8 @@ export const RouteHeader: React.FC<RouteHeaderProps> = ({
   conditions,
   onOpenMap
 }) => {
+  const { driver } = useStore();
+  const driverName = driver.name;
   const percentCompleted = totalOutletsCount > 0
     ? Math.min(100, Math.round((completedOutletsCount / totalOutletsCount) * 100))
     : 0;
@@ -48,7 +51,7 @@ export const RouteHeader: React.FC<RouteHeaderProps> = ({
 
       {/* Subtitle */}
       <p className="text-[15px] text-secondary font-normal leading-tight mt-0.5">
-        {route.brandName} · Marcus Vance
+        {route.brandName} · {driverName}
       </p>
 
       {/* Metrics Summary */}

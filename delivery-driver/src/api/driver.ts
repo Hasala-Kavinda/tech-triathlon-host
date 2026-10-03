@@ -1,16 +1,65 @@
 import { apiRequest } from "./client"
 import { deleteLocations, listLocations, saveBootstrap } from "../offline/db"
+import type { StopOutcome } from "../shared/types"
 
-export type ApiTrip = { _id: string; tripNumber: string; version: number; vehicleId: string; distanceKm: number; status: string; stops: Array<{ stopId: string; outletId: string; sequence: number; status: string }> }
-type Bootstrap = { assignment: Record<string, unknown> & { _id: string; version: number; vehicleId: string }; manifest: { trip: Record<string, unknown>; orders: Array<Record<string, unknown>> }; bootstrapVersion: number; serverNow: string }
+export type ApiDelivery = {
+  _id: string
+  tripId: string
+  tripStopId: string
+  outletId: string
+  status: "pending" | "arrived" | "delivered" | "failed" | "receipt_confirmed" | "receipt_issue"
+  outcome?: StopOutcome
+  version: number
+  arrivedAt?: string
+  completedAt?: string
+  timingResult?: "on_time" | "late"
+  proof?: { status: string }
+  items: Array<{ sku: string; orderIds: string[]; expected: number; delivered: number; short: number; damaged: number }>
+}
+
+export type ApiOrder = { _id: string; orderNumber?: string; outletId: string; status?: string; items: Array<{ sku: string; name: string; unit: string; quantity: number }> }
+
+export type ApiTrip = {
+  _id: string
+  tripNumber: string
+  version: number
+  vehicleId: string
+  distanceKm: number
+  status: string
+  serviceDate?: string
+  startedAt?: string
+  completedAt?: string
+  vehicleConfirmedAt?: string
+  stops: Array<{ stopId: string; tripStopId: string; outletId: string; sequence: number; status: string; orderId?: string; orderIds?: string[]; plannedArrivalAt?: string }>
+}
+
+/** A trip with the orders and delivery records the Driver needs to work it. */
+export type ApiTripDetail = ApiTrip & { orders: ApiOrder[]; deliveries?: ApiDelivery[] }
+
+export type Bootstrap = {
+  assignment: Record<string, unknown> & { _id: string; version: number; vehicleId: string }
+  manifest: { trip: ApiTrip; orders: ApiOrder[]; deliveries?: ApiDelivery[] }
+  bootstrapVersion: number
+  serverNow: string
+}
+
+export type StopItemInput = { sku: string; delivered: number; short: number; damaged: number }
+
+/** The store's PIN proves a delivery. A refused or closed stop may have nobody to give one. */
+export const outcomeNeedsPin = (outcome: StopOutcome) => outcome === "delivered" || outcome === "partial"
+
+const stopPath = (tripId: string, stopId: string) => `/trips/${tripId}/stops/${encodeURIComponent(stopId)}`
+const ifMatch = (version: number) => ({ "If-Match": String(version) })
+
+export type HistoryPage<T> = T[]
 
 export const driverApi = {
   routesToday: () => apiRequest<ApiTrip[]>("/driver/routes/today"),
-  tripDetail: (id: string) => apiRequest<ApiTrip & { orders: Array<{ _id: string; outletId: string; items: Array<{ sku: string; name: string; unit: string; quantity: number }> }> }>(`/trips/${id}`),
+  tripDetail: (id: string) => apiRequest<ApiTripDetail>(`/trips/${id}`),
   async claimAndBootstrap(tripId: string, vehicleId: string, version: number) {
-    const claimed = await apiRequest<Bootstrap>(`/driver/assignments/${tripId}/claim`, { method: "POST", headers: { "If-Match": String(version) }, body: JSON.stringify({ expectedVersion: version }) })
+    const claimed = await apiRequest<Bootstrap>(`/driver/assignments/${tripId}/claim`, { method: "POST", headers: ifMatch(version), body: JSON.stringify({ expectedVersion: version }) })
     const claimVersion = Number(claimed.assignment.version)
-    const confirmed = await apiRequest<Bootstrap>(`/driver/assignments/${tripId}/confirm-vehicle`, { method: "POST", headers: { "If-Match": String(claimVersion) }, body: JSON.stringify({ vehicleId, expectedVersion: claimVersion }) })
+    const confirmed = await apiRequest<Bootstrap>(`/driver/assignments/${tripId}/confirm-vehicle`, { method: "POST", headers: ifMatch(claimVersion), body: JSON.stringify({ vehicleId, expectedVersion: claimVersion }) })
     await saveBootstrap(confirmed)
     return confirmed
   },
@@ -22,20 +71,31 @@ export const driverApi = {
     await deleteLocations(batch.map((point) => point.key))
     return result
   },
-  startTrip: (tripId: string, version: number, fileAssetId: string, capturedAt: string) => apiRequest<ApiTrip>(`/trips/${tripId}/start`, { method: "POST", headers: { "If-Match": String(version) }, body: JSON.stringify({ fileAssetId, capturedAt, expectedVersion: version }) }),
-  finishTrip: (tripId: string, version: number, fileAssetId: string, capturedAt: string) => apiRequest<ApiTrip>(`/trips/${tripId}/finish`, { method: "POST", headers: { "If-Match": String(version) }, body: JSON.stringify({ endFileAssetId: fileAssetId, capturedAt, expectedVersion: version }) }),
-  arriveStop: (tripId: string, stopId: string) => apiRequest<{ delivery: { version: number }; tripVersion: number }>(`/trips/${tripId}/stops/${encodeURIComponent(stopId)}/arrive`, { method: "POST", body: JSON.stringify({ arrivedAt: new Date().toISOString() }) }),
-  accountStopItems(tripId: string, stopId: string, version: number, products: Array<{ id: string; quantity: number | string }>) {
-    const items = products.map((product) => ({ sku: product.id, delivered: Number(product.quantity), short: 0, damaged: 0 }))
-    return apiRequest<{ version: number }>(`/trips/${tripId}/stops/${encodeURIComponent(stopId)}/items`, { method: "PATCH", headers: { "If-Match": String(version) }, body: JSON.stringify({ items, expectedVersion: version }) })
+  startTrip: (tripId: string, version: number, fileAssetId: string, capturedAt: string) => apiRequest<ApiTrip>(`/trips/${tripId}/start`, { method: "POST", headers: ifMatch(version), body: JSON.stringify({ fileAssetId, capturedAt, expectedVersion: version }) }),
+  finishTrip: (tripId: string, version: number, fileAssetId: string, capturedAt: string) => apiRequest<ApiTrip>(`/trips/${tripId}/finish`, { method: "POST", headers: ifMatch(version), body: JSON.stringify({ endFileAssetId: fileAssetId, capturedAt, expectedVersion: version }) }),
+
+  // ── One stop: arrive → account for the items → PIN → complete with an outcome
+  arriveStop: (tripId: string, stopId: string, arrivedAt: Date = new Date()) => apiRequest<{ delivery: ApiDelivery; tripVersion: number }>(`${stopPath(tripId, stopId)}/arrive`, { method: "POST", body: JSON.stringify({ arrivedAt: arrivedAt.toISOString() }) }),
+  saveItems: (tripId: string, stopId: string, version: number, items: StopItemInput[]) => apiRequest<ApiDelivery>(`${stopPath(tripId, stopId)}/items`, { method: "PATCH", headers: ifMatch(version), body: JSON.stringify({ items, expectedVersion: version }) }),
+  verifyPin: (tripId: string, stopId: string, pin: string) => apiRequest<{ verified: true; version: number }>(`${stopPath(tripId, stopId)}/verify-pin`, { method: "POST", body: JSON.stringify({ pin, clientRecordedAt: new Date().toISOString() }) }),
+  completeStop: (tripId: string, stopId: string, outcome: StopOutcome, version: number) => apiRequest<ApiDelivery>(`${stopPath(tripId, stopId)}/complete`, { method: "POST", headers: ifMatch(version), body: JSON.stringify({ outcome, completedAt: new Date().toISOString(), expectedVersion: version }) }),
+  /**
+   * Finishes a stop online. Delivered and partial stops need the store's PIN; refused and closed
+   * stops end without one. `items` is sent when the item counts have not been saved yet.
+   */
+  async finishStop(tripId: string, stopId: string, input: { outcome: StopOutcome; deliveryVersion: number; pin?: string; items?: StopItemInput[] }) {
+    let version = input.deliveryVersion
+    if (input.items) version = (await this.saveItems(tripId, stopId, version, input.items)).version
+    if (outcomeNeedsPin(input.outcome)) {
+      if (!input.pin) throw new Error("The store's PIN is required for this outcome.")
+      version = (await this.verifyPin(tripId, stopId, input.pin)).version
+    }
+    return this.completeStop(tripId, stopId, input.outcome, version)
   },
-  async completeStop(tripId: string, stopId: string, pin: string, products: Array<{ id: string; quantity: number | string }>, existingDeliveryVersion?: number, currentTripVersion?: number) {
-    const arrived = existingDeliveryVersion === undefined ? await this.arriveStop(tripId, stopId) : { delivery: { version: existingDeliveryVersion }, tripVersion: currentTripVersion ?? 0 }
-    const updated = existingDeliveryVersion === undefined ? await this.accountStopItems(tripId, stopId, arrived.delivery.version, products) : { version: existingDeliveryVersion }
-    const verified = await apiRequest<{ verified: true; version: number }>(`/trips/${tripId}/stops/${encodeURIComponent(stopId)}/verify-pin`, { method: "POST", body: JSON.stringify({ pin, clientRecordedAt: new Date().toISOString() }) })
-    await apiRequest(`/trips/${tripId}/stops/${encodeURIComponent(stopId)}/complete`, { method: "POST", headers: { "If-Match": String(verified.version) }, body: JSON.stringify({ outcome: "delivered", completedAt: new Date().toISOString(), expectedVersion: verified.version }) })
-    return { tripVersion: arrived.tripVersion, deliveryVersion: updated.version }
-  },
+
+  orderHistory: (page = 1) => apiRequest<Array<ApiOrder & { requestedDate?: string; createdAt?: string }>>(`/driver/order-history?page=${page}&pageSize=50`),
+  deliveryHistory: (page = 1) => apiRequest<ApiDelivery[]>(`/driver/delivery-history?page=${page}&pageSize=50`),
+
   async uploadEvidence(tripId: string, kind: "start_meter" | "end_meter", file: File) {
     const signature = await apiRequest<{ cloudName: string; apiKey: string; timestamp: number; folder: string; uploadType: string; signature: string }>("/files/upload-signature", { method: "POST", body: JSON.stringify({ kind, tripId, mimeType: file.type, bytes: file.size }) })
     const form = new FormData()

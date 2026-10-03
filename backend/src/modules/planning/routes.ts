@@ -8,7 +8,7 @@ import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { parseServiceDate } from "../../common/time.js"
 import { expectedVersion } from "../../common/version.js"
-import { Trip } from "../../database/models/index.js"
+import { DeliveryRecord, Trip } from "../../database/models/index.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { LoadingCommandPort } from "../loading/loading.command-port.js"
 import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
@@ -241,6 +241,8 @@ export async function planningRoutes(app: FastifyInstance) {
     const trip = await Trip.findOne(filter).lean()
     if (!trip) throw notFound()
     const orders = await OrderReadPort.findByIds(trip.stops.map((stop) => stop.orderId))
-    return ok(request, { ...trip, orders })
+    // Delivery records carry the expected quantities (after any load shortage) for each stop.
+    const deliveries = await DeliveryRecord.find({ tripId: trip._id }).lean()
+    return ok(request, { ...trip, orders, deliveries })
   })
 }

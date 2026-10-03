@@ -1,45 +1,65 @@
 import { apiRequest } from "../api/client"
+import type { StopOutcome } from "../shared/types"
 import { listMutations, putMutation, deleteMutation, type StoredMutation } from "./db"
 
 type StopItem = { sku: string; delivered: number; short: number; damaged: number }
+
 export type OfflineStopCompletion = {
   tripId: string
   stopId: string
-  pin: string
+  outcome: StopOutcome
+  /** Item counts for the stop (the same numbers the online items endpoint takes). */
   items: StopItem[]
-  /** Arrival and item counts are queued only when they have not already reached the server. */
+  /** The store's PIN. Not needed for a refused or closed stop. */
+  pin?: string
+  /** Queue the arrival too, when it has not already been recorded or queued. */
   includeArrival: boolean
+  /** When the Driver actually arrived, if known; defaults to now. */
+  arrivedAt?: Date
 }
 
-type SyncResult = { clientMutationId: string; result: "applied" | "duplicate" | "conflict" | "rejected" }
+type SyncResult = { clientMutationId: string; result: "applied" | "duplicate" | "conflict" | "rejected"; response?: { code?: string; message?: string } }
 
 const MAX_BATCH = 100
 let flushing = false
 
 // Mutations replay in recorded order, so each step gets a timestamp a millisecond after the last.
+let lastStamp = 0
+function nextStamp(base: Date) {
+  lastStamp = Math.max(base.getTime(), lastStamp + 1)
+  return new Date(lastStamp).toISOString()
+}
+
+async function enqueue(type: StoredMutation["type"], payload: StoredMutation["payload"], at: Date) {
+  await putMutation({ id: crypto.randomUUID(), type, payload, recordedAt: nextStamp(at), attempts: 0, state: "pending" })
+}
+
+/** Arrival at a stop while offline: saved with the time the Driver arrived. */
+export async function queueArrival(tripId: string, stopId: string, arrivedAt = new Date()) {
+  await enqueue("stop_arrive", { tripId, stopId }, arrivedAt)
+}
+
+/** The rest of a stop (items, PIN, outcome), recorded on the phone and sent when the network returns. */
 export async function queueStopCompletion(input: OfflineStopCompletion, now = new Date()) {
-  const steps: Array<Pick<StoredMutation, "type" | "payload">> = [
-    ...(input.includeArrival ? [
-      { type: "stop_arrive" as const, payload: { tripId: input.tripId, stopId: input.stopId } },
-      { type: "stop_items" as const, payload: { tripId: input.tripId, stopId: input.stopId, items: input.items } },
-    ] : []),
-    { type: "pin_submission", payload: { tripId: input.tripId, stopId: input.stopId, pin: input.pin } },
-    { type: "stop_complete", payload: { tripId: input.tripId, stopId: input.stopId, outcome: "delivered" } },
-  ]
-  for (const [index, step] of steps.entries()) {
-    await putMutation({
-      id: crypto.randomUUID(),
-      type: step.type,
-      payload: step.payload,
-      recordedAt: new Date(now.getTime() + index).toISOString(),
-      attempts: 0,
-      state: "pending",
-    })
-  }
+  const base = { tripId: input.tripId, stopId: input.stopId }
+  if (input.includeArrival) await enqueue("stop_arrive", base, input.arrivedAt ?? now)
+  await enqueue("stop_items", { ...base, items: input.items }, now)
+  if (input.pin) await enqueue("pin_submission", { ...base, pin: input.pin }, now)
+  await enqueue("stop_complete", { ...base, outcome: input.outcome }, now)
 }
 
 export async function pendingMutationCount() {
   return (await listMutations()).filter((item) => item.state === "pending").length
+}
+
+/** Queued changes the server turned down (conflict or rejected); they stay on the phone for review. */
+export async function listSyncIssues() {
+  return (await listMutations()).filter((item) => item.state === "conflict" || item.state === "rejected")
+}
+
+/** The stops that still have changes waiting on this phone, as "tripId:stopId". */
+export async function stopsWithPendingChanges() {
+  return new Set((await listMutations()).filter((item) => item.state === "pending").map((item) => `${String(item.payload.tripId)}:${String(item.payload.stopId)}`))
 }
 
 function deviceId() {
@@ -51,7 +71,7 @@ function deviceId() {
 }
 
 /**
- * Sends queued stop mutations to /sync/batch. Applied and duplicate items are removed.
+ * Sends queued stop changes to /sync/batch. Applied and duplicate items are removed.
  * Conflicts and rejections stay stored (with their state) instead of retrying forever,
  * so they remain visible; only network failures leave an item pending for the next try.
  * Returns the stops whose completion has now reached the server.
