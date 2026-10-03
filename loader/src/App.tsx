@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react"
-import { initialLoadCases, initialStops } from "./data/mock-data"
+import { loadApi, type LoadRecord } from "./api/loads"
 import type { ActiveStop, LoadCase } from "./data/mock-data"
+import { initialLoadCases, initialStops } from "./data/mock-data"
 import ActiveLoadPage from "./pages/ActiveLoadPage"
 import AvailableWorkPage from "./pages/AvailableWorkPage"
 import LoadConfirmedPage from "./pages/LoadConfirmedPage"
 import ReconciliationPage from "./pages/ReconciliationPage"
-import { loadApi, type LoadRecord } from "./api/loads"
-import type { LoadItemData, LoadItemException } from "./components/loader-ui"
+import type { LoadItemData, LoadItemException } from "./types/loader"
 
 // ── Workflow view type ───────────────────────────────────────────────────────
 

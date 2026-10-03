@@ -14,16 +14,14 @@ import {
 } from "lucide-react"
 import { jsPDF } from "jspdf"
 import { useEffect, useRef, useState } from "react"
-import {
-  BottomActionBar,
-  Button,
-  Card,
-  LoaderShell,
-  PageHeader,
-  StatusPill,
-  Text,
-  LoadDepartureTimer,
-} from "../components/loader-ui"
+import { BottomActionBar } from "../components/ui/BottomActionBar";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatusPill } from "../components/ui/StatusPill";
+import { Text } from "../components/ui/Text";
+import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
 import type { ActiveStop, LoadCase } from "../data/mock-data"
 import { useConnectivity } from "../hooks/useConnectivity"
 

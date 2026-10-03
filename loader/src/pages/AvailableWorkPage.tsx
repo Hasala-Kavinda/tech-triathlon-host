@@ -8,15 +8,13 @@ import {
   Truck,
 } from "lucide-react"
 import { useState } from "react"
-import {
-  Button,
-  Card,
-  LoaderShell,
-  PageHeader,
-  StatusPill,
-  Text,
-  WorkCard,
-} from "../components/loader-ui"
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatusPill } from "../components/ui/StatusPill";
+import { Text } from "../components/ui/Text";
+import { WorkCard } from "../components/load/WorkCard"
 import type { LoadCase } from "../data/mock-data"
 import { useConnectivity } from "../hooks/useConnectivity"
 import { loadApi } from "../api/loads"

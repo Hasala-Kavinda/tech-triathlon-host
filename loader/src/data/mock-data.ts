@@ -1,4 +1,5 @@
-import type { WorkCardState, LoadItemData } from "../components/loader-ui"
+import type { WorkCardState } from "../types/loader";
+import type { LoadItemData } from "../types/loader"
 
 export type LoadTiming = {
   receivedAt: number
