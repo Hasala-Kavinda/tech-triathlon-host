@@ -160,7 +160,7 @@ export default function App() {
 
   async function updateLoadedItem(item: LoadItemData) {
     if (!activeLoad) return
-    const expectedQuantity = Number.parseInt(item.quantity, 10)
+    const expectedQuantity = item.expectedQuantity
     const record = await loadApi.updateItem(activeLoad.tripId, item.id, activeLoad.version, "loaded", expectedQuantity)
     setActiveVersion(record.version)
   }
