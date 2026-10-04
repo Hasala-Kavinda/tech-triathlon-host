@@ -30,6 +30,8 @@ type LoadRecord = {
   version: number
   claimedBy?: string
   createdAt: string
+  updatedAt: string
+  confirmedAt?: string
   items: LoadItem[]
   trip?: LoadTrip
   planChanges?: Array<{

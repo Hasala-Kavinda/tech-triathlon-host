@@ -83,6 +83,7 @@ export default function ActiveLoadPage({
     "none" | "slide-left" | "slide-right"
   >("none")
   const slideTimerRef = useRef<number | null>(null)
+  const savedNoticeTimerRef = useRef<number | null>(null)
 
   // ── Derived state ────────────────────────────────────────────────────────
 
@@ -160,6 +161,16 @@ export default function ActiveLoadPage({
 
   // ── Slide animation helper ─────────────────────────────────────────────
 
+  // Clear both timers on unmount so setState is never called after the
+  // component has been removed from the tree (e.g. workflow moves to
+  // reconciliation while a slide or saved-notice timer is still pending).
+  useEffect(() => {
+    return () => {
+      if (slideTimerRef.current) window.clearTimeout(slideTimerRef.current)
+      if (savedNoticeTimerRef.current) window.clearTimeout(savedNoticeTimerRef.current)
+    }
+  }, [])
+
   function triggerSlide(
     targetIndex: number,
     direction: "slide-left" | "slide-right",
@@ -234,7 +245,11 @@ export default function ActiveLoadPage({
         detail: `${exception.affectedQuantity} ${affectedUnit} ${exception.type}`,
       })
 
-      window.setTimeout(() => setSavedNotice(null), 3600)
+      if (savedNoticeTimerRef.current) window.clearTimeout(savedNoticeTimerRef.current)
+      savedNoticeTimerRef.current = window.setTimeout(() => {
+        setSavedNotice(null)
+        savedNoticeTimerRef.current = null
+      }, 3600)
     } catch (error) {
       setMutationError("Unable to save this exception. Your load was not updated. Please try again.")
     } finally {

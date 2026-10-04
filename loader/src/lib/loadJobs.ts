@@ -41,6 +41,13 @@ export function toLoadCase(record: LoadRecord, myUserId: string | undefined): Lo
     timing: {
       receivedAt: Date.parse(record.createdAt),
       departureAt: trip ? Date.parse(trip.departureAt) : Date.parse(record.createdAt),
+      ...((record.status === "reconciled" || record.status === "confirmed") && record.updatedAt
+        ? {
+            finalVariance:
+              (trip ? Date.parse(trip.departureAt) : Date.parse(record.createdAt)) -
+              Date.parse(record.confirmedAt ?? record.updatedAt),
+          }
+        : {}),
     },
     planChanges: record.planChanges ?? [],
   }
