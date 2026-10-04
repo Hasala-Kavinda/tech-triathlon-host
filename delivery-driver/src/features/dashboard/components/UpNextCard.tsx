@@ -57,7 +57,7 @@ export const UpNextCard: React.FC<UpNextCardProps> = ({
           </div>
 
           <p className="text-[15px] text-secondary font-normal mt-0.5 tabular-nums truncate">
-            {upNextOutlet.itemCount} items to deliver · {upNextOutlet.managerName}
+            {upNextOutlet.itemCount} items to deliver{upNextOutlet.managerName ? ` · ${upNextOutlet.managerName}` : ''}
           </p>
 
           <button

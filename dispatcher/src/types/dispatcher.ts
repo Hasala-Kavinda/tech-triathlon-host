@@ -1,0 +1,79 @@
+export type ShopType = "Fresh" | "Tech" | "Style";
+export type RouteRecord = {
+      id: string
+      route: string
+      /** Real trip identifiers (live mode): the route label above is derived from them. */
+      tripId?: string
+      tripNumber?: string
+      tags: ShopType[]
+      done: number
+      total: number
+      remarks: number
+      start?: string
+      estEnd?: string
+      stops?: Array<{
+        shop: string
+        address?: string
+        arrived?: string
+        eta?: string
+      }>
+    };
+export type Vehicle = {
+      id: string
+      type: "Van" | "Lorry" | "Refrigerated"
+      capacityKg: number
+      /** Real cargo volume (m3) and depot from the fleet reference data, when known. */
+      volumeM3?: number
+      depot?: string
+      length: string
+      turns: number
+      turnQuota: number
+      km: number
+      kmQuota: number
+      fuel: number
+    };
+export type Order = {
+      apiId?: string
+      id: string
+      shop: string
+      town: string
+      type: ShopType
+      items: string
+      kg: number
+      emergency?: boolean
+      inReach: boolean
+      suggested: boolean
+      stop?: number
+      deferred?: boolean
+      deferredTo?: string
+      deferredNotice?: string
+      dueDay?: number
+      /** Real planning fields (live mode): outlet, volume, cold chain, due date and status. */
+      outletId?: string
+      volumeM3?: number
+      needsReefer?: boolean
+      requestedDate?: string
+      status?: string
+    };
+export type Person = {
+      id: string
+      name: string
+      role: string
+      phone: string
+      shop?: string
+      live?: boolean
+      lastSeen?: string
+      speedKmh?: number
+    };
+export type Remark = {
+      id: string
+      role: "Driver" | "Loader" | "Stock manager"
+      author: Person
+      time: string
+      text: string
+      stopName: string
+      stopNumber: number
+      reviewed: boolean
+      notice?: string
+      alsoNotify?: string[]
+    };

@@ -1,3 +1,4 @@
+import type { ConnectivityState } from "../types/loader";
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,20 +10,19 @@ import {
   PackageCheck,
   Route,
   Warehouse,
+  LoaderCircle,
 } from "lucide-react"
 import { useEffect } from "react"
-import {
-  BottomActionBar,
-  Button,
-  Card,
-  LoaderShell,
-  PageHeader,
-  Progress,
-  StatusPill,
-  Text,
-  LoadDepartureTimer,
-} from "../components/loader-ui"
-import type { ActiveStop, LoadCase } from "../data/mock-data"
+import { BottomActionBar } from "../components/ui/BottomActionBar";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Progress } from "../components/ui/Progress";
+import { StatusPill } from "../components/ui/StatusPill";
+import { Text } from "../components/ui/Text";
+import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
+import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -32,6 +32,9 @@ interface ReconciliationPageProps {
   onBack: () => void
   onConfirmed: () => void | Promise<void>
   activeLoad?: LoadCase
+  workflowError?: string
+  isSubmittingWorkflow?: boolean
+  onClearWorkflowError?: () => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -47,6 +50,9 @@ export default function ReconciliationPage({
   onBack,
   onConfirmed,
   activeLoad,
+  workflowError,
+  isSubmittingWorkflow,
+  onClearWorkflowError,
 }: ReconciliationPageProps) {
   const [connectivity] = useConnectivity()
 
@@ -58,15 +64,18 @@ export default function ReconciliationPage({
   // ── Derived accounting totals ─────────────────────────────────────────────
 
   const allItems = stops.flatMap((stop) => stop.items)
-  const total = allItems.length
-  const loadedCount = allItems.filter((i) => i.status === "loaded").length
-  const flaggedCount = allItems.filter((i) => i.status === "flagged").length
-  const pendingCount = allItems.filter((i) => i.status === "pending").length
-  const accountedCount = loadedCount + flaggedCount
+  const totalLines = allItems.length
+  const loadedLinesCount = allItems.filter((i) => i.status === "loaded").length
+  const flaggedLinesCount = allItems.filter((i) => i.status === "flagged").length
+  const pendingLinesCount = allItems.filter((i) => i.status === "pending").length
+  const accountedLinesCount = loadedLinesCount + flaggedLinesCount
+
+  const expectedUnits = allItems.reduce((sum, item) => sum + item.expectedQuantity, 0)
+  const loadedUnits = allItems.reduce((sum, item) => sum + item.loadedQuantity, 0)
+  const varianceUnits = allItems.reduce((sum, item) => sum + item.varianceQuantity, 0)
 
   // Invariant: Loaded + Flagged + Pending = Total
-  // For the current prototype: 19 + 4 + 0 = 23 ✓
-  const canConfirm = pendingCount === 0
+  const canConfirm = pendingLinesCount === 0
 
   // ── Exception items (all flagged items across all stops) ──────────────────
 
@@ -79,20 +88,20 @@ export default function ReconciliationPage({
   // ── Stop accounting status ────────────────────────────────────────────────
 
   const stopSummaries = stops.map((stop) => {
-    const pending = stop.items.filter((i) => i.status === "pending").length
-    const flagged = stop.items.filter((i) => i.status === "flagged").length
-    const loaded = stop.items.filter((i) => i.status === "loaded").length
-    const isComplete = pending === 0
-    return { stop, isComplete, loaded, flagged, pending }
+    const pendingLines = stop.items.filter((i) => i.status === "pending").length
+    const isComplete = pendingLines === 0
+    const linesTotal = stop.items.length
+    const expectedUnits = stop.items.reduce((sum, i) => sum + i.expectedQuantity, 0)
+    const loadedUnits = stop.items.reduce((sum, i) => sum + i.loadedQuantity, 0)
+    const varianceUnits = stop.items.reduce((sum, i) => sum + i.varianceQuantity, 0)
+    return { stop, isComplete, expectedUnits, loadedUnits, varianceUnits, linesTotal }
   })
 
   // ── Connectivity detail label ─────────────────────────────────────────────
 
   const connectivityDetail = {
-    online: "Synced 04:12",
-    offline: "Changes saved on device",
-    syncing: "Syncing changes…",
-    synced: "All changes synced",
+    online: "Online",
+    offline: "Offline",
   }[connectivity]
 
   return (
@@ -105,8 +114,8 @@ export default function ReconciliationPage({
             <div className="active-action-context">
               <Text variant="label">
                 {canConfirm
-                  ? "All items accounted · Ready to confirm"
-                  : `${pendingCount} item${pendingCount === 1 ? "" : "s"} still pending`}
+                  ? "All SKUs accounted · Ready to confirm"
+                  : `${pendingLinesCount} SKU${pendingLinesCount === 1 ? "" : "s"} still pending`}
               </Text>
               <Text variant="caption">
                 {canConfirm
@@ -126,7 +135,7 @@ export default function ReconciliationPage({
               size="large"
               icon={ArrowRight}
               iconPosition="end"
-              disabled={!canConfirm}
+              disabled={!canConfirm || isSubmittingWorkflow}
               onClick={() => void onConfirmed()}
             >
               Confirm load
@@ -141,8 +150,8 @@ export default function ReconciliationPage({
           eyebrow="Load reconciliation"
           title={
             <>
-              <span className="active-load-title__vehicle">WP-CAB-4821</span>
-              <span className="active-load-title__route"> · Colombo North</span>
+              <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
             </>
           }
           subtitle="Review the loading record before confirming."
@@ -152,27 +161,80 @@ export default function ReconciliationPage({
         {/* ── Vehicle metadata strip ────────────────────────────────────── */}
         <div className="active-load-context">
           <div>
-            <Warehouse aria-hidden="true" />
-            <div>
-              <Text variant="caption">Location</Text>
-              <Text variant="body-strong">Bay 03</Text>
-            </div>
-          </div>
-          <div>
             <Clock3 aria-hidden="true" />
             <div>
               <Text variant="caption">Departure</Text>
-              <Text variant="data">04:30</Text>
+              <Text variant="data">{activeLoad?.departure ?? "—"}</Text>
             </div>
           </div>
           <div>
             <Route aria-hidden="true" />
             <div>
               <Text variant="caption">Route</Text>
-              <Text variant="body-strong">6 stops</Text>
+              <Text variant="body-strong">
+                {activeLoad?.stops != null
+                  ? `${activeLoad.stops} stop${activeLoad.stops === 1 ? "" : "s"}`
+                  : "—"}
+              </Text>
+            </div>
+          </div>
+          <div>
+            <Warehouse aria-hidden="true" />
+            <div>
+              <Text variant="caption">Weight</Text>
+              <Text variant="body-strong">{activeLoad?.weight ?? "—"}</Text>
             </div>
           </div>
         </div>
+
+        {workflowError ? (
+          <div
+            className="work-alert work-alert--offline"
+            role="alert"
+            aria-live="assertive"
+            style={{ marginBottom: "1.5rem" }}
+          >
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text variant="body-strong">Action failed</Text>
+              <Text variant="caption">{workflowError}</Text>
+            </div>
+            <button
+              type="button"
+              onClick={() => onClearWorkflowError?.()}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                color: "inherit",
+                textDecoration: "underline",
+                alignSelf: "center",
+                marginLeft: "auto"
+              }}
+            >
+              <Text variant="body-strong">Dismiss</Text>
+            </button>
+          </div>
+        ) : null}
+
+        {isSubmittingWorkflow ? (
+          <div
+            className="work-alert work-alert--refreshing"
+            role="status"
+            aria-live="polite"
+            style={{ marginBottom: "1.5rem" }}
+          >
+            <div className="work-alert__icon">
+              <LoaderCircle className="icon-spin" aria-hidden="true" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text variant="body-strong">Confirming load…</Text>
+              <Text variant="caption">Updating load record.</Text>
+            </div>
+          </div>
+        ) : null}
 
         {/* ── Accounting summary ────────────────────────────────────────── */}
         <div className="recon-summary-grid">
@@ -188,13 +250,13 @@ export default function ReconciliationPage({
                 </Text>
                 <div className="recon-summary-card__count">
                   <Text variant="data" className="recon-summary-card__big-num">
-                    {accountedCount}
+                    {accountedLinesCount}
                   </Text>
                   <Text variant="body-strong" className="recon-summary-card__slash">
-                    / {total}
+                    / {totalLines} SKUs
                   </Text>
                 </div>
-                <Text variant="body">Items accounted for</Text>
+                <Text variant="body">Line items accounted for</Text>
               </div>
               {activeLoad?.timing ? (
                 <div style={{ justifySelf: "end", textAlign: "right" }}>
@@ -203,34 +265,36 @@ export default function ReconciliationPage({
               ) : null}
             </div>
 
-            <Progress flagged={flaggedCount} loaded={loadedCount} total={total} />
+            <Progress flagged={flaggedLinesCount} loaded={loadedLinesCount} total={totalLines} />
 
             <div className="recon-breakdown">
+              <div className="recon-breakdown__item">
+                <PackageCheck aria-hidden="true" />
+                <div>
+                  <Text variant="data">{expectedUnits}</Text>
+                  <Text variant="caption">Expected Units</Text>
+                </div>
+              </div>
               <div className="recon-breakdown__item recon-breakdown__item--loaded">
                 <PackageCheck aria-hidden="true" />
                 <div>
-                  <Text variant="data">{loadedCount}</Text>
-                  <Text variant="caption">Loaded</Text>
+                  <Text variant="data">{loadedUnits}</Text>
+                  <Text variant="caption">Loaded Units</Text>
                 </div>
               </div>
               <div className="recon-breakdown__item recon-breakdown__item--flagged">
-                <Flag aria-hidden="true" />
-                <div>
-                  <Text variant="data">{flaggedCount}</Text>
-                  <Text variant="caption">Flagged</Text>
-                </div>
-              </div>
-              <div className="recon-breakdown__item recon-breakdown__item--pending">
                 <AlertTriangle aria-hidden="true" />
                 <div>
-                  <Text variant="data">{pendingCount}</Text>
-                  <Text variant="caption">Pending</Text>
+                  <Text variant="data">{varianceUnits === 0 ? "0" : (varianceUnits > 0 ? `+${varianceUnits}` : varianceUnits)}</Text>
+                  <Text variant="caption">Variance</Text>
                 </div>
               </div>
             </div>
 
             <Text variant="caption" className="recon-summary-card__note">
-              All items are accounted for. Review exceptions before confirming the load.
+              {canConfirm
+                ? "All items are accounted for. Review exceptions before confirming the load."
+                : `${pendingLinesCount} line item${pendingLinesCount === 1 ? "" : "s"} still pending. Return to Active Load to account for remaining items.`}
             </Text>
           </Card>
 
@@ -240,10 +304,12 @@ export default function ReconciliationPage({
               <Text variant="label" className="recon-section-heading__label">
                 Stop summary
               </Text>
-              <StatusPill variant="loaded" label="All accounted" />
+              {canConfirm
+                ? <StatusPill variant="loaded" label="All accounted" />
+                : <StatusPill variant="in-progress" label={`${pendingLinesCount} pending`} />}
             </div>
             <div className="recon-stop-list" role="list">
-              {stopSummaries.map(({ stop, isComplete, loaded, flagged }) => (
+              {stopSummaries.map(({ stop, isComplete, expectedUnits, loadedUnits, varianceUnits, linesTotal }) => (
                 <div
                   className="recon-stop-row"
                   key={stop.stopNumber}
@@ -257,8 +323,9 @@ export default function ReconciliationPage({
                   <div className="recon-stop-row__info">
                     <Text variant="body-strong">{stop.outlet}</Text>
                     <Text variant="caption">
-                      {loaded} loaded
-                      {flagged > 0 ? ` · ${flagged} flagged` : ""}
+                      {loadedUnits} / {expectedUnits} units loaded
+                      {varianceUnits !== 0 ? ` (Variance: ${varianceUnits > 0 ? `+${varianceUnits}` : varianceUnits})` : ""}
+                      {` · ${linesTotal} SKU${linesTotal === 1 ? "" : "s"}`}
                     </Text>
                   </div>
                   <div className="recon-stop-row__status">
@@ -283,10 +350,10 @@ export default function ReconciliationPage({
                   Exceptions
                 </Text>
                 <Text as="h2" variant="h2">
-                  {flaggedCount} flagged item{flaggedCount === 1 ? "" : "s"} to review
+                  {flaggedLinesCount} flagged SKU{flaggedLinesCount === 1 ? "" : "s"} to review
                 </Text>
               </div>
-              <StatusPill variant="changed" label={`${flaggedCount} flagged`} />
+              <StatusPill variant="changed" label={`${flaggedLinesCount} flagged`} />
             </div>
 
             <div className="recon-exception-list" role="list">
@@ -308,7 +375,7 @@ export default function ReconciliationPage({
                         label={isDamaged ? "Damaged" : "Missing"}
                       />
                       <Text variant="caption">
-                        Stop {String(stop.stopNumber).padStart(2, "0")} · {stop.outlet} · {stop.orderId}
+                        Stop {String(stop.stopNumber).padStart(2, "0")} · {stop.outlet} · {stop.orderIds.join(', ')}
                       </Text>
                     </div>
 

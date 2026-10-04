@@ -1,6 +1,6 @@
 import { Bolt, X } from "lucide-react"
-import type { Order, Vehicle } from "../data/sampleData"
 import { Button, Heading, IconButton, ShopTag } from "./ui"
+import type { Order, Vehicle } from "../types/dispatcher";
 
 type ReviewModalProps = {
   vehicle: Vehicle
@@ -8,6 +8,11 @@ type ReviewModalProps = {
   onDrop: (id: string) => void
   onClose: () => void
   onAdd: () => void
+  /** Offered when the engine can propose a different pack; absent otherwise. */
+  onSuggestAnother?: () => void
+  suggestAnotherDisabled?: boolean
+  /** Weight already on the vehicle (e.g. locked orders) so the header shows the real load. */
+  baseKg?: number
 }
 
 export function ReviewModal({
@@ -16,8 +21,11 @@ export function ReviewModal({
   onDrop,
   onClose,
   onAdd,
+  onSuggestAnother,
+  suggestAnotherDisabled = false,
+  baseKg = 0,
 }: ReviewModalProps) {
-  const kg = pack.reduce((sum, order) => sum + order.kg, 0)
+  const kg = pack.reduce((sum, order) => sum + order.kg, 0) + baseKg
 
   return (
     <div
@@ -70,6 +78,11 @@ export function ReviewModal({
 
         <div className="modal__footer">
           <span>Drop any order you don&apos;t want.</span>
+          {onSuggestAnother ? (
+            <Button disabled={suggestAnotherDisabled} icon={Bolt} onClick={onSuggestAnother} variant="secondary">
+              Suggest another
+            </Button>
+          ) : null}
           <Button onClick={onClose}>Cancel</Button>
           <Button disabled={!pack.length} onClick={onAdd} variant="primary">
             Add {pack.length} {pack.length === 1 ? "order" : "orders"}

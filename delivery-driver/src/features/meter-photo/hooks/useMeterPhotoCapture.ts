@@ -5,6 +5,7 @@ import { useStore } from '@/state/store';
 import { MeterPhotoRecord } from '@/shared/types';
 import { useReducedMotion } from '@/shared/hooks/useReducedMotion';
 import { driverApi } from '@/api/driver';
+import { flushSyncQueue, pendingMutationCount } from '@/offline/syncQueue';
 
 export interface UseMeterPhotoCaptureProps {
   moment: 'start' | 'end';
@@ -17,6 +18,7 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
     meterPhotos,
     setRouteMeterPhoto,
     setRouteVersion,
+    startRoute,
     finishRoute,
     replaceScreen,
     popScreen,
@@ -116,14 +118,26 @@ export function useMeterPhotoCapture({ moment }: UseMeterPhotoCaptureProps) {
       let fileAssetId: string | undefined;
       if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== 'true') {
         if (!currentRoute?.apiId || currentRoute.version === undefined) throw new Error('The live route is not ready for evidence upload.');
-        if (conditions.networkStatus === 'offline') throw new Error('Reconnect before uploading required meter evidence.');
+        if (conditions.networkStatus === 'offline' || !navigator.onLine) throw new Error(`Reconnect to ${moment === 'start' ? 'start' : 'finish'} the trip. The meter photo is uploaded first.`);
+        let version = currentRoute.version;
+        if (moment === 'start') {
+          if (!currentRoute.claimed || !currentRoute.vehicleConfirmed) throw new Error('Claim the route and confirm the vehicle before starting.');
+        } else {
+          // Every stop must be on the server before the trip can finish.
+          await flushSyncQueue();
+          const waiting = await pendingMutationCount();
+          if (waiting > 0) throw new Error(`${waiting} stop ${waiting === 1 ? 'change is' : 'changes are'} still saved only on this phone. Check your connection so they can sync, then try again.`);
+          version = (await driverApi.tripDetail(currentRoute.apiId)).version;
+        }
         fileAssetId = await driverApi.uploadEvidence(currentRoute.apiId, moment === 'start' ? 'start_meter' : 'end_meter', file);
         const capturedAt = new Date().toISOString();
         const updated = moment === 'start'
-          ? await driverApi.startTrip(currentRoute.apiId, currentRoute.version, fileAssetId, capturedAt)
-          : await driverApi.finishTrip(currentRoute.apiId, currentRoute.version, fileAssetId, capturedAt);
+          ? await driverApi.startTrip(currentRoute.apiId, version, fileAssetId, capturedAt)
+          : await driverApi.finishTrip(currentRoute.apiId, version, fileAssetId, capturedAt);
         setRouteVersion(currentRoute.id, updated.version);
-        if (moment === 'end') finishRoute(currentRoute.id);
+        // The trip only counts as started (or finished) here, after the server has accepted it.
+        if (moment === 'start') startRoute(currentRoute.id);
+        else finishRoute(currentRoute.id);
       }
       const objectUrl = URL.createObjectURL(file);
       activeObjectUrlRef.current = objectUrl;

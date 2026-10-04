@@ -21,6 +21,8 @@ export const getLogicalStackForScreen = (screen: ScreenName): ScreenName[] => {
       return ['login', 'dashboard', 'meter_photo_end'];
     case 'shift_summary':
       return ['login', 'dashboard', 'shift_summary'];
+    case 'history':
+      return ['login', 'history'];
     default:
       return ['login'];
   }

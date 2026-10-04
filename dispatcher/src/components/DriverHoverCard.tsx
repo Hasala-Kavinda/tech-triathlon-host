@@ -1,7 +1,7 @@
 import { Phone, UserRound } from "lucide-react"
 import { useState } from "react"
-import type { Person } from "../data/sampleData"
 import { UnstyledButton } from "./ui"
+import type { Person } from "../types/dispatcher";
 
 type DriverHoverCardProps = {
   driver: Person

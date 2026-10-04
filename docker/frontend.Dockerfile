@@ -1,0 +1,25 @@
+FROM node:24-alpine AS build
+ARG APP_DIR
+ARG VITE_API_BASE_URL=http://localhost:3000
+ARG VITE_LOGIN_ORIGIN=http://localhost:5173
+ARG VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE=false
+ARG VITE_USE_MOCK_AUTH=false
+ARG VITE_SERVICE_DATE
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_LOGIN_ORIGIN=$VITE_LOGIN_ORIGIN
+ENV VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE=$VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE
+ENV VITE_USE_MOCK_AUTH=$VITE_USE_MOCK_AUTH
+ENV VITE_SERVICE_DATE=$VITE_SERVICE_DATE
+WORKDIR /app
+COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ${APP_DIR}/ ./
+# The Dispatcher imports the pure route-suggestion engine from the backend package (vite alias
+# "@route-engine" -> ../backend/src/route-engine). Other apps simply ignore it.
+COPY backend/src/route-engine /backend/src/route-engine
+RUN npm run build
+
+FROM nginx:1.29-alpine
+COPY docker/nginx/spa.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 8080

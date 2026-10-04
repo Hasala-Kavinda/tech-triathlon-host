@@ -23,6 +23,8 @@ export const DashboardScreen: React.FC = () => {
     totalOutletsCount,
     allOutletsCompleted,
     upNextOutlet,
+    whyOutletLocked,
+    showToast,
     conditions,
     track
   } = useStore();
@@ -46,6 +48,12 @@ export const DashboardScreen: React.FC = () => {
 
   const handleOpenMarket = (outlet: Outlet) => {
     if (outlet.status === 'completed') return;
+    // Stops are worked in sequence: only the next one can be opened.
+    const locked = whyOutletLocked(outlet.id);
+    if (locked) {
+      showToast(locked);
+      return;
+    }
     setActiveOutletId(outlet.id);
     setReturnTo('dashboard');
 
@@ -75,9 +83,10 @@ export const DashboardScreen: React.FC = () => {
     pushScreen('map');
   };
 
+  // Finishing the route needs the end meter photo (and the server's finish), then the summary.
   const handleFinishRoute = () => {
     track('D07');
-    replaceScreen('shift_summary');
+    replaceScreen('meter_photo_end');
   };
 
   return (
@@ -93,6 +102,12 @@ export const DashboardScreen: React.FC = () => {
         className="flex-1 px-4 overflow-y-auto space-y-4 pt-1"
         style={{ paddingBottom: 'max(32px, calc(16px + env(safe-area-inset-bottom, 0px)))' }}
       >
+        {conditions.trackingDegraded && (
+          <div role="alert" className="w-full rounded-[14px] border border-attention/50 bg-attention/15 px-4 py-3 text-[14px] leading-snug text-black dark:text-white">
+            <strong className="font-semibold">Tracking degraded.</strong> {conditions.trackingReason || 'Location tracking is not working.'}
+          </div>
+        )}
+
         <RouteHeader
           route={selectedRoute}
           totalOutletsCount={totalOutletsCount}

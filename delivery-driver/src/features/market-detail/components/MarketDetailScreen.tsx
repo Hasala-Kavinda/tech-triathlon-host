@@ -11,6 +11,8 @@ export const MarketDetailScreen: React.FC = () => {
     selectedRoute,
     activeOutlet,
     toggleProductCheck,
+    setProductIssue,
+    arriveAtOutlet,
     markUnpackingComplete,
     pushScreen,
     popScreen,
@@ -22,13 +24,15 @@ export const MarketDetailScreen: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isScrolledFromTop, setIsScrolledFromTop] = useState(false);
   const [buttonPulse, setButtonPulse] = useState(false);
+  const [isArriving, setIsArriving] = useState(false);
   const prevReadyRef = useRef<boolean>(false);
 
   if (!activeOutlet || !selectedRoute) return null;
 
   const totalCount = activeOutlet.products.length;
   const unpackedCount = activeOutlet.products.filter((p) => p.checked).length;
-  const isAllChecked = totalCount > 0 && unpackedCount === totalCount;
+  const isArrived = !!activeOutlet.arrived;
+  const isAllChecked = isArrived && totalCount > 0 && unpackedCount === totalCount;
   const remainingCount = totalCount - unpackedCount;
 
   useEffect(() => {
@@ -58,7 +62,20 @@ export const MarketDetailScreen: React.FC = () => {
   const handleCallManager = (e: React.MouseEvent) => {
     e.preventDefault();
     track('M05');
-    showToast(`Calling ${activeOutlet.managerName}…`);
+    showToast(activeOutlet.managerName ? `Calling ${activeOutlet.managerName}…` : "The store manager's number is not available in the app.");
+  };
+
+  // Arrival is its own step: it stamps the time with the server (or on the phone when offline).
+  const handleArrived = async () => {
+    setIsArriving(true);
+    try {
+      await arriveAtOutlet(activeOutlet.id);
+      showToast(navigator.onLine ? 'Arrival recorded' : 'Arrival saved on this phone');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to record arrival.');
+    } finally {
+      setIsArriving(false);
+    }
   };
 
   const handleProceedToPin = async () => {
@@ -98,11 +115,29 @@ export const MarketDetailScreen: React.FC = () => {
           onCallManager={handleCallManager}
         />
 
-        <ProductChecklist
-          products={activeOutlet.products}
-          outletId={activeOutlet.id}
-          onToggleProduct={toggleProductCheck}
-        />
+        {isArrived ? (
+          <ProductChecklist
+            products={activeOutlet.products}
+            outletId={activeOutlet.id}
+            onToggleProduct={toggleProductCheck}
+            onSetIssue={setProductIssue}
+          />
+        ) : (
+          <section aria-label="Confirm arrival" className="w-full bg-surface rounded-[20px] border border-hairline p-5 text-center shadow-sm">
+            <h2 className="text-[20px] font-semibold text-black dark:text-white leading-tight">Have you arrived?</h2>
+            <p className="text-[15px] text-secondary mt-1.5 leading-snug">
+              Confirm when you reach {activeOutlet.city}. This records your arrival time. Then you can unpack and check the items.
+            </p>
+            <button
+              type="button"
+              onClick={handleArrived}
+              disabled={isArriving}
+              className="w-full h-[52px] rounded-xl bg-action text-white text-[16px] font-semibold mt-4 cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all disabled:opacity-50"
+            >
+              {isArriving ? 'Recording…' : "I've arrived"}
+            </button>
+          </section>
+        )}
       </div>
 
       {/* Pinned Bottom Bar */}
@@ -120,7 +155,7 @@ export const MarketDetailScreen: React.FC = () => {
               : 'bg-hairline/60 text-secondary cursor-not-allowed opacity-70'
           } ${buttonPulse ? 'ring-4 ring-action/30' : ''}`}
         >
-          <span>{isAllChecked ? 'Unpacking Complete' : `${remainingCount} ${remainingCount === 1 ? 'item' : 'items'} left to unpack`}</span>
+          <span>{!isArrived ? 'Confirm your arrival first' : isAllChecked ? 'Unpacking Complete' : `${remainingCount} ${remainingCount === 1 ? 'item' : 'items'} left to unpack`}</span>
           <span className="material-symbols-outlined text-[18px]">chevron_right</span>
         </button>
 

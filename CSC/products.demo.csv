@@ -1,0 +1,5 @@
+sku,name,brand,order_types,unit,weight_kg,volume_m3,temperature_class,fragile
+DEMO-FR-001,Demo Fresh Milk Crate,Fresh,chilled,crate,12,0.03,chilled,false
+DEMO-FR-002,Demo Produce Carton,Fresh,dry,carton,8,0.045,ambient,true
+DEMO-ST-001,Demo Apparel Case,Style,products,case,10,0.08,ambient,false
+DEMO-TE-001,Demo Electronics Case,Tech,products,case,15,0.06,ambient,true

@@ -1,12 +1,20 @@
 // src/shared/types/index.ts - Core domain models and state types
 
+/** How a stop can end. refused and closed end it unsuccessfully (the order becomes delivery_failed). */
+export type StopOutcome = 'delivered' | 'partial' | 'refused' | 'closed' | 'failed';
+
 export interface OutletProduct {
+  /** The product SKU. */
   id: string;
   name: string;
+  /** The quantity to deliver at this stop (from the delivery record once loaded). */
   quantity: number | string;
   unit: string;
   chilled?: boolean;
   checked: boolean;
+  /** Reported at the stop; delivered = quantity - short - damaged. */
+  short?: number;
+  damaged?: number;
 }
 
 export interface OutletConfirmation {
@@ -19,6 +27,12 @@ export interface OutletConfirmation {
 
 export interface Outlet {
   apiVersion?: number;
+  tripStopId?: string;
+  /** The Driver has told the server (or the offline queue) that they arrived. */
+  arrived?: boolean;
+  arrivedAt?: string;
+  outcome?: StopOutcome;
+  timingResult?: 'on_time' | 'late';
   id: string;
   city: string;
   lat: number;
@@ -39,6 +53,11 @@ export interface RoutePlan {
   apiId?: string;
   version?: number;
   vehicleId?: string;
+  /** The Driver has claimed the assignment and confirmed the vehicle (both on the server). */
+  claimed?: boolean;
+  vehicleConfirmed?: boolean;
+  startedAtIso?: string;
+  finishedAtIso?: string;
   id: number;
   routeNumber: number;
   brandName: string;
@@ -64,7 +83,8 @@ export type ScreenName =
   | 'pin_confirmation'
   | 'meter_photo_end'
   | 'map'
-  | 'shift_summary';
+  | 'shift_summary'
+  | 'history';
 
 export interface MeterPhotoRecord {
   fileAssetId?: string;
@@ -91,4 +111,7 @@ export interface PrototypeConditions {
   gpsQuality: GpsQuality;
   driverNearNextOutlet: boolean;
   nextPinResult: 'normal' | 'offline-saved';
+  /** Real GPS tracking health while a trip is on the road. */
+  trackingDegraded: boolean;
+  trackingReason: string;
 }

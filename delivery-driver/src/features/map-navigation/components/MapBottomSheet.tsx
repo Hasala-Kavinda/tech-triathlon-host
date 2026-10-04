@@ -128,14 +128,16 @@ export const MapBottomSheet: React.FC<MapBottomSheetProps> = ({
                 <div className="flex items-center gap-2 mt-1 text-[13px] text-secondary">
                   <span>{currentMapOutlet.itemCount} packages</span>
                   <span>•</span>
-                  <span>Nuwan Perera</span>
-                  <a
-                    href={`tel:${currentMapOutlet.managerPhone}`}
-                    className="ml-auto inline-flex items-center gap-1 text-action hover:underline text-[12px] font-semibold"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">call</span>
-                    <span>Call</span>
-                  </a>
+                  {currentMapOutlet.managerName ? <span>{currentMapOutlet.managerName}</span> : null}
+                  {currentMapOutlet.managerPhone ? (
+                    <a
+                      href={`tel:${currentMapOutlet.managerPhone}`}
+                      className="ml-auto inline-flex items-center gap-1 text-action hover:underline text-[12px] font-semibold"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">call</span>
+                      <span>Call</span>
+                    </a>
+                  ) : null}
                 </div>
 
                 {!isCompletedOutlet && (
@@ -265,14 +267,16 @@ export const MapBottomSheet: React.FC<MapBottomSheetProps> = ({
             <div className="flex items-center gap-2 mt-0.5 text-[13px] text-secondary">
               <span>{currentMapOutlet.itemCount} items</span>
               <span>•</span>
-              <span>Nuwan Perera</span>
-              <a
-                href={`tel:${currentMapOutlet.managerPhone}`}
-                className="ml-auto inline-flex items-center gap-1 text-action hover:underline text-[12px] font-semibold"
-              >
-                <span className="material-symbols-outlined text-[14px]">call</span>
-                <span>Call</span>
-              </a>
+              {currentMapOutlet.managerName ? <span>{currentMapOutlet.managerName}</span> : null}
+              {currentMapOutlet.managerPhone ? (
+                <a
+                  href={`tel:${currentMapOutlet.managerPhone}`}
+                  className="ml-auto inline-flex items-center gap-1 text-action hover:underline text-[12px] font-semibold"
+                >
+                  <span className="material-symbols-outlined text-[14px]">call</span>
+                  <span>Call</span>
+                </a>
+              ) : null}
             </div>
 
             {conditions.gpsStatus === 'off' && !isCompletedOutlet && (

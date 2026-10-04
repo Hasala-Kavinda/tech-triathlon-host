@@ -8,7 +8,9 @@ export const DEFAULT_CONDITIONS: PrototypeConditions = {
   gpsStatus: 'off',
   gpsQuality: 'strong',
   driverNearNextOutlet: false,
-  nextPinResult: 'normal'
+  nextPinResult: 'normal',
+  trackingDegraded: false,
+  trackingReason: ''
 };
 
 export function useConditionsSlice(track: (id: string) => void) {

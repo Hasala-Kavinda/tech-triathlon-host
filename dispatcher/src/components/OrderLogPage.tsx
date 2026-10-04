@@ -8,8 +8,8 @@ import {
   XCircle,
 } from "lucide-react"
 import { useMemo, useState } from "react"
-import type { Order } from "../data/sampleData"
 import { Button, Heading, PageTitle, ShopTag, TextInput, UnstyledButton } from "./ui"
+import type { Order } from "../types/dispatcher";
 
 /* ------------------------------------------------------------------ */
 /* Order log — every order with when, where, id and whether it was     */

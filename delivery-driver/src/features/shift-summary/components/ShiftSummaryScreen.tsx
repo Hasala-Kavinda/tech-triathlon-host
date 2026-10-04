@@ -21,6 +21,8 @@ export const ShiftSummaryScreen: React.FC = () => {
     outlets,
     pendingCount,
     totalItems,
+    totalTime,
+    outcomeSummary,
     otherRoutesRemain,
     animationStep,
     syncStatus,
@@ -63,14 +65,17 @@ export const ShiftSummaryScreen: React.FC = () => {
           style={{ opacity: animationStep >= 1 ? 1 : 0 }}
         >
           <h1 className="text-[28px] font-bold text-black dark:text-white tracking-tight leading-tight">
-            Route <span className="font-mono tabular-nums">{finishedRoute?.routeNumber ?? 2}</span> complete
+            {finishedRoute ? <>Route <span className="font-mono tabular-nums">{finishedRoute.routeNumber}</span> complete</> : 'Route complete'}
           </h1>
           <p className="text-[15px] text-secondary font-normal tracking-tight">
-            {finishedRoute?.brandName ?? 'Waypoint'} ·{' '}
+            {finishedRoute?.brandName ? `${finishedRoute.brandName} · ` : ''}
             <span className="font-mono tabular-nums">
-              {finishedRoute?.startedAt ?? '05:12'} to {finishedRoute?.finishedAt ?? '11:48'}
+              {finishedRoute?.startedAt ?? '—'} to {finishedRoute?.finishedAt ?? '—'}
             </span>
           </p>
+          {outcomeSummary && (
+            <p className="text-[14px] text-secondary font-normal tracking-tight">{outcomeSummary}</p>
+          )}
         </div>
 
         <div
@@ -80,8 +85,8 @@ export const ShiftSummaryScreen: React.FC = () => {
           <KeyFigures
             outletsCount={outlets.length}
             itemsCount={totalItems}
-            distanceKm={finishedRoute?.distanceKm ?? 42}
-            totalTime="6h 36m"
+            distanceKm={finishedRoute?.distanceKm ?? 0}
+            totalTime={totalTime}
           />
         </div>
 

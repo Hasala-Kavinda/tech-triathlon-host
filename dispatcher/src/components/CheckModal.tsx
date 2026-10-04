@@ -1,7 +1,7 @@
 import { Lock, X } from "lucide-react"
 import type React from "react"
-import type { Order, Vehicle } from "../data/sampleData"
 import { Button, Heading, IconButton } from "./ui"
+import type { Order, Vehicle } from "../types/dispatcher";
 
 type CheckModalProps = {
   vehicle: Vehicle
@@ -15,6 +15,19 @@ type CheckModalProps = {
   lockedIds?: string[]
   /** Route label shown in the title. */
   routeName?: string
+  /** The Driver the planning service assigned to this trip (shown once the draft exists). */
+  driverName?: string
+  /** Constraint results from the planning service. When given, Schedule needs them to pass. */
+  validation?:
+    | { phase: "loading" }
+    | { phase: "error"; message: string }
+    | { phase: "ready"; valid: boolean; rules: Array<{ code: string; passed: boolean; message: string }> }
+  /** Runs the planning checks again (offered when the check call itself failed). */
+  onRetryValidation?: () => void
+  /** True while the trip is being published. */
+  scheduling?: boolean
+  /** The planning service's own error from the last publish attempt. */
+  submitError?: string
 }
 
 export function CheckModal({
@@ -26,8 +39,14 @@ export function CheckModal({
   onClose,
   onSchedule,
   lockedIds = [],
-  routeName = "Galle → Matara",
+  routeName = "Route",
+  driverName,
+  validation,
+  onRetryValidation,
+  scheduling = false,
+  submitError,
 }: CheckModalProps) {
+  const validationPassed = !validation || (validation.phase === "ready" && validation.valid)
   const sorted = [...pack].sort((a, b) => (a.stop ?? 0) - (b.stop ?? 0))
   const kg = pack.reduce((sum, order) => sum + order.kg, 0)
   const allChecked = pack.length > 0 && checked.length === pack.length
@@ -71,6 +90,7 @@ export function CheckModal({
               <span>
                 {pack.filter((order) => order.emergency).length} emergency
               </span>
+              {driverName ? <span>Driver · {driverName}</span> : null}
             </div>
           </div>
           <IconButton icon={X} label="Close check sheet" onClick={onClose} />
@@ -166,6 +186,32 @@ export function CheckModal({
           </table>
         </div>
 
+        {validation ? (
+          <div className="check-validation" role="status" style={{ padding: "12px 24px" }}>
+            <strong>Planning checks</strong>
+            {validation.phase === "loading" ? <p>Checking this route with the planning service…</p> : null}
+            {validation.phase === "error" ? (
+              <>
+                <p role="alert" style={{ color: "var(--critical-500)" }}>{validation.message}</p>
+                {onRetryValidation ? <Button onClick={onRetryValidation} variant="secondary">Check again</Button> : null}
+              </>
+            ) : null}
+            {validation.phase === "ready" && !validation.valid ? (
+              <p>Fix the failed checks (use "Back to edit" to change the orders, then check again) before scheduling.</p>
+            ) : null}
+            {validation.phase === "ready" ? (
+              <ul style={{ listStyle: "none", margin: "4px 0 0", padding: 0 }}>
+                {validation.rules.map((rule) => (
+                  <li key={rule.code} style={{ color: rule.passed ? undefined : "var(--critical-500)" }}>
+                    {rule.passed ? "✓" : "✕"} {rule.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+        {submitError ? <p role="alert" style={{ padding: "0 24px", color: "var(--critical-500)" }}>{submitError}</p> : null}
+
         <div className="modal__footer check-footer">
           <span>
             {checked.length} of {pack.length} checked.{" "}
@@ -179,11 +225,11 @@ export function CheckModal({
             Back to edit
           </Button>
           <Button
-            disabled={!allChecked}
+            disabled={!allChecked || !validationPassed || scheduling}
             onClick={onSchedule}
             variant="confirm"
           >
-            Schedule
+            {scheduling ? "Scheduling…" : "Schedule"}
           </Button>
         </div>
       </section>

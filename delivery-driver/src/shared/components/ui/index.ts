@@ -10,3 +10,4 @@ export * from './CompletionMark';
 export * from './KeyFigures';
 export * from './SyncStatus';
 export * from './OutletSummaryList';
+export * from './ConfirmDialog';

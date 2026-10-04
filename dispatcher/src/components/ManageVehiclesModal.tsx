@@ -1,7 +1,7 @@
 import { AlertTriangle, X } from "lucide-react"
 import { useState } from "react"
-import type { Vehicle } from "../data/sampleData"
 import { Button, Heading, IconButton } from "./ui"
+import type { Vehicle } from "../types/dispatcher";
 
 type ManageVehiclesModalProps = {
   vehicles: Vehicle[]

@@ -28,12 +28,16 @@ react(),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+        // The route-suggestion engine is a pure module in the backend package; the UI imports it
+        // directly so the rules live in exactly one place.
+        '@route-engine': path.resolve(__dirname, '../backend/src/route-engine'),
       },
     },
     server: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
+      fs: { allow: [path.resolve(__dirname, '..')] },
       watch: {
         ignored: [
           '**/.figma/**',

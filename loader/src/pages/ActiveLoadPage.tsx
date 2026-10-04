@@ -1,3 +1,4 @@
+import type { ConnectivityState, LoadItemData, LoadItemException } from "../types/loader";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -14,35 +15,21 @@ import {
   Scale,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import {
-  BottomActionBar,
-  Button,
-  Card,
-  ExceptionSheet,
-  LoaderShell,
-  PageHeader,
-  Progress,
-  StatusPill,
-  StopCard,
-  Text,
-  type ConnectivityState,
-  type LoadItemData,
-  type LoadItemException,
-  LoadDepartureTimer,
-} from "../components/loader-ui"
-import type { ActiveStop, LoadCase } from "../data/mock-data"
+import { BottomActionBar } from "../components/ui/BottomActionBar";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { ExceptionSheet } from "../components/exceptions/ExceptionSheet";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Progress } from "../components/ui/Progress";
+import { StatusPill } from "../components/ui/StatusPill";
+import { StopCard } from "../components/load/StopCard";
+import { Text } from "../components/ui/Text";
+import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
+import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
-// Prototype URL override for connectivity state
-const connectivityParam = new URLSearchParams(window.location.search).get(
-  "connectivity",
-)
-const forcedConnectivity: ConnectivityState | null =
-  connectivityParam === "offline" ||
-  connectivityParam === "syncing" ||
-  connectivityParam === "synced"
-    ? (connectivityParam as ConnectivityState)
-    : null
+
 
 interface ActiveLoadPageProps {
   /** Called when the user presses "Available work" (back navigation). */
@@ -52,13 +39,18 @@ interface ActiveLoadPageProps {
   /** The mutable stops array — owned by the application shell. */
   stops: ActiveStop[]
   /** Callback to update the stops array in the application shell. */
-  onStopsChange: (stops: ActiveStop[]) => void
+  onStopsChange: (stops: ActiveStop[] | ((prev: ActiveStop[]) => ActiveStop[])) => void
   /** The current load case being handled. */
   activeLoad?: LoadCase
   /** Triggered the exact moment the load becomes fully accounted. */
   onLoadCompleted?: (completionTime: number) => void
   onMarkItemLoaded?: (item: LoadItemData) => Promise<void>
   onSaveException?: (item: LoadItemData, exception: LoadItemException) => Promise<void>
+  workflowError?: string
+  isSubmittingWorkflow?: boolean
+  onClearWorkflowError?: () => void
+  onAcknowledgePlanChange?: () => Promise<void>
+  onStartLoading?: () => Promise<void>
 }
 
 export default function ActiveLoadPage({
@@ -70,13 +62,19 @@ export default function ActiveLoadPage({
   onLoadCompleted,
   onMarkItemLoaded,
   onSaveException,
+  workflowError,
+  isSubmittingWorkflow,
+  onClearWorkflowError,
+  onAcknowledgePlanChange,
+  onStartLoading,
 }: ActiveLoadPageProps) {
-  const [connectivity] = useConnectivity(forcedConnectivity)
+  const [connectivity] = useConnectivity()
   const [visibleStopIndex, setVisibleStopIndex] = useState(0)
   const [exceptionItemId, setExceptionItemId] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const [submittingIds, setSubmittingIds] = useState<string[]>([])
   const [savedNotice, setSavedNotice] = useState<{
     detail: string
-    pendingSync: boolean
   } | null>(null)
   const [reconciliationReady, setReconciliationReady] = useState(false)
 
@@ -85,6 +83,7 @@ export default function ActiveLoadPage({
     "none" | "slide-left" | "slide-right"
   >("none")
   const slideTimerRef = useRef<number | null>(null)
+  const savedNoticeTimerRef = useRef<number | null>(null)
 
   // ── Derived state ────────────────────────────────────────────────────────
 
@@ -106,6 +105,9 @@ export default function ActiveLoadPage({
   const nextRequiredStopIndex = stops.findIndex((stop) =>
     stop.items.some((item) => item.status === "pending"),
   )
+
+  const pendingPlanChanges = activeLoad?.planChanges?.filter((change) => !change.acknowledgedAt) ?? []
+  const hasPendingPlanChange = pendingPlanChanges.length > 0
 
   useEffect(() => {
     if (
@@ -159,6 +161,16 @@ export default function ActiveLoadPage({
 
   // ── Slide animation helper ─────────────────────────────────────────────
 
+  // Clear both timers on unmount so setState is never called after the
+  // component has been removed from the tree (e.g. workflow moves to
+  // reconciliation while a slide or saved-notice timer is still pending).
+  useEffect(() => {
+    return () => {
+      if (slideTimerRef.current) window.clearTimeout(slideTimerRef.current)
+      if (savedNoticeTimerRef.current) window.clearTimeout(savedNoticeTimerRef.current)
+    }
+  }, [])
+
   function triggerSlide(
     targetIndex: number,
     direction: "slide-left" | "slide-right",
@@ -179,8 +191,8 @@ export default function ActiveLoadPage({
   function updateItems(
     updater: (item: LoadItemData) => LoadItemData,
   ) {
-    onStopsChange(
-      stops.map((stop) => ({
+    onStopsChange((prevStops) =>
+      prevStops.map((stop) => ({
         ...stop,
         items: stop.items.map(updater),
       })),
@@ -188,44 +200,61 @@ export default function ActiveLoadPage({
   }
 
   async function markItemLoaded(itemId: string) {
+    if (submittingIds.includes(itemId)) return
     const current = allItems.find((item) => item.id === itemId)
-    if (current && onMarkItemLoaded) await onMarkItemLoaded(current)
-    updateItems((item) =>
-      item.id === itemId
-        ? { ...item, exception: undefined, status: "loaded" }
-        : item,
-    )
+    setSubmittingIds((prev) => [...prev, itemId])
+    try {
+      if (current && onMarkItemLoaded) await onMarkItemLoaded(current)
+      setMutationError(null)
+      updateItems((item) =>
+        item.id === itemId
+          ? { ...item, exception: undefined, status: "loaded" }
+          : item,
+      )
+    } catch (error) {
+      setMutationError("Unable to save this change. Your load was not updated. Please try again.")
+    } finally {
+      setSubmittingIds((prev) => prev.filter((id) => id !== itemId))
+    }
   }
 
   async function saveException(exception: LoadItemException) {
     if (!exceptionItemId) return
+    if (submittingIds.includes(exceptionItemId)) return
 
     const current = allItems.find((item) => item.id === exceptionItemId)
-    if (current && onSaveException) await onSaveException(current, exception)
+    setSubmittingIds((prev) => [...prev, exceptionItemId])
+    try {
+      if (current && onSaveException) await onSaveException(current, exception)
 
-    updateItems((item) =>
-      item.id === exceptionItemId
-        ? { ...item, exception, status: "flagged" }
-        : item,
-    )
+      setMutationError(null)
+      updateItems((item) =>
+        item.id === exceptionItemId
+          ? { ...item, exception, status: "flagged" }
+          : item,
+      )
 
-    setExceptionItemId(null)
+      setExceptionItemId(null)
 
-    const affectedUnit =
-      exception.affectedQuantity === 1
-        ? exception.unit.replace(/s$/, "")
-        : exception.unit
+      const affectedUnit =
+        exception.affectedQuantity === 1
+          ? exception.unit.replace(/s$/, "")
+          : exception.unit
 
-    setSavedNotice({
-      detail: `${exception.affectedQuantity} ${affectedUnit} ${exception.type} · ${
-        exception.pendingSync
-          ? "Dispatcher notified when synced"
-          : "Dispatcher notified"
-      }`,
-      pendingSync: exception.pendingSync,
-    })
+      setSavedNotice({
+        detail: `${exception.affectedQuantity} ${affectedUnit} ${exception.type}`,
+      })
 
-    window.setTimeout(() => setSavedNotice(null), 3600)
+      if (savedNoticeTimerRef.current) window.clearTimeout(savedNoticeTimerRef.current)
+      savedNoticeTimerRef.current = window.setTimeout(() => {
+        setSavedNotice(null)
+        savedNoticeTimerRef.current = null
+      }, 3600)
+    } catch (error) {
+      setMutationError("Unable to save this exception. Your load was not updated. Please try again.")
+    } finally {
+      setSubmittingIds((prev) => prev.filter((id) => id !== exceptionItemId))
+    }
   }
 
   // ── Navigation ───────────────────────────────────────────────────────────
@@ -266,10 +295,8 @@ export default function ActiveLoadPage({
   // ── Connectivity detail label ─────────────────────────────────────────────
 
   const connectivityDetail: Record<ConnectivityState, string> = {
-    online: "Synced 04:12",
-    offline: "Changes saved on device",
-    syncing: "Syncing changes…",
-    synced: "All changes synced",
+    online: "Online",
+    offline: "Offline",
   }
 
   // ── Derive active-stop info for footer context ────────────────────────────
@@ -280,10 +307,75 @@ export default function ActiveLoadPage({
   const footerPending =
     footerStop?.items.filter((i) => i.status === "pending").length ?? 0
 
+  // ── L-H-1: Empty-stops guard ─────────────────────────────────────────────
+  // toActiveStops() can return []. Guard here so none of the stop-property
+  // accesses below (visibleStop.stopNumber, footerStop.stopNumber, etc.) can
+  // produce a TypeError when stops is empty.
+  if (stops.length === 0) {
+    return (
+      <LoaderShell
+        connectivity={connectivity}
+        connectivityDetail={connectivityDetail[connectivity]}
+        bottomActions={
+          <BottomActionBar
+            context={
+              <div className="active-action-context">
+                <Text variant="label">No stops available</Text>
+                <Text variant="caption">
+                  This load has no stop data. Use Available work to return and
+                  select a different load.
+                </Text>
+              </div>
+            }
+            secondaryAction={
+              <Button variant="secondary" icon={ArrowLeft} onClick={onBack}>
+                Available work
+              </Button>
+            }
+            primaryAction={null}
+          />
+        }
+      >
+        <div className="active-load-page">
+          <PageHeader
+            eyebrow="Active load"
+            title={
+              <>
+                <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
+                <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
+              </>
+            }
+            subtitle="Claimed by you · Loading in progress"
+            aside={<StatusPill variant="in-progress" label="Loading in progress" />}
+          />
+          <div
+            className="work-alert work-alert--offline"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div>
+              <Text variant="body-strong">No stop data for this load</Text>
+              <Text variant="caption">
+                The load record was received without any stops. No items have
+                been accounted for and no backend state has been changed. Return
+                to Available work and re-open the load, or contact your
+                dispatcher.
+              </Text>
+            </div>
+          </div>
+        </div>
+      </LoaderShell>
+    )
+  }
+
   return (
     <LoaderShell
       connectivity={connectivity}
       connectivityDetail={connectivityDetail[connectivity]}
+
       bottomActions={
         <BottomActionBar
           context={
@@ -310,12 +402,24 @@ export default function ActiveLoadPage({
             </Button>
           }
           primaryAction={
-            reconciliationReady ? (
+            activeLoad?.recordStatus === "claimed" ? (
               <Button
                 variant="primary"
                 size="large"
                 icon={ArrowRight}
                 iconPosition="end"
+                disabled={isSubmittingWorkflow || hasPendingPlanChange}
+                onClick={() => onStartLoading?.()}
+              >
+                Start loading
+              </Button>
+            ) : reconciliationReady ? (
+              <Button
+                variant="primary"
+                size="large"
+                icon={ArrowRight}
+                iconPosition="end"
+                disabled={isSubmittingWorkflow}
                 onClick={handleLoadingAccounted}
               >
                 Begin reconciliation
@@ -341,11 +445,11 @@ export default function ActiveLoadPage({
           eyebrow="Active load"
           title={
             <>
-              <span className="active-load-title__vehicle">WP-CAB-4821</span>
-              <span className="active-load-title__route"> · Colombo North</span>
+              <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
             </>
           }
-          subtitle="Claimed by you · Loading at Bay 03"
+          subtitle="Claimed by you · Loading in progress"
           aside={
             <StatusPill
               variant={globallyComplete ? "loaded" : "in-progress"}
@@ -361,24 +465,142 @@ export default function ActiveLoadPage({
             <Clock3 aria-hidden="true" />
             <div>
               <Text variant="caption">Departure</Text>
-              <Text variant="data">04:30</Text>
+              <Text variant="data">{activeLoad?.departure ?? "—"}</Text>
             </div>
           </div>
           <div>
             <Route aria-hidden="true" />
             <div>
               <Text variant="caption">Route</Text>
-              <Text variant="body-strong">6 stops</Text>
+              <Text variant="body-strong">
+                {activeLoad?.stops != null
+                  ? `${activeLoad.stops} stop${activeLoad.stops === 1 ? "" : "s"}`
+                  : "—"}
+              </Text>
             </div>
           </div>
           <div>
             <Scale aria-hidden="true" />
             <div>
               <Text variant="caption">Load weight</Text>
-              <Text variant="data">1,260 kg</Text>
+              <Text variant="data">{activeLoad?.weight ?? "—"}</Text>
             </div>
           </div>
         </div>
+
+        {pendingPlanChanges.map((change) => {
+          const timeString = new Date(change.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+          return (
+            <div
+              key={change.changeId}
+              className="work-alert work-alert--offline"
+              role="alert"
+              aria-live="assertive"
+            >
+              <div className="work-alert__icon">
+                <AlertTriangle aria-hidden="true" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Text variant="body-strong">
+                  ⚠ PLAN CHANGED · {timeString}
+                </Text>
+                <Text variant="caption">
+                  {change.description}
+                </Text>
+                {change.reason && (
+                  <Text variant="caption">
+                    {change.type === "ORDER_DEFERRED" ? "Deferred" : change.type} — {change.reason}
+                  </Text>
+                )}
+              </div>
+              <Button
+                variant="primary"
+                disabled={isSubmittingWorkflow}
+                onClick={() => onAcknowledgePlanChange?.()}
+              >
+                {isSubmittingWorkflow ? "Acknowledging…" : "Acknowledge"}
+              </Button>
+            </div>
+          )
+        })}
+
+        {mutationError ? (
+          <div
+            className="work-alert work-alert--offline"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text variant="body-strong">Update failed</Text>
+              <Text variant="caption">{mutationError}</Text>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMutationError(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                color: "inherit",
+                textDecoration: "underline",
+                alignSelf: "center",
+                marginLeft: "auto"
+              }}
+            >
+              <Text variant="body-strong">Dismiss</Text>
+            </button>
+          </div>
+        ) : null}
+
+        {workflowError ? (
+          <div
+            className="work-alert work-alert--offline"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text variant="body-strong">Action failed</Text>
+              <Text variant="caption">{workflowError}</Text>
+            </div>
+            <button
+              type="button"
+              onClick={() => onClearWorkflowError?.()}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                color: "inherit",
+                textDecoration: "underline",
+                alignSelf: "center",
+                marginLeft: "auto"
+              }}
+            >
+              <Text variant="body-strong">Dismiss</Text>
+            </button>
+          </div>
+        ) : null}
+
+        {submittingIds.length > 0 ? (
+          <div
+            className="work-alert work-alert--refreshing"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="work-alert__icon">
+              <LoaderCircle className="icon-spin" aria-hidden="true" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text variant="body-strong">Saving changes…</Text>
+              <Text variant="caption">Updating load record.</Text>
+            </div>
+          </div>
+        ) : null}
 
         {connectivity !== "online" ? (
           <div
@@ -390,10 +612,8 @@ export default function ActiveLoadPage({
             <div className="work-alert__icon">
               {connectivity === "offline" ? (
                 <CloudOff aria-hidden="true" />
-              ) : connectivity === "syncing" ? (
-                <LoaderCircle className="icon-spin" aria-hidden="true" />
               ) : (
-                <CheckCircle2 aria-hidden="true" />
+                <LoaderCircle className="icon-spin" aria-hidden="true" />
               )}
             </div>
             <div>
@@ -402,7 +622,7 @@ export default function ActiveLoadPage({
               </Text>
               <Text variant="caption">
                 {connectivity === "offline"
-                  ? "You can keep loading. Updates will sync when the connection returns."
+                  ? "Offline — changes cannot be saved until the connection is restored."
                   : "Your loading record remains available while WayLink updates."}
               </Text>
             </div>
@@ -411,25 +631,15 @@ export default function ActiveLoadPage({
 
         {savedNotice ? (
           <div
-            className={`work-alert work-alert--${
-              savedNotice.pendingSync ? "offline" : "updated"
-            }`}
+            className="work-alert work-alert--updated"
             role="status"
             aria-live="polite"
           >
             <div className="work-alert__icon">
-              {savedNotice.pendingSync ? (
-                <AlertTriangle aria-hidden="true" />
-              ) : (
-                <CheckCircle2 aria-hidden="true" />
-              )}
+              <CheckCircle2 aria-hidden="true" />
             </div>
             <div>
-              <Text variant="body-strong">
-                {savedNotice.pendingSync
-                  ? "Offline · Saved on this device"
-                  : "Exception recorded"}
-              </Text>
+              <Text variant="body-strong">Exception recorded</Text>
               <Text variant="caption">{savedNotice.detail}</Text>
             </div>
           </div>
@@ -503,33 +713,46 @@ export default function ActiveLoadPage({
               </Text>
               <Text variant="body">Last stop → First stop</Text>
             </div>
-            <div className="sequence-track" aria-label="Stop sequence 6 to 1">
-              {[6, 5, 4, 3, 2, 1].map((stopNumber) => {
-                const stopData = stops.find((s) => s.stopNumber === stopNumber)
-                const isComplete =
-                  stopData?.items.every((i) => i.status !== "pending") ?? false
-                const currentSequenceStop =
-                  !globallyComplete && nextRequiredStopIndex !== -1
-                    ? stops[nextRequiredStopIndex].stopNumber
-                    : null
-                const isActive = stopNumber === currentSequenceStop
+            {(() => {
+              const sequenceNumbers = stops
+                .map((s) => s.stopNumber)
+                .sort((a, b) => b - a)
+              const first = sequenceNumbers[0] ?? 0
+              const last = sequenceNumbers[sequenceNumbers.length - 1] ?? 0
+              const ariaLabel =
+                sequenceNumbers.length > 0
+                  ? `Stop sequence ${first} to ${last}`
+                  : "Stop sequence"
+              const currentSequenceStop =
+                !globallyComplete && nextRequiredStopIndex !== -1
+                  ? stops[nextRequiredStopIndex].stopNumber
+                  : null
+              return (
+                <div className="sequence-track" aria-label={ariaLabel}>
+                  {sequenceNumbers.map((stopNumber) => {
+                    const stopData = stops.find((s) => s.stopNumber === stopNumber)
+                    const isComplete =
+                      stopData?.items.every((i) => i.status !== "pending") ?? false
+                    const isActive = stopNumber === currentSequenceStop
+                    return (
+                      <span
+                        className={
+                          isComplete
+                            ? "sequence-track__stop sequence-track__stop--completed"
+                            : isActive
+                            ? "sequence-track__stop sequence-track__stop--active"
+                            : "sequence-track__stop"
+                        }
+                        key={stopNumber}
+                      >
+                        {isComplete ? <Check aria-hidden="true" /> : stopNumber}
+                      </span>
+                    )
+                  })}
+                </div>
+              )
+            })()}
 
-                return (
-                  <span
-                    className={
-                      isComplete
-                        ? "sequence-track__stop sequence-track__stop--completed"
-                        : isActive
-                        ? "sequence-track__stop sequence-track__stop--active"
-                        : "sequence-track__stop"
-                    }
-                    key={stopNumber}
-                  >
-                    {isComplete ? <Check aria-hidden="true" /> : stopNumber}
-                  </span>
-                )
-              })}
-            </div>
           </Card>
         </div>
 
@@ -540,7 +763,12 @@ export default function ActiveLoadPage({
             </Text>
             <Text variant="body">Vehicle → Route → Stop → Order → Item</Text>
           </div>
-          <Text variant="data">6 → 5 → 4 → 3 → 2 → 1</Text>
+          <Text variant="data">
+            {stops
+              .map((s) => s.stopNumber)
+              .sort((a, b) => b - a)
+              .join(" → ")}
+          </Text>
         </div>
 
         {/* ── Stop card navigation ────────────────────────────────────── */}
@@ -594,12 +822,14 @@ export default function ActiveLoadPage({
       </div>
 
       {exceptionItem ? (
-        <ExceptionSheet
-          isOffline={connectivity === "offline"}
-          item={exceptionItem}
-          onClose={() => setExceptionItemId(null)}
-          onSave={saveException}
-        />
+        <div style={submittingIds.includes(exceptionItem.id) ? { opacity: 0.6, pointerEvents: "none" } : undefined}>
+          <ExceptionSheet
+            isOffline={connectivity === "offline"}
+            item={exceptionItem}
+            onClose={() => setExceptionItemId(null)}
+            onSave={saveException}
+          />
+        </div>
       ) : null}
     </LoaderShell>
   )

@@ -3,11 +3,19 @@
 import React from 'react';
 import { useStore } from '@/state/store';
 import { TopBar } from '@/shared/components/ui';
+import type { StopOutcome } from '@/shared/types';
 import { isDemoMode } from '@/shared/lib/demo';
 import { usePinVerification } from '../hooks/usePinVerification';
 import { PinHeader } from './PinHeader';
 import { PinBoxes } from './PinBoxes';
 import { CustomKeypad } from './CustomKeypad';
+
+const OUTCOME_CHOICES: Array<{ value: StopOutcome; label: string }> = [
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'partial', label: 'Partial' },
+  { value: 'refused', label: 'Refused' },
+  { value: 'closed', label: 'Closed' }
+];
 
 export const PinConfirmationScreen: React.FC = () => {
   const { selectedRoute, activeOutlet, showToast, pushScreen, track } = useStore();
@@ -21,10 +29,19 @@ export const PinConfirmationScreen: React.FC = () => {
     errorMessage,
     isRejected,
     isExpired,
+    outcome,
+    setOutcome,
+    needsPin,
+    hasIssues,
+    completeWithoutPin,
     handleDigitPress,
     handleDelete,
     handleBack
   } = usePinVerification();
+
+  const callManager = () => {
+    showToast(activeOutlet?.managerName ? `Calling ${activeOutlet.managerName}…` : "The store manager's number is not available in the app.");
+  };
 
   if (!activeOutlet || !selectedRoute) return null;
 
@@ -43,7 +60,7 @@ export const PinConfirmationScreen: React.FC = () => {
         <PinHeader
           outlet={activeOutlet}
           route={selectedRoute}
-          onCall={() => showToast(`Calling ${activeOutlet.managerName}…`)}
+          onCall={callManager}
         />
 
         {isRejected ? (
@@ -56,7 +73,7 @@ export const PinConfirmationScreen: React.FC = () => {
                 Not approved
               </h2>
               <p className="text-[15px] text-secondary mt-1.5 leading-snug">
-                {activeOutlet.confirmation.rejectionReason || '2 items reported damaged'}
+                {activeOutlet.confirmation.rejectionReason || 'The store did not approve this delivery.'}
               </p>
               <button
                 type="button"
@@ -70,7 +87,7 @@ export const PinConfirmationScreen: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => showToast(`Calling ${activeOutlet.managerName}…`)}
+                onClick={callManager}
                 className="text-[15px] text-action font-medium mt-3.5 py-1 hover:opacity-80 active:opacity-60 transition-opacity cursor-pointer"
               >
                 Call store manager
@@ -115,7 +132,46 @@ export const PinConfirmationScreen: React.FC = () => {
                 </div>
               )}
 
-              <PinBoxes pin={pin} isWrong={isWrong} />
+              <div role="radiogroup" aria-label="How did this stop end?" className="w-full flex flex-wrap justify-center gap-2 mb-3">
+                {OUTCOME_CHOICES.map((choice) => {
+                  const selected = outcome === choice.value;
+                  const blocked = choice.value === 'delivered' && hasIssues;
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setOutcome(choice.value)}
+                      className={`h-9 px-3.5 rounded-full text-[14px] font-semibold border transition-colors cursor-pointer ${
+                        selected ? 'bg-action text-white border-action' : 'bg-surface text-black dark:text-white border-hairline'
+                      } ${blocked ? 'opacity-40' : ''}`}
+                    >
+                      {choice.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {!needsPin ? (
+                <div className="w-full px-2 py-3 text-center flex flex-col items-center gap-3">
+                  <p className="text-[15px] text-secondary leading-snug">
+                    {outcome === 'closed' ? 'The store is closed.' : 'The store refused the delivery.'} No PIN is needed.
+                    Nothing is delivered and every item is recorded as not delivered.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={completeWithoutPin}
+                    disabled={isVerifying}
+                    className="w-full h-[52px] rounded-xl bg-action text-white text-[16px] font-semibold cursor-pointer hover:opacity-95 active:scale-[0.99] transition-all disabled:opacity-50"
+                  >
+                    {isVerifying ? 'Saving…' : `Complete stop as ${outcome === 'closed' ? 'closed' : 'refused'}`}
+                  </button>
+                  {errorMessage ? <p className="text-[14px] text-critical">{errorMessage}</p> : null}
+                </div>
+              ) : (
+                <PinBoxes pin={pin} isWrong={isWrong} />
+              )}
 
               <div className="w-full h-10 flex items-center justify-center text-center px-4 mt-2">
                 {isVerifying ? (
@@ -132,11 +188,13 @@ export const PinConfirmationScreen: React.FC = () => {
               </div>
             </div>
 
-            <CustomKeypad
-              isDisabled={isVerifying || isLocked}
-              onDigitPress={handleDigitPress}
-              onDelete={handleDelete}
-            />
+            {needsPin ? (
+              <CustomKeypad
+                isDisabled={isVerifying || isLocked}
+                onDigitPress={handleDigitPress}
+                onDelete={handleDelete}
+              />
+            ) : null}
           </div>
         )}
       </div>

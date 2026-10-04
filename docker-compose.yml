@@ -1,0 +1,125 @@
+name: waylink
+
+x-frontend-build: &frontend-build
+  context: .
+  dockerfile: docker/frontend.Dockerfile
+
+x-frontend-health: &frontend-health
+  interval: 10s
+  timeout: 3s
+  retries: 10
+
+services:
+  mongo:
+    image: mongo:8.0.14
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mongo-init:
+    image: mongo:8.0.14
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mongosh --host mongo:27017 --quiet --eval "try { rs.status() } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }"
+        until mongosh --host mongo:27017 --quiet --eval "quit(db.hello().isWritablePrimary ? 0 : 1)"; do sleep 1; done
+
+  seed:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://mongo:27017/waylink?replicaSet=rs0
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me-now}
+      REFERENCE_DATA_DIR: /reference-data
+      CSC_PRODUCTS_FILE: ${CSC_PRODUCTS_FILE:-/csc/products.demo.csv}
+      ALLOW_DEMO_PRODUCTS: ${ALLOW_DEMO_PRODUCTS:-false}
+      SEED_DEMO_SCENARIO: ${SEED_DEMO_SCENARIO:-true}
+    command: ["node", "dist/database/seed/index.js"]
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/waylink?replicaSet=rs0
+      JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me-now}
+      # District travel times and service allowances for the route-suggestion engine are read from here.
+      REFERENCE_DATA_DIR: /reference-data
+      # Development phase: relaxes the order-date and Fresh-deadline rules for testing. Set DEV_MODE=false
+      # (the code default) for production, where it is also refused at startup.
+      DEV_MODE: ${DEV_MODE:-true}
+      LOGIN_ORIGIN: http://localhost:5173
+      DISPATCHER_ORIGIN: http://localhost:5174
+      LOADER_ORIGIN: http://localhost:5175
+      DRIVER_ORIGIN: http://localhost:5176
+      STORE_MANAGER_ORIGIN: http://localhost:5177
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  login-web:
+    build:
+      <<: *frontend-build
+      args: { APP_DIR: Login, VITE_API_BASE_URL: http://localhost:3000, VITE_USE_MOCK_AUTH: "false" }
+    ports: ["5173:8080"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
+
+  dispatcher-web:
+    build:
+      <<: *frontend-build
+      args: { APP_DIR: dispatcher, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+    ports: ["5174:8080"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
+
+  loader-web:
+    build:
+      <<: *frontend-build
+      args: { APP_DIR: loader, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+    ports: ["5175:8080"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
+
+  driver-web:
+    build:
+      <<: *frontend-build
+      args: { APP_DIR: delivery-driver, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+    ports: ["5176:8080"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
+
+  store-manager-web:
+    build:
+      <<: *frontend-build
+      args: { APP_DIR: Store-Manager, VITE_API_BASE_URL: http://localhost:3000, VITE_LOGIN_ORIGIN: http://localhost:5173 }
+    ports: ["5177:8080"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"], <<: *frontend-health }
+
+volumes:
+  mongo-data:

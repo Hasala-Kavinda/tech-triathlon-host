@@ -20,6 +20,7 @@ export const MapNavigationScreen: React.FC = () => {
     setSelectedMapOutletId,
     upNextOutlet,
     allOutletsCompleted,
+    whyOutletLocked,
     pushScreen,
     popScreen,
     replaceScreen,
@@ -153,7 +154,12 @@ export const MapNavigationScreen: React.FC = () => {
   const handleDirections = (e: React.MouseEvent) => {
     e.stopPropagation();
     track('N04');
-    if (currentMapOutlet.lat != null && currentMapOutlet.lng != null) {
+    // The server gives the Driver no coordinates for a store, so there may be nothing to navigate to.
+    if (currentMapOutlet.lat == null || currentMapOutlet.lng == null || (currentMapOutlet.lat === 0 && currentMapOutlet.lng === 0)) {
+      showToast('No map location is available for this store.');
+      return;
+    }
+    {
       const url = `https://www.google.com/maps/dir/?api=1&destination=${currentMapOutlet.lat},${currentMapOutlet.lng}&travelmode=driving`;
       window.open(url, '_blank', 'noopener,noreferrer');
     }
@@ -161,6 +167,11 @@ export const MapNavigationScreen: React.FC = () => {
 
   const handleOpenOutlet = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const locked = whyOutletLocked(currentMapOutlet.id);
+    if (locked) {
+      showToast(locked);
+      return;
+    }
     setActiveOutletId(currentMapOutlet.id);
     setReturnTo('map');
     track('N05');

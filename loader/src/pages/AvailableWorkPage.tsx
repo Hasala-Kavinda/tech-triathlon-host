@@ -7,44 +7,50 @@ import {
   RefreshCw,
   Truck,
 } from "lucide-react"
-import { useState } from "react"
-import {
-  Button,
-  Card,
-  LoaderShell,
-  PageHeader,
-  StatusPill,
-  Text,
-  WorkCard,
-} from "../components/loader-ui"
-import type { LoadCase } from "../data/mock-data"
+import { useEffect, useRef, useState } from "react"
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { LoaderShell } from "../components/layout/LoaderShell";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatusPill } from "../components/ui/StatusPill";
+import { Text } from "../components/ui/Text";
+import { WorkCard } from "../components/load/WorkCard"
+import type { LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
-import { loadApi } from "../api/loads"
-
-// Prototype URL overrides
-const requestedView = new URLSearchParams(window.location.search).get("view")
-const forceOffline = requestedView === "offline"
-const forceEmpty = requestedView === "empty"
+import type { JobsStatus } from "../App"
 
 type RefreshStatus = "idle" | "refreshing" | "updated"
 
 interface AvailableWorkPageProps {
   loadCases: LoadCase[]
-  setLoadCases: React.Dispatch<React.SetStateAction<LoadCase[]>>
-  onOpenLoad: (vehicle: string) => void
+  status: JobsStatus
+  /** Why the list could not be loaded (when status is "error"). */
+  error: string
+  /** A problem with the last claim or open, for example another loader claimed the job first. */
+  actionError: string
+  /** The trip being opened right now, if any. */
+  opening: string | null
+  onRefresh: () => Promise<void>
+  onClaim: (loadCase: LoadCase) => Promise<void>
+  onOpenLoad: (tripId: string) => void
 }
 
-export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad }: AvailableWorkPageProps) {
-  const [connectivity] = useConnectivity(forceOffline ? "offline" : null)
+export default function AvailableWorkPage({ loadCases, status, error, actionError, opening, onRefresh, onClaim, onOpenLoad }: AvailableWorkPageProps) {
+  const [connectivity] = useConnectivity()
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>("idle")
+  const refreshTimerRef = useRef<number | null>(null)
+
+  // Clear the refresh-status reset timer on unmount to prevent setState on an
+  // unmounted component if the user opens a load during the 2.2s badge window.
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
+  }, [])
 
   const isOnline = connectivity === "online"
 
-  const visibleCases = forceEmpty ? [] : [...loadCases].sort((a, b) => {
-    if (a.priority === "urgent" && b.priority === "normal") return -1;
-    if (a.priority === "normal" && b.priority === "urgent") return 1;
-    return 0;
-  });
+  const visibleCases = loadCases
   const availableCount = visibleCases.filter(
     (loadCase) => loadCase.state === "available",
   ).length
@@ -52,49 +58,23 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
     (loadCase) => loadCase.state === "claimed",
   ).length
 
-  function handleRefresh() {
+  async function handleRefresh() {
     if (!isOnline || refreshStatus === "refreshing") return
 
     setRefreshStatus("refreshing")
-    window.setTimeout(() => {
-      setRefreshStatus("updated")
-      window.setTimeout(() => setRefreshStatus("idle"), 2200)
-    }, 850)
+    await onRefresh()
+    setRefreshStatus("updated")
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = window.setTimeout(() => {
+      setRefreshStatus("idle")
+      refreshTimerRef.current = null
+    }, 2200)
   }
 
   function handleClaim(loadCase: LoadCase) {
     if (!isOnline) return
     if (!window.confirm("Are you sure you really need to claim this load?")) return
-
-    const vehicle = loadCase.vehicle
-
-    setLoadCases((current) =>
-      current.map((loadCase) =>
-        loadCase.vehicle === vehicle
-          ? { ...loadCase, state: "claiming" }
-          : loadCase,
-      ),
-    )
-
-    if (loadCase.tripId && loadCase.version !== undefined) {
-      void loadApi.claim(loadCase.tripId, loadCase.version).then((record) => {
-        setLoadCases((current) => current.map((item) => item.tripId === loadCase.tripId ? { ...item, state: "claimed", version: record.version } : item))
-      }).catch((error) => {
-        console.error("Load claim failed", error)
-        setLoadCases((current) => current.map((item) => item.tripId === loadCase.tripId ? { ...item, state: "unavailable" } : item))
-      })
-      return
-    }
-
-    window.setTimeout(() => {
-      setLoadCases((current) =>
-        current.map((loadCase) =>
-          loadCase.vehicle === vehicle
-            ? { ...loadCase, state: "claimed" }
-            : loadCase,
-        ),
-      )
-    }, 650)
+    void onClaim(loadCase)
   }
 
   const refreshLabel =
@@ -107,7 +87,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
     >
       <div className="available-work-page">
         <PageHeader
-          eyebrow="Outbound loading · Bay 03"
+          eyebrow="Outbound loading"
           title="Available Work"
           subtitle="Select a loading job to assign yourself."
           aside={
@@ -115,7 +95,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
               variant="secondary"
               icon={RefreshCw}
               disabled={!isOnline || refreshStatus === "refreshing"}
-              onClick={handleRefresh}
+              onClick={() => void handleRefresh()}
             >
               {refreshLabel}
             </Button>
@@ -129,7 +109,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
             </div>
             <div>
               <Text variant="body-strong">
-                Offline · Changes saved on device
+                Offline
               </Text>
               <Text variant="body">
                 Work list may be out of date. Reconnect before claiming a load.
@@ -157,9 +137,36 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
               </Text>
               <Text variant="caption">
                 {refreshStatus === "refreshing"
-                  ? "Checking Bay 03 for the latest assignments."
+                  ? "Checking your depot for the latest assignments."
                   : "Available cases are up to date."}
               </Text>
+            </div>
+          </div>
+        ) : null}
+
+        {status === "error" ? (
+          <div className="work-alert work-alert--offline" role="alert">
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div>
+              <Text variant="body-strong">The load jobs could not be loaded</Text>
+              <Text variant="body">{error}</Text>
+            </div>
+            <Button variant="secondary" icon={RefreshCw} onClick={() => void handleRefresh()}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+
+        {actionError ? (
+          <div className="work-alert work-alert--offline" role="alert">
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div>
+              <Text variant="body-strong">That did not go through</Text>
+              <Text variant="body">{actionError}</Text>
             </div>
           </div>
         ) : null}
@@ -170,18 +177,14 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
           </div>
           <div className="work-summary__copy">
             <Text variant="label">
-              {isOnline ? "Available load cases" : "Cached load cases"}
+              Available load cases
             </Text>
             <div className="work-summary__count">
               <Text variant="data">{availableCount}</Text>
               <Text variant="body">
-                {!isOnline
-                  ? availableCount === 1
-                    ? "cached case shown"
-                    : "cached cases shown"
-                  : availableCount === 1
-                    ? "case ready to claim"
-                    : "cases ready to claim"}
+                {availableCount === 1
+                  ? "case ready to claim"
+                  : "cases ready to claim"}
               </Text>
             </div>
           </div>
@@ -195,7 +198,16 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
           )}
         </div>
 
-        {visibleCases.length === 0 ? (
+        {status === "loading" && visibleCases.length === 0 ? (
+          <Card className="empty-work-state">
+            <div className="empty-work-state__icon">
+              <LoaderCircle className="icon-spin" aria-hidden="true" />
+            </div>
+            <div className="empty-work-state__copy">
+              <Text as="h2" variant="h2">Loading load jobs…</Text>
+            </div>
+          </Card>
+        ) : status === "error" && visibleCases.length === 0 ? null : visibleCases.length === 0 ? (
           <Card className="empty-work-state">
             <div className="empty-work-state__icon">
               <Inbox aria-hidden="true" />
@@ -213,7 +225,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
               variant="secondary"
               icon={RefreshCw}
               disabled={!isOnline || refreshStatus === "refreshing"}
-              onClick={handleRefresh}
+              onClick={() => void handleRefresh()}
             >
               {refreshLabel}
             </Button>
@@ -227,9 +239,9 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
           >
             {visibleCases.map((loadCase) => (
               <WorkCard
-                key={loadCase.vehicle}
+                key={loadCase.tripId}
                 {...loadCase}
-                disabled={!isOnline || refreshStatus === "refreshing"}
+                disabled={!isOnline || refreshStatus === "refreshing" || opening !== null}
                 disabledReason={
                   !isOnline
                     ? "Reconnect to claim this load."
@@ -238,7 +250,7 @@ export default function AvailableWorkPage({ loadCases, setLoadCases, onOpenLoad 
                       : undefined
                 }
                 onClaim={() => handleClaim(loadCase)}
-                onOpen={() => onOpenLoad(loadCase.vehicle)}
+                onOpen={() => onOpenLoad(loadCase.tripId)}
               />
             ))}
           </section>

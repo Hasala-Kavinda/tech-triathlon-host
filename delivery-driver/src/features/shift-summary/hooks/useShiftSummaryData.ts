@@ -1,33 +1,33 @@
-// src/features/shift-summary/hooks/useShiftSummaryData.ts - Hook computing metrics and animation steps for ShiftSummary
+// src/features/shift-summary/hooks/useShiftSummaryData.ts - Real figures for the finished route
 
 import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '@/state/store';
 import { SyncState } from '@/shared/components/ui';
+import type { OutletSummaryItem } from '@/shared/components/ui';
+import type { Outlet, StopOutcome } from '@/shared/types';
 
-export const CANONICAL_ROUTE_2_OUTLETS = [
-  { id: 'out-r2-1', city: 'Kandy', itemCount: 14, status: 'completed' as const, completedAt: '05:48', syncStatus: 'synced' as const, visitOrder: 1 },
-  { id: 'out-r2-2', city: 'Peradeniya', itemCount: 10, status: 'completed' as const, completedAt: '06:15', syncStatus: 'synced' as const, visitOrder: 2 },
-  { id: 'out-r2-3', city: 'Gampola', itemCount: 11, status: 'completed' as const, completedAt: '06:45', syncStatus: 'synced' as const, visitOrder: 3 },
-  { id: 'out-r2-4', city: 'Katugastota', itemCount: 8, status: 'completed' as const, completedAt: '07:20', syncStatus: 'synced' as const, visitOrder: 4 },
-  { id: 'out-r2-5', city: 'Kadugannawa', itemCount: 9, status: 'completed' as const, completedAt: '07:55', syncStatus: 'synced' as const, visitOrder: 5 },
-  { id: 'out-r2-6', city: 'Nawalapitiya', itemCount: 12, status: 'completed' as const, completedAt: '08:30', syncStatus: 'synced' as const, visitOrder: 6 },
-  { id: 'out-r2-7', city: 'Pilimatalawa', itemCount: 7, status: 'completed' as const, completedAt: '09:05', syncStatus: 'synced' as const, visitOrder: 7 },
-  { id: 'out-r2-8', city: 'Ampitiya', itemCount: 9, status: 'completed' as const, completedAt: '09:35', syncStatus: 'synced' as const, visitOrder: 8 },
-  { id: 'out-r2-9', city: 'Digana', itemCount: 8, status: 'completed' as const, completedAt: '10:05', syncStatus: 'synced' as const, visitOrder: 9 },
-  { id: 'out-r2-10', city: 'Akurana', itemCount: 10, status: 'completed' as const, completedAt: '10:28', syncStatus: 'synced' as const, visitOrder: 10 },
-  { id: 'out-r2-11', city: 'Wattegama', itemCount: 6, status: 'completed' as const, completedAt: '10:50', syncStatus: 'synced' as const, visitOrder: 11 },
-  { id: 'out-r2-12', city: 'Teldeniya', itemCount: 8, status: 'completed' as const, completedAt: '11:08', syncStatus: 'pending' as const, visitOrder: 12 },
-  { id: 'out-r2-13', city: 'Kundasale', itemCount: 7, status: 'completed' as const, completedAt: '11:22', syncStatus: 'pending' as const, visitOrder: 13 },
-  { id: 'out-r2-14', city: 'Mawanella', itemCount: 7, status: 'completed' as const, completedAt: '11:32', syncStatus: 'synced' as const, visitOrder: 14 }
-];
+/** Units actually handed over at a stop: nothing for a refused or closed stop. */
+function deliveredUnits(outlet: Outlet) {
+  if (outlet.outcome === 'refused' || outlet.outcome === 'closed' || outlet.outcome === 'failed') return 0;
+  return outlet.products.reduce((sum, product) => sum + Math.max(0, Number(product.quantity) - (product.short ?? 0) - (product.damaged ?? 0)), 0);
+}
+
+function duration(startIso?: string, endIso?: string) {
+  if (!startIso || !endIso) return '—';
+  const minutes = Math.max(0, Math.round((Date.parse(endIso) - Date.parse(startIso)) / 60_000));
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+const OUTCOME_ORDER: StopOutcome[] = ['delivered', 'partial', 'refused', 'closed', 'failed'];
+const OUTCOME_WORDS: Record<StopOutcome, string> = { delivered: 'delivered', partial: 'partial', refused: 'refused', closed: 'closed', failed: 'failed' };
 
 export function useShiftSummaryData() {
   const {
-    selectedRoute,
     routes,
     selectedRouteId,
     selectRoute,
     syncPendingOutlets,
+    refreshRoute,
     isSyncing,
     conditions,
     track
@@ -35,33 +35,46 @@ export function useShiftSummaryData() {
 
   const [animationStep, setAnimationStep] = useState(0);
 
-  const finishedRoute = useMemo(() => {
-    const r2 = routes.find((r) => r.id === 2 || r.routeNumber === 2);
-    if (r2) return r2;
-    if (selectedRoute) return selectedRoute;
-    return routes[0];
-  }, [routes, selectedRoute]);
+  // The route that was just finished: fixed when the screen opens (the selection is cleared below).
+  const [finishedRouteId] = useState<number | null>(() => {
+    const chosen = routes.find((route) => route.id === selectedRouteId);
+    const lastCompleted = [...routes].reverse().find((route) => route.status === 'completed');
+    return (chosen ?? lastCompleted ?? routes[0])?.id ?? null;
+  });
+  const finishedRoute = useMemo(() => routes.find((route) => route.id === finishedRouteId), [routes, finishedRouteId]);
 
-  const outlets = useMemo(() => {
-    if (!finishedRoute || !finishedRoute.outlets || finishedRoute.outlets.length < 5) {
-      return CANONICAL_ROUTE_2_OUTLETS;
-    }
-    return finishedRoute.outlets.map((o, idx) => ({
-      ...o,
-      completedAt: o.completedAt || CANONICAL_ROUTE_2_OUTLETS[idx]?.completedAt || '11:00',
-      itemCount: CANONICAL_ROUTE_2_OUTLETS[idx]?.itemCount || o.itemCount || 9,
-      syncStatus: (o.syncStatus || (o.city === 'Teldeniya' || o.city === 'Kundasale' ? 'pending' : 'synced')) as 'synced' | 'pending'
+  const outlets = useMemo<OutletSummaryItem[]>(() => {
+    return (finishedRoute?.outlets ?? []).map((outlet) => ({
+      id: outlet.id,
+      city: outlet.city,
+      itemCount: deliveredUnits(outlet),
+      status: outlet.status,
+      ...(outlet.completedAt ? { completedAt: outlet.completedAt } : {}),
+      syncStatus: outlet.syncStatus,
+      visitOrder: outlet.visitOrder,
+      ...(outlet.outcome ? { outcome: outlet.outcome } : {}),
+      ...(outlet.timingResult ? { timingResult: outlet.timingResult } : {})
     }));
   }, [finishedRoute]);
 
-  const pendingCount = useMemo(() => {
-    return outlets.filter((o) => o.syncStatus === 'pending').length;
+  const pendingCount = useMemo(() => outlets.filter((o) => o.syncStatus === 'pending').length, [outlets]);
+
+  const totalItems = useMemo(() => outlets.reduce((acc, o) => acc + (o.itemCount || 0), 0), [outlets]);
+
+  // "3 delivered · 1 partial · 1 refused · 4 on time · 1 late", from what the server recorded.
+  const outcomeSummary = useMemo(() => {
+    const parts = OUTCOME_ORDER
+      .map((outcome) => ({ outcome, count: outlets.filter((o) => o.outcome === outcome).length }))
+      .filter((entry) => entry.count > 0)
+      .map((entry) => `${entry.count} ${OUTCOME_WORDS[entry.outcome]}`);
+    const onTime = outlets.filter((o) => o.timingResult === 'on_time').length;
+    const late = outlets.filter((o) => o.timingResult === 'late').length;
+    if (onTime) parts.push(`${onTime} on time`);
+    if (late) parts.push(`${late} late`);
+    return parts.join(' · ');
   }, [outlets]);
 
-  const totalItems = useMemo(() => {
-    const sum = outlets.reduce((acc, o) => acc + (o.itemCount || 0), 0);
-    return sum === 126 || sum === 124 ? 126 : sum;
-  }, [outlets]);
+  const totalTime = useMemo(() => duration(finishedRoute?.startedAtIso, finishedRoute?.finishedAtIso), [finishedRoute]);
 
   const otherRoutesRemain = useMemo(() => {
     const incompleteRoutes = routes.filter(
@@ -72,16 +85,16 @@ export function useShiftSummaryData() {
 
   useEffect(() => {
     track('S01');
-
-    if (finishedRoute && finishedRoute.status !== 'completed') {
-      finishedRoute.status = 'completed';
-      finishedRoute.finishedAt = finishedRoute.finishedAt || '11:48';
-    }
-
     if (selectedRouteId !== null) {
       selectRoute(null);
     }
-  }, [finishedRoute, selectedRouteId, selectRoute, track]);
+    // Pick up the server's outcome and on-time/late result for each stop.
+    if (finishedRoute?.apiId && navigator.onLine) {
+      void refreshRoute(finishedRoute.id).catch((error) => console.error('Summary refresh failed', error));
+    }
+    // Runs once when the summary opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const isReduced =
@@ -110,7 +123,7 @@ export function useShiftSummaryData() {
 
   const handleSyncNow = () => {
     track('S03');
-    syncPendingOutlets();
+    void syncPendingOutlets();
   };
 
   return {
@@ -118,6 +131,8 @@ export function useShiftSummaryData() {
     outlets,
     pendingCount,
     totalItems,
+    totalTime,
+    outcomeSummary,
     otherRoutesRemain,
     animationStep,
     syncStatus,

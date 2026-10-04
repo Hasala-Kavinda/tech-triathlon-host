@@ -11,7 +11,17 @@ export interface OutletSummaryItem {
   completedAt?: string;
   syncStatus?: 'synced' | 'pending';
   visitOrder?: number;
+  outcome?: 'delivered' | 'partial' | 'refused' | 'closed' | 'failed';
+  timingResult?: 'on_time' | 'late';
 }
+
+const OUTCOME_LABEL: Record<string, string> = {
+  delivered: 'Delivered',
+  partial: 'Partial delivery',
+  refused: 'Refused',
+  closed: 'Store closed',
+  failed: 'Not delivered'
+};
 
 export interface OutletSummaryListProps {
   outlets: (Outlet | OutletSummaryItem)[];
@@ -48,7 +58,9 @@ export const OutletSummaryList: React.FC<OutletSummaryListProps> = ({
       <div className="divide-y divide-hairline border-t border-hairline transition-all duration-200">
         {displayedOutlets.map((outlet, index) => {
           const isPendingSync = outlet.syncStatus === 'pending';
-          const completionTime = outlet.completedAt || '06:52';
+          const completionTime = outlet.completedAt || '—';
+          const outcomeLabel = outlet.outcome ? OUTCOME_LABEL[outlet.outcome] ?? 'Completed' : 'Completed';
+          const timing = outlet.timingResult === 'late' ? ' · Late' : outlet.timingResult === 'on_time' ? ' · On time' : '';
 
           return (
             <div
@@ -69,7 +81,7 @@ export const OutletSummaryList: React.FC<OutletSummaryListProps> = ({
                     aria-hidden="true"
                   />
                   <span className="text-[13px] text-secondary font-normal leading-none">
-                    {isPendingSync ? 'Waiting to sync' : 'Delivered'}
+                    {isPendingSync ? 'Waiting to sync' : `${outcomeLabel}${timing}`}
                   </span>
                 </div>
               </div>
