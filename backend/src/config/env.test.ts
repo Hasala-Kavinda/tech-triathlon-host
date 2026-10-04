@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { loadConfig } from "./env.js"
+import { assertFileProviderConfigured, loadConfig } from "./env.js"
 
 describe("environment configuration", () => {
   it("builds exact role and CORS origins", () => {
@@ -64,5 +64,35 @@ describe("environment configuration", () => {
   it("rejects invalid configuration types", () => {
     expect(() => loadConfig({ NODE_ENV: "test", PORT: "not-a-number" })).toThrow("Invalid environment configuration")
     expect(() => loadConfig({ NODE_ENV: "test", LOGIN_ORIGIN: "invalid-url" })).toThrow("Invalid environment configuration")
+  })
+})
+
+describe("assertFileProviderConfigured (startup check for photo uploads)", () => {
+  const ok = { CLOUDINARY_CLOUD_NAME: "demo-cloud", CLOUDINARY_API_KEY: "123456789012345", CLOUDINARY_API_SECRET: "abcDEF_secret-value" }
+
+  it("passes when all three values are real", () => {
+    expect(() => assertFileProviderConfigured(ok)).not.toThrow()
+  })
+
+  it("names every variable that is not set", () => {
+    expect(() => assertFileProviderConfigured({})).toThrow(/CLOUDINARY_CLOUD_NAME is not set; CLOUDINARY_API_KEY is not set; CLOUDINARY_API_SECRET is not set/)
+  })
+
+  it("rejects empty and whitespace-only values (what docker compose passes when .env is missing)", () => {
+    expect(() => assertFileProviderConfigured({ ...ok, CLOUDINARY_API_KEY: "" })).toThrow(/CLOUDINARY_API_KEY is empty/)
+    expect(() => assertFileProviderConfigured({ ...ok, CLOUDINARY_API_SECRET: "   " })).toThrow(/CLOUDINARY_API_SECRET is empty/)
+  })
+
+  it("rejects the .env.example placeholders", () => {
+    expect(() => assertFileProviderConfigured({ CLOUDINARY_CLOUD_NAME: "your-cloud-name-here", CLOUDINARY_API_KEY: "your-api-key-here", CLOUDINARY_API_SECRET: "your-api-secret-here" }))
+      .toThrow(/CLOUDINARY_CLOUD_NAME still has a placeholder value[\s\S]*CLOUDINARY_API_KEY still has a placeholder[\s\S]*CLOUDINARY_API_SECRET still has a placeholder/)
+  })
+
+  it("a half-set configuration fails and says which part is missing", () => {
+    expect(() => assertFileProviderConfigured({ CLOUDINARY_CLOUD_NAME: "demo-cloud" })).toThrow(/CLOUDINARY_API_KEY is not set; CLOUDINARY_API_SECRET is not set/)
+  })
+
+  it("tells the developer how to fix it", () => {
+    expect(() => assertFileProviderConfigured({})).toThrow(/backend\/\.env\.example.*Cloudinary dashboard/s)
   })
 })

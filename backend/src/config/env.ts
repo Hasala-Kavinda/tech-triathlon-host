@@ -77,3 +77,29 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
       : undefined,
   }
 }
+
+const CLOUDINARY_VARIABLES = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"] as const
+const PLACEHOLDER = /^(your[-_]|replace[-_]|change[-_]?me|<.*>$|xxx)/i
+
+/**
+ * Photo uploads (Driver meter photos, receipt evidence) need Cloudinary. Called once at API startup so a
+ * missing, empty, placeholder or half-set configuration stops the server immediately, with the exact
+ * variables named, instead of failing later when a Driver reaches the meter-photo screen. It reads the raw
+ * environment (not AppConfig) so it can say which variable is wrong; it is deliberately NOT part of
+ * `loadConfig`, so the seed job, migrations and unit tests that never upload photos are unaffected.
+ */
+export function assertFileProviderConfigured(input: NodeJS.ProcessEnv = process.env) {
+  const problems: string[] = []
+  for (const name of CLOUDINARY_VARIABLES) {
+    const value = input[name]?.trim()
+    if (!value) problems.push(`${name} is ${input[name] === undefined ? "not set" : "empty"}`)
+    else if (PLACEHOLDER.test(value)) problems.push(`${name} still has a placeholder value ("${value}")`)
+  }
+  if (problems.length) {
+    throw new Error(
+      `Image uploads are not configured: ${problems.join("; ")}. ` +
+      "Copy backend/.env.example to backend/.env (and the three CLOUDINARY_* lines into the repo-root .env for docker compose) " +
+      "and fill in the values from the Cloudinary dashboard (Settings -> API Keys). Restart the API afterwards.",
+    )
+  }
+}
