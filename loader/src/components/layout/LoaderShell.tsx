@@ -5,6 +5,7 @@ import { Text } from "../ui/Text";
 import { WayLinkMark } from "../ui/WayLinkMark";
 import { ConnectivityIndicator } from "./ConnectivityIndicator";
 import { LoaderIdentity } from "./LoaderIdentity";
+import { readSession } from "../../auth/session";
 
 export function LoaderShell({
   bottomActions,
@@ -17,6 +18,9 @@ export function LoaderShell({
   connectivity: ConnectivityState
   connectivityDetail?: string
 }) {
+  const session = readSession();
+  const depot = session?.user?.depot || "Depot unavailable";
+
   return (
     <div className="loader-shell">
       <header className="app-header">
@@ -27,7 +31,7 @@ export function LoaderShell({
           <div className="app-header__location">
             <Warehouse aria-hidden="true" />
             <Text as="span" variant="label">
-              Warehouse - Peliyagoda
+              {depot}
             </Text>
           </div>
           <div className="app-header__tools">
