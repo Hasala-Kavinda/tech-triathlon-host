@@ -10,6 +10,20 @@ const loadExceptionSchema = new Schema(
   { _id: false },
 )
 
+const planChangeSchema = new Schema(
+  {
+    changeId: { type: String, required: true },
+    type: { type: String, enum: ["ORDER_DEFERRED"], required: true },
+    orderId: { type: Schema.Types.ObjectId, required: true },
+    description: { type: String, required: true },
+    reason: { type: String },
+    createdAt: { type: Date, required: true, default: Date.now },
+    acknowledgedAt: { type: Date },
+    acknowledgedBy: { type: Schema.Types.ObjectId },
+  },
+  { _id: false },
+)
+
 const loadItemSchema = new Schema(
   {
     itemId: { type: String, required: true },
@@ -38,6 +52,7 @@ const loadRecordSchema = new Schema(
     loadingStartedAt: Date,
     confirmedAt: Date,
     items: { type: [loadItemSchema], default: [] },
+    planChanges: { type: [planChangeSchema], default: [] },
   },
   baseSchemaOptions,
 )

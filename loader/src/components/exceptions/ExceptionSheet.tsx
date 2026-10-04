@@ -27,8 +27,8 @@ export function ExceptionSheet({
   const [type, setType] = useState<ExceptionType | null>(
     item.exception?.type ?? null,
   )
-  const [affectedQuantity, setAffectedQuantity] = useState(
-    item.exception?.affectedQuantity ?? 1,
+  const [affectedQuantityStr, setAffectedQuantityStr] = useState<string>(
+    String(item.exception?.affectedQuantity ?? expected.amount),
   )
   const [reason, setReason] = useState(item.exception?.reason ?? "")
   const [note, setNote] = useState(item.exception?.note ?? "")
@@ -60,10 +60,15 @@ export function ExceptionSheet({
   }, [])
 
   const reasons = type === "missing" ? missingReasons : damagedReasons
-  const remaining = Math.max(expected.amount - affectedQuantity, 0)
-  const quantityIsValid =
-    affectedQuantity > 0 && affectedQuantity <= expected.amount
-  const canSave = Boolean(type && reason && quantityIsValid)
+  const parsedQuantity = Number(affectedQuantityStr)
+  const isQuantityValid =
+    !isNaN(parsedQuantity) &&
+    Number.isInteger(parsedQuantity) &&
+    parsedQuantity > 0 &&
+    parsedQuantity <= expected.amount
+
+  const remaining = Math.max(expected.amount - (isNaN(parsedQuantity) ? 0 : parsedQuantity), 0)
+  const canSave = Boolean(type && reason && isQuantityValid)
 
   function selectType(nextType: ExceptionType) {
     setType(nextType)
@@ -72,10 +77,12 @@ export function ExceptionSheet({
   }
 
   function changeQuantity(delta: number) {
-    const nextValue = affectedQuantity + delta
-    if (nextValue < 1) {
+    const current = Number(affectedQuantityStr)
+    const val = (isNaN(current) || !Number.isInteger(current)) ? 0 : current
+    const nextValue = val + delta
+    if (nextValue <= 0) {
       setQuantityError(
-        `Quantity must be at least 1 ${expected.unit.replace(/s$/, "")}.`,
+        `Quantity must be greater than 0.`,
       )
       return
     }
@@ -85,16 +92,28 @@ export function ExceptionSheet({
       )
       return
     }
-    setAffectedQuantity(nextValue)
+    setAffectedQuantityStr(String(nextValue))
     setQuantityError(null)
+  }
+
+  function handleQuantityInput(value: string) {
+    setAffectedQuantityStr(value)
+    const parsed = Number(value)
+    if (isNaN(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+      setQuantityError(`Quantity must be a positive integer.`)
+    } else if (parsed > expected.amount) {
+      setQuantityError(`Quantity cannot exceed ${expected.amount} ${expected.unit}.`)
+    } else {
+      setQuantityError(null)
+    }
   }
 
   function handleSave() {
     if (!type || !canSave) return
     onSave({
-      affectedQuantity,
+      affectedQuantity: parsedQuantity,
       note: note.trim() || undefined,
-      pendingSync: isOffline,
+      recordedOffline: isOffline,
       reason,
       type,
       unit: expected.unit,
@@ -188,10 +207,24 @@ export function ExceptionSheet({
                     >
                       <Minus aria-hidden="true" />
                     </button>
-                    <div aria-live="polite">
-                      <Text variant="data">{affectedQuantity}</Text>
-                      <Text variant="caption">{expected.unit}</Text>
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      max={expected.amount}
+                      value={affectedQuantityStr}
+                      onChange={(e) => handleQuantityInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        textAlign: 'center',
+                        border: 'none',
+                        background: 'transparent',
+                        fontSize: '1.25rem',
+                        fontWeight: 600,
+                        color: 'inherit',
+                        outline: 'none'
+                      }}
+                      aria-label="Affected quantity"
+                    />
                     <button
                       aria-label={`Increase ${type} quantity`}
                       onClick={() => changeQuantity(1)}
@@ -272,7 +305,7 @@ export function ExceptionSheet({
                   <div>
                     <Text variant="caption">Quantity affected</Text>
                     <Text variant="data">
-                      {formatQuantity(affectedQuantity, expected.unit)}
+                      {formatQuantity(isNaN(parsedQuantity) ? 0 : parsedQuantity, expected.unit)}
                     </Text>
                   </div>
                   <div>
@@ -299,10 +332,10 @@ export function ExceptionSheet({
               <>
                 <StatusPill
                   variant="offline"
-                  label="Offline · Saved on this device"
+                  label="Offline"
                 />
                 <Text variant="caption">
-                  The exception will be queued for synchronization.
+                  Connection required to save this exception.
                 </Text>
               </>
             ) : (

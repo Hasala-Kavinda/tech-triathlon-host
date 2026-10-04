@@ -44,6 +44,11 @@ export const DeliveryCommandPort = {
     else await DeliveryRecord.insertMany(docs)
   },
 
+  async recreateDeliveryRecordsForPublishedTrip(tripId: mongoose.Types.ObjectId, records: CreateDeliveryInput[], session: mongoose.ClientSession) {
+    await DeliveryRecord.deleteMany({ tripId }).session(session)
+    await this.createDeliveryRecordsForPublishedTrip(records, session)
+  },
+
   async updateExpectedQuantitiesForLoadConfirmation(tripId: mongoose.Types.ObjectId, loadItems: UpdateExpectedQuantityInput[], session?: mongoose.ClientSession | null) {
     const records = await DeliveryRecord.find({ tripId }).session(session || null)
     

@@ -16,22 +16,10 @@ export const connectivityConfig: Record<ConnectivityState, {
     tone: "success",
   },
   offline: {
-    description: "Changes saved on device",
+    description: "Not connected",
     icon: AlertTriangle,
     label: "Offline",
     tone: "warning",
-  },
-  syncing: {
-    description: "Syncing changes…",
-    icon: RefreshCw,
-    label: "Syncing",
-    tone: "action",
-  },
-  synced: {
-    description: "All changes synced",
-    icon: CheckCircle2,
-    label: "Synced",
-    tone: "success",
   },
 }
 export function ConnectivityIndicator({
@@ -58,7 +46,6 @@ export function ConnectivityIndicator({
       <div className="connectivity__icon">
         <Icon
           aria-hidden="true"
-          className={state === "syncing" ? "icon-spin" : undefined}
         />
       </div>
       <div className="connectivity__copy">
