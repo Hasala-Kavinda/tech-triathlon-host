@@ -84,6 +84,48 @@ export async function loadingRoutes(app: FastifyInstance) {
     return ok(request, { ...record, trip })
   })
 
+  app.post("/load-jobs/:tripId/acknowledge", { preHandler: app.authenticate }, async (request) => {
+    const { auth, depot } = await loaderScope(request)
+    const params = z.object({ tripId: z.string() }).safeParse(request.params)
+    if (!params.success) throw badRequest("A trip ID is required.")
+    const version = versionBody(request)
+    const session = await mongoose.startSession()
+    let acknowledged: InstanceType<typeof LoadRecord> | null = null
+    try {
+      await session.withTransaction(async () => {
+        const existing = await LoadRecord.findOne({ tripId: params.data.tripId, depot, status: "claimed", claimedBy: auth.userId, version }).session(session)
+        if (!existing) throw conflict("ACKNOWLEDGE_CONFLICT", "The load is no longer in a valid state for acknowledgement.")
+        
+        const hasUnacknowledged = existing.planChanges?.some((pc) => !pc.acknowledgedAt)
+        if (!hasUnacknowledged) {
+          acknowledged = existing
+          return
+        }
+
+        const record = await LoadRecord.findOneAndUpdate(
+          { _id: existing._id, version },
+          {
+            $set: {
+              "planChanges.$[elem].acknowledgedAt": new Date(),
+              "planChanges.$[elem].acknowledgedBy": new mongoose.Types.ObjectId(auth.userId)
+            },
+            $inc: { version: 1 }
+          },
+          {
+            arrayFilters: [{ "elem.acknowledgedAt": { $exists: false } }],
+            new: true,
+            session
+          }
+        )
+        if (!record) throw conflict("ACKNOWLEDGE_CONFLICT", "The load is no longer in a valid state for acknowledgement.")
+        acknowledged = record
+      })
+    } finally { await session.endSession() }
+    
+    await audit(request, "load.acknowledged", "load_record", acknowledged!.id)
+    return ok(request, acknowledged!.toObject())
+  })
+
   app.post("/load-jobs/:tripId/start-loading", { preHandler: app.authenticate }, async (request) => {
     const { auth, depot } = await loaderScope(request)
     const params = z.object({ tripId: z.string() }).safeParse(request.params)
@@ -93,8 +135,16 @@ export async function loadingRoutes(app: FastifyInstance) {
     let started: InstanceType<typeof LoadRecord> | null = null
     try {
       await session.withTransaction(async () => {
+        const existing = await LoadRecord.findOne({ tripId: params.data.tripId, depot, status: "claimed", claimedBy: auth.userId, version }).session(session)
+        if (!existing) throw conflict("LOAD_START_CONFLICT", "The load is no longer in a startable state.")
+        
+        const unacknowledged = existing.planChanges?.some((pc) => !pc.acknowledgedAt)
+        if (unacknowledged) {
+          throw conflict("PLAN_CHANGE_UNACKNOWLEDGED", "Plan change acknowledgement required before loading can start.")
+        }
+
         const record = await LoadRecord.findOneAndUpdate(
-          { tripId: params.data.tripId, depot, status: "claimed", claimedBy: auth.userId, version },
+          { _id: existing._id, version },
           { $set: { status: "loading", loadingStartedAt: new Date() }, $inc: { version: 1 } },
           { new: true, session },
         )

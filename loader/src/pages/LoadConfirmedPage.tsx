@@ -27,13 +27,6 @@ import { useConnectivity } from "../hooks/useConnectivity"
 
 // ── Constants (vehicle metadata is prototype-static) ─────────────────────────
 
-const VEHICLE = "WP-CAB-4821"
-const ROUTE = "Colombo North"
-const BAY = "03"
-const DEPARTURE = "04:30"
-const STOPS_COUNT = 6
-const TOTAL_WEIGHT = "1,260 kg"
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface LoadConfirmedPageProps {
@@ -108,24 +101,27 @@ export default function LoadConfirmedPage({
     doc.setFontSize(14)
     doc.text("Loading Record — Confirmed", 20, 30)
 
+    const vehicleStr = activeLoad?.vehicle ?? "—"
+    const routeStr = activeLoad?.route ?? "—"
+    const departureStr = activeLoad?.departure ?? "—"
+    const stopsStr = activeLoad?.stops != null ? String(activeLoad.stops) : "—"
+    const weightStr = activeLoad?.weight ?? "—"
+
     doc.setFontSize(12)
     doc.text("Vehicle:", 20, 45)
-    doc.text(VEHICLE, 20, 52)
+    doc.text(vehicleStr, 20, 52)
     
     doc.text("Route:", 80, 45)
-    doc.text(ROUTE, 80, 52)
-    
-    doc.text("Bay:", 140, 45)
-    doc.text(BAY, 140, 52)
+    doc.text(routeStr, 80, 52)
     
     doc.text("Departure:", 20, 65)
-    doc.text(DEPARTURE, 20, 72)
+    doc.text(departureStr, 20, 72)
     
     doc.text("Stops:", 80, 65)
-    doc.text(String(STOPS_COUNT), 80, 72)
+    doc.text(stopsStr, 80, 72)
     
     doc.text("Load weight:", 140, 65)
-    doc.text(TOTAL_WEIGHT, 140, 72)
+    doc.text(weightStr, 140, 72)
     
     doc.text("Loading status:", 20, 85)
     doc.text("Confirmed", 20, 92)
@@ -190,7 +186,8 @@ export default function LoadConfirmedPage({
       })
     }
 
-    const filename = VEHICLE ? `WayLink_Load_Confirmed_${VEHICLE}.pdf` : "WayLink_Load_Confirmed.pdf"
+    const safeVehicle = activeLoad?.vehicle || "Unknown-Vehicle"
+    const filename = `WayLink_Load_Confirmed_${safeVehicle}.pdf`
     doc.save(filename)
   }
 
@@ -233,13 +230,12 @@ export default function LoadConfirmedPage({
     >
       <div className="active-load-page confirmed-page">
 
-        {/* ── Page header ───────────────────────────────────────────────── */}
         <PageHeader
           eyebrow="Load confirmed"
           title={
             <>
-              <span className="active-load-title__vehicle">{VEHICLE}</span>
-              <span className="active-load-title__route"> · {ROUTE}</span>
+              <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.route ?? "—"}</span>
             </>
           }
           subtitle="The loading record has been confirmed."
@@ -249,31 +245,28 @@ export default function LoadConfirmedPage({
         {/* ── Vehicle metadata strip ─────────────────────────────────── */}
         <div className="active-load-context">
           <div>
-            <Warehouse aria-hidden="true" />
-            <div>
-              <Text variant="caption">Bay</Text>
-              <Text variant="body-strong">{BAY}</Text>
-            </div>
-          </div>
-          <div>
             <Clock3 aria-hidden="true" />
             <div>
               <Text variant="caption">Departure</Text>
-              <Text variant="data">{DEPARTURE}</Text>
+              <Text variant="data">{activeLoad?.departure ?? "—"}</Text>
             </div>
           </div>
           <div>
             <Route aria-hidden="true" />
             <div>
               <Text variant="caption">Route</Text>
-              <Text variant="body-strong">{STOPS_COUNT} stops</Text>
+              <Text variant="body-strong">
+                {activeLoad?.stops != null
+                  ? `${activeLoad.stops} stop${activeLoad.stops === 1 ? "" : "s"}`
+                  : "—"}
+              </Text>
             </div>
           </div>
           <div>
             <Scale aria-hidden="true" />
             <div>
               <Text variant="caption">Load weight</Text>
-              <Text variant="data">{TOTAL_WEIGHT}</Text>
+              <Text variant="data">{activeLoad?.weight ?? "—"}</Text>
             </div>
           </div>
         </div>
@@ -340,23 +333,19 @@ export default function LoadConfirmedPage({
             <div className="confirmed-summary-rows">
               <div className="confirmed-summary-row">
                 <Text variant="caption">Vehicle</Text>
-                <Text variant="data">{VEHICLE}</Text>
+                <Text variant="data">{activeLoad?.vehicle ?? "—"}</Text>
               </div>
               <div className="confirmed-summary-row">
                 <Text variant="caption">Route</Text>
-                <Text variant="body-strong">{ROUTE}</Text>
-              </div>
-              <div className="confirmed-summary-row">
-                <Text variant="caption">Bay</Text>
-                <Text variant="body-strong">{BAY}</Text>
+                <Text variant="body-strong">{activeLoad?.route ?? "—"}</Text>
               </div>
               <div className="confirmed-summary-row">
                 <Text variant="caption">Departure</Text>
-                <Text variant="data">{DEPARTURE}</Text>
+                <Text variant="data">{activeLoad?.departure ?? "—"}</Text>
               </div>
               <div className="confirmed-summary-row">
                 <Text variant="caption">Stops</Text>
-                <Text variant="data">{STOPS_COUNT}</Text>
+                <Text variant="data">{activeLoad?.stops ?? "—"}</Text>
               </div>
             </div>
 

@@ -34,7 +34,7 @@ export function LoadItem({
               variant="changed"
               label={
                 item.exception?.pendingSync
-                  ? "Flagged · Pending sync"
+                  ? "Flagged · Offline"
                   : "Flagged"
               }
             />

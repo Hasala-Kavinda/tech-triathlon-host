@@ -101,7 +101,7 @@ export default function AvailableWorkPage({ loadCases, status, error, actionErro
             </div>
             <div>
               <Text variant="body-strong">
-                Offline · Changes saved on device
+                Offline
               </Text>
               <Text variant="body">
                 Work list may be out of date. Reconnect before claiming a load.

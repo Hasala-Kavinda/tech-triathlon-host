@@ -16,7 +16,7 @@ export const connectivityConfig: Record<ConnectivityState, {
     tone: "success",
   },
   offline: {
-    description: "Changes saved on device",
+    description: "Not connected",
     icon: AlertTriangle,
     label: "Offline",
     tone: "warning",

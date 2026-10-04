@@ -299,10 +299,10 @@ export function ExceptionSheet({
               <>
                 <StatusPill
                   variant="offline"
-                  label="Offline · Saved on this device"
+                  label="Offline"
                 />
                 <Text variant="caption">
-                  The exception will be queued for synchronization.
+                  Connection required to save this exception.
                 </Text>
               </>
             ) : (

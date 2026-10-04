@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { loadApi } from "./api/loads"
+import { ApiError } from "./api/client"
 import { readSession } from "./auth/session"
 import { addDays, colomboDate, toActiveStops, toLoadCase } from "./lib/loadJobs"
 import ActiveLoadPage from "./pages/ActiveLoadPage"
@@ -38,6 +39,8 @@ export default function App() {
   const [jobsError, setJobsError] = useState("")
   /** A problem opening or claiming a job (for example another loader claimed it first). */
   const [actionError, setActionError] = useState("")
+  const [workflowError, setWorkflowError] = useState("")
+  const [isSubmittingWorkflow, setIsSubmittingWorkflow] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
 
   /** The load that is being worked on. */
@@ -78,6 +81,7 @@ export default function App() {
   }
 
   async function openLoad(tripId: string) {
+    if (opening === tripId) return
     const selected = loadCases.find((loadCase) => loadCase.tripId === tripId)
     if (!selected) return
     setActionError("")
@@ -85,10 +89,20 @@ export default function App() {
     try {
       // A freshly claimed job starts loading when it is opened; one that is already loading
       // (or reconciled) is simply reopened where the loader left off.
-      if (selected.recordStatus === "claimed") await loadApi.start(selected.tripId, selected.version)
+      if (selected.recordStatus === "claimed") {
+        try {
+          await loadApi.start(selected.tripId, selected.version)
+        } catch (error) {
+          if (error instanceof ApiError && error.code === "PLAN_CHANGE_UNACKNOWLEDGED") {
+            // Ignore start failure: let ActiveLoadPage display the plan change warning
+          } else {
+            throw error
+          }
+        }
+      }
       const detail = await loadApi.detail(tripId)
       setStops(toActiveStops(detail))
-      setLoadCases((current) => current.map((item) => item.tripId === tripId ? { ...item, version: detail.version, recordStatus: detail.status } : item))
+      setLoadCases((current) => current.map((item) => item.tripId === tripId ? { ...item, version: detail.version, recordStatus: detail.status, planChanges: detail.planChanges ?? [] } : item))
       setActiveTripId(tripId)
       setView(detail.status === "reconciled" ? "reconciliation" : detail.status === "confirmed" ? "confirmed" : "active-load")
     } catch (error) {
@@ -102,6 +116,46 @@ export default function App() {
   function setActiveVersion(version: number) {
     if (!activeTripId) return
     setLoadCases((current) => current.map((item) => item.tripId === activeTripId ? { ...item, version } : item))
+  }
+
+  async function acknowledgePlanChange() {
+    if (!activeLoad) return
+    if (isSubmittingWorkflow) return
+    setIsSubmittingWorkflow(true)
+    setWorkflowError("")
+    try {
+      const record = await loadApi.acknowledge(activeLoad.tripId, activeLoad.version)
+      setLoadCases((current) => current.map((item) => item.tripId === activeLoad.tripId ? { ...item, version: record.version, recordStatus: record.status, planChanges: record.planChanges ?? [] } : item))
+    } catch (error) {
+      setWorkflowError(messageOf(error, "Unable to acknowledge plan change. Please try again."))
+    } finally {
+      setIsSubmittingWorkflow(false)
+    }
+  }
+
+  async function startLoading() {
+    if (!activeLoad) return
+    if (isSubmittingWorkflow) return
+    setIsSubmittingWorkflow(true)
+    setWorkflowError("")
+    try {
+      const record = await loadApi.start(activeLoad.tripId, activeLoad.version)
+      setLoadCases((current) => current.map((item) => item.tripId === activeLoad.tripId ? { ...item, version: record.version, recordStatus: record.status, planChanges: record.planChanges ?? [] } : item))
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "PLAN_CHANGE_UNACKNOWLEDGED") {
+        try {
+          const detail = await loadApi.detail(activeLoad.tripId)
+          setStops(toActiveStops(detail))
+          setLoadCases((current) => current.map((item) => item.tripId === activeLoad.tripId ? { ...item, version: detail.version, recordStatus: detail.status, planChanges: detail.planChanges ?? [] } : item))
+        } catch (detailError) {
+           setWorkflowError("The plan changed, but the latest state could not be retrieved. Please refresh and try again.")
+        }
+      } else {
+        setWorkflowError(messageOf(error, "Unable to start loading. Please try again."))
+      }
+    } finally {
+      setIsSubmittingWorkflow(false)
+    }
   }
 
   async function updateLoadedItem(item: LoadItemData) {
@@ -150,12 +204,32 @@ export default function App() {
     return (
       <ActiveLoadPage
         onBack={backToWork}
-        onLoadingAccounted={() => {
+        onLoadingAccounted={async () => {
           if (!activeLoad) return
-          void loadApi.reconcile(activeLoad.tripId, activeLoad.version).then(({ record }) => {
+          if (isSubmittingWorkflow) return
+          setIsSubmittingWorkflow(true)
+          setWorkflowError("")
+          try {
+            const { record } = await loadApi.reconcile(activeLoad.tripId, activeLoad.version)
             setActiveVersion(record.version)
             setView("reconciliation")
-          }).catch((error) => console.error("Unable to reconcile load", error))
+          } catch (error) {
+            if (error instanceof ApiError && error.code?.includes("CONFLICT")) {
+              try {
+                const detail = await loadApi.detail(activeLoad.tripId)
+                setStops(toActiveStops(detail))
+                setLoadCases((current) => current.map((item) => item.tripId === activeLoad.tripId ? { ...item, version: detail.version, recordStatus: detail.status, planChanges: detail.planChanges ?? [] } : item))
+                setWorkflowError("The load was changed by another user. Your reconciliation was not applied.")
+                setView(detail.status === "reconciled" ? "reconciliation" : detail.status === "confirmed" ? "confirmed" : "active-load")
+              } catch (detailError) {
+                setWorkflowError("The load was changed by another user, but the latest state could not be retrieved. Please refresh and try again.")
+              }
+            } else {
+              setWorkflowError("Unable to reconcile this load. The load was not updated. Please try again.")
+            }
+          } finally {
+            setIsSubmittingWorkflow(false)
+          }
         }}
         onLoadCompleted={(completionTime) => {
           if (activeLoad && activeLoad.timing.finalVariance === undefined) {
@@ -179,6 +253,11 @@ export default function App() {
         activeLoad={activeLoad}
         onMarkItemLoaded={updateLoadedItem}
         onSaveException={updateException}
+        workflowError={workflowError}
+        isSubmittingWorkflow={isSubmittingWorkflow}
+        onClearWorkflowError={() => setWorkflowError("")}
+        onAcknowledgePlanChange={acknowledgePlanChange}
+        onStartLoading={startLoading}
       />
     )
   }
@@ -187,18 +266,41 @@ export default function App() {
     return (
       <ReconciliationPage
         stops={stops}
-        onBack={() => setView("active-load")}
+        onBack={() => {
+          setWorkflowError("")
+          setView("active-load")
+        }}
         onConfirmed={async () => {
           if (!activeLoad) return
+          if (isSubmittingWorkflow) return
+          setIsSubmittingWorkflow(true)
+          setWorkflowError("")
           try {
             const record = await loadApi.confirm(activeLoad.tripId, activeLoad.version)
             setActiveVersion(record.version)
             setView("confirmed")
           } catch (error) {
-            console.error("Unable to confirm load", error)
+            if (error instanceof ApiError && error.code?.includes("CONFLICT")) {
+              try {
+                const detail = await loadApi.detail(activeLoad.tripId)
+                setStops(toActiveStops(detail))
+                setLoadCases((current) => current.map((item) => item.tripId === activeLoad.tripId ? { ...item, version: detail.version, recordStatus: detail.status, planChanges: detail.planChanges ?? [] } : item))
+                setWorkflowError("The load was changed by another user. Your confirmation was not applied.")
+                setView(detail.status === "reconciled" ? "reconciliation" : detail.status === "confirmed" ? "confirmed" : "active-load")
+              } catch (detailError) {
+                setWorkflowError("The load was changed by another user, but the latest state could not be retrieved. Please refresh and try again.")
+              }
+            } else {
+              setWorkflowError("Unable to confirm this load. The load was not confirmed. Please try again.")
+            }
+          } finally {
+            setIsSubmittingWorkflow(false)
           }
         }}
         activeLoad={activeLoad}
+        workflowError={workflowError}
+        isSubmittingWorkflow={isSubmittingWorkflow}
+        onClearWorkflowError={() => setWorkflowError("")}
       />
     )
   }

@@ -25,6 +25,17 @@ export type LoadTiming = {
   finalVariance?: number
 }
 
+export type PlanChange = {
+  changeId: string
+  type: string
+  orderId: string
+  description: string
+  reason?: string
+  createdAt: string
+  acknowledgedAt?: string
+  acknowledgedBy?: string
+}
+
 export type LoadRecordStatus = "available" | "claimed" | "loading" | "reconciled" | "confirmed"
 
 /** One load job as the Available Work list shows it. Built from the load record and its trip. */
@@ -41,6 +52,7 @@ export type LoadCase = {
   vehicle: string
   weight: string
   timing: LoadTiming
+  planChanges: PlanChange[]
 }
 
 /** One stop of the open load: the items to load for that outlet. */

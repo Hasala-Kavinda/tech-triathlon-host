@@ -8,8 +8,8 @@ const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE, year: "nume
 export const colomboDate = (instant: Date) => dayFormat.format(instant)
 
 export function addDays(iso: string, days: number) {
-  const value = new Date(`${iso}T00:00:00Z`)
-  value.setUTCDate(value.getUTCDate() + days)
+  const [year, month, day] = iso.split("-").map(Number)
+  const value = new Date(Date.UTC(year, month - 1, day + days))
   return value.toISOString().slice(0, 10)
 }
 
@@ -44,6 +44,7 @@ export function toLoadCase(record: LoadRecord, myUserId: string | undefined): Lo
       receivedAt: Date.parse(record.createdAt),
       departureAt: trip ? Date.parse(trip.departureAt) : Date.parse(record.createdAt),
     },
+    planChanges: record.planChanges ?? [],
   }
 }
 

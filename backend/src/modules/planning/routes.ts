@@ -12,7 +12,7 @@ import { DeliveryRecord, Trip } from "../../database/models/index.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { LoadingCommandPort } from "../loading/loading.command-port.js"
 import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
-import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/order.commands.js"
+import { allocateOrdersToTrip, deferOrder, deferOrderBatch, deferOrderFromPublishedTrip } from "../orders/order.commands.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
@@ -206,6 +206,123 @@ export async function planningRoutes(app: FastifyInstance) {
     const results = await deferOrderBatch(body.data.orderIds, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId)
     await audit(request, "order.batch_deferred", "order_batch", request.id, { count: body.data.orderIds.length, nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
     return ok(request, results)
+  })
+
+  app.post("/planning/trips/:tripId/orders/:orderId/defer", { preHandler: app.authenticate }, async (request) => {
+    const auth = requireRole(request, "dispatcher")
+    const params = z.object({ tripId: z.string(), orderId: z.string() }).safeParse(request.params)
+    const body = z.object({ nextDate: z.string(), reasonCode: z.string().min(1), note: z.string().max(1000).optional() }).safeParse(request.body)
+    if (!params.success || !body.success) throw badRequest("A valid deferral request is required.")
+    parseServiceDate(body.data.nextDate)
+
+    const session = await mongoose.startSession()
+    let updatedOrder
+    try {
+      await session.withTransaction(async () => {
+        const loadStatus = await LoadingCommandPort.getLoadRecordStatus(params.data.tripId)
+        if (!loadStatus) throw notFound("Load record not found.")
+        if (loadStatus !== "available" && loadStatus !== "claimed") {
+          throw conflict("PLAN_LOCKED", "The load cannot be changed because loading has already started.")
+        }
+
+        const trip = await Trip.findOne({ _id: params.data.tripId, status: "published" }).session(session)
+        if (!trip) throw notFound("The trip was not found or is not published.")
+
+        const stopIndex = trip.stops.findIndex(s => s.orderIds.some(id => String(id) === params.data.orderId))
+        if (stopIndex === -1) throw conflict("ORDER_NOT_IN_TRIP", "The order is not part of this trip.")
+
+        updatedOrder = await deferOrderFromPublishedTrip(params.data.orderId, trip._id as mongoose.Types.ObjectId, body.data.nextDate, body.data.reasonCode, body.data.note, auth.userId, session)
+        if (!updatedOrder) throw conflict("ORDER_NOT_DEFERRABLE", "The order is no longer available for deferral.")
+
+        // Update trip stops
+        const stop = trip.stops[stopIndex]!
+        stop.orderIds = stop.orderIds.filter(id => String(id) !== params.data.orderId)
+        if (stop.orderIds.length === 0) {
+          trip.stops.splice(stopIndex, 1)
+        }
+
+        const orderIds = trip.stops.flatMap((stop) => stop.orderIds || [stop.orderId])
+        const uniqueOrderIds = Array.from(new Set(orderIds.map(String)))
+        const orders = await OrderReadPort.findByIdsInSession(uniqueOrderIds, session)
+        const orderMap = new Map(orders.map((order) => [String(order._id), order]))
+
+        const loadItems = [...trip.stops].reverse().flatMap((stop) => {
+          const stopOrders = stop.orderIds.map((id) => orderMap.get(String(id))).filter(Boolean)
+          const itemsBySku = new Map<string, { sku: string, name: string, quantity: number, orderIds: Set<string> }>()
+          for (const order of stopOrders) {
+            for (const item of order!.items) {
+              const existing = itemsBySku.get(item.sku)
+              if (existing) {
+                existing.quantity += item.quantity
+                existing.orderIds.add(String(order!._id))
+              } else {
+                itemsBySku.set(item.sku, { sku: item.sku, name: item.name, quantity: item.quantity, orderIds: new Set([String(order!._id)]) })
+              }
+            }
+          }
+          return Array.from(itemsBySku.values()).map((item) => ({
+            itemId: `${stop.tripStopId}-${item.sku}`,
+            tripStopId: stop.tripStopId as mongoose.Types.ObjectId,
+            orderIds: Array.from(item.orderIds).map(id => new mongoose.Types.ObjectId(id)),
+            sku: item.sku,
+            name: item.name,
+            expectedQuantity: item.quantity,
+          }))
+        })
+
+        await LoadingCommandPort.applyPlanChange(
+          trip._id as mongoose.Types.ObjectId,
+          loadItems,
+          {
+            type: "ORDER_DEFERRED",
+            orderId: new mongoose.Types.ObjectId(params.data.orderId),
+            description: `Order deferred - ${body.data.reasonCode}`,
+            reason: body.data.note ?? body.data.reasonCode,
+          },
+          session
+        )
+
+        const deliveryRecords = trip.stops.map(stop => {
+          const stopOrders = stop.orderIds.map((id) => orderMap.get(String(id))).filter(Boolean)
+          const itemsBySku = new Map<string, { sku: string, quantity: number, orderIds: Set<string> }>()
+          for (const order of stopOrders) {
+            for (const item of order!.items) {
+              const existing = itemsBySku.get(item.sku)
+              if (existing) {
+                existing.quantity += item.quantity
+                existing.orderIds.add(String(order!._id))
+              } else {
+                itemsBySku.set(item.sku, { sku: item.sku, quantity: item.quantity, orderIds: new Set([String(order!._id)]) })
+              }
+            }
+          }
+          const items = Array.from(itemsBySku.values()).map(item => ({
+            sku: item.sku,
+            orderIds: Array.from(item.orderIds).map(id => new mongoose.Types.ObjectId(id)),
+            expectedQuantity: item.quantity
+          }))
+          return {
+            tripId: trip._id as mongoose.Types.ObjectId,
+            tripStopId: stop.tripStopId as mongoose.Types.ObjectId,
+            outletId: stop.outletId,
+            driverId: trip.driverId as mongoose.Types.ObjectId,
+            items
+          }
+        })
+
+        await DeliveryCommandPort.recreateDeliveryRecordsForPublishedTrip(trip._id as mongoose.Types.ObjectId, deliveryRecords, session)
+
+        trip.set("totals.weightKg", orders.reduce((sum, order) => sum + order.totalWeightKg, 0))
+        trip.set("totals.volumeM3", orders.reduce((sum, order) => sum + order.totalVolumeM3, 0))
+        trip.statusHistory.push({ status: "published", at: new Date(), actorId: new mongoose.Types.ObjectId(auth.userId), note: `Order ${params.data.orderId} deferred` })
+        await trip.save({ session })
+      })
+    } finally {
+      await session.endSession()
+    }
+
+    await audit(request, "trip.order_deferred", "trip", params.data.tripId, { orderId: params.data.orderId, nextDate: body.data.nextDate, reasonCode: body.data.reasonCode })
+    return ok(request, updatedOrder)
   })
 
   app.patch("/planning/trips/:tripId", { preHandler: app.authenticate }, async (request) => {
