@@ -7,8 +7,8 @@ import { OrderPlanningContext } from "../components/orders/OrderPlanningContext"
 import { OrderTypeSelector } from "../components/orders/OrderTypeSelector";
 import { ProductSelectionRow } from "../components/orders/ProductSelectionRow";
 import { getCatalog, selectedProducts, getDraft, formatOrderType, getDefaultOrderType, pluralizeUnit } from "../lib/utils";
-import {  OrderType, OrderDrafts, CatalogProduct  } from '../types/store';
-import { productCatalog, calmSpring, overlaySpring } from "../lib/constants";
+import { OrderType, OrderDrafts, CatalogProduct } from '../types/store';
+import { calmSpring, overlaySpring } from "../lib/constants";
 
 export function NewOrderPage({ business, 
       afterCutoff = false,
@@ -30,29 +30,28 @@ export function NewOrderPage({ business,
         }) {
     const [searchQuery, setSearchQuery] = useState(initialSearch);
     const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen);
-    const [, setCatalogueVersion] = useState(0);
+    const [products, setProducts] = useState<CatalogProduct[]>([]);
+    
     useEffect(() => {
     let active = true
     void getCatalogue(business, type)
       .then((rows) => {
         if (!active) return
-        productCatalog[business][type] = rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit }))
-        setCatalogueVersion((version) => version + 1)
+        setProducts(rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit })))
       })
       .catch((error) => {
-        if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== "true") {
-          productCatalog[business][type] = []
-          setCatalogueVersion((version) => version + 1)
-        }
         console.error("Catalogue request failed", error)
+        if (active) setProducts([])
       })
     return () => { active = false }
     }, [business, type])
-    const products = getCatalog(business, type);
+
     const filteredProducts = products.filter((product) =>
             product.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
           );
-    const currentItems = selectedProducts(business, type, getDraft(quantities, type));
+    const currentItems = products
+      .map((product) => ({ ...product, quantity: (quantities && quantities[type] && quantities[type][product.id]) ?? 0 }))
+      .filter((product) => product.quantity > 0);
     const totalUnits = currentItems.reduce(
             (total, product) => total + product.quantity,
             0,

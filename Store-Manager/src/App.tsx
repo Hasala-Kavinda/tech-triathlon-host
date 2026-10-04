@@ -220,7 +220,7 @@ export default function App() {
                 quantities={drafts}
                 forceError={false}
                 onBack={() => goToView("new-order")}
-                onConfirmed={() => goToView("confirmation")}
+                onConfirmed={(orderId) => { setSelectedOrderId(orderId); goToView("confirmation"); }}
               />
             </motion.div>
           )}

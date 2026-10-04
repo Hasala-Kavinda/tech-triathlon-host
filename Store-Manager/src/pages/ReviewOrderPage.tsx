@@ -7,6 +7,7 @@ import { SubmissionError } from "../components/orders/SubmissionError";
 import { selectedProducts, getDraft, formatOrderType, getDefaultOrderType, formatOutlet, pluralizeUnit } from "../lib/utils";
 import type { OrderType, OrderDrafts, SubmissionState, CatalogProduct } from "../types/store";
 import { useCutoff } from "../hooks/useCutoff";
+import { getCatalogue } from "../api/store";
 
 export function ReviewOrderPage({ business, 
       type,
@@ -19,11 +20,29 @@ export function ReviewOrderPage({ business,
           quantities: OrderDrafts
           forceError: boolean
           onBack: () => void
-          onConfirmed: () => void
+          onConfirmed: (orderId: string) => void
         }) {
     const { isClosed: afterCutoff, targetDeliveryDate } = useCutoff();
     const [submissionState, setSubmissionState] = useState<SubmissionState>("idle");
-    const items = selectedProducts(business, type, getDraft(quantities, type));
+    const [products, setProducts] = useState<CatalogProduct[]>([]);
+    
+    useEffect(() => {
+    let active = true
+    void getCatalogue(business, type)
+      .then((rows) => {
+        if (!active) return
+        setProducts(rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit })))
+      })
+      .catch((error) => {
+        console.error("Catalogue request failed", error)
+        if (active) setProducts([])
+      })
+    return () => { active = false }
+    }, [business, type])
+
+    const items = products
+      .map((product) => ({ ...product, quantity: (quantities && quantities[type] && quantities[type][product.id]) ?? 0 }))
+      .filter((product) => product.quantity > 0);
     const totalUnits = items.reduce((total, item) => total + item.quantity, 0);
 
     async function submitOrder() {
@@ -31,8 +50,8 @@ export function ReviewOrderPage({ business,
         if (forceError) { setSubmissionState("error"); return }
 
         try {
-          await submitStoreOrder({ business, type, requestedDate: targetDeliveryDate || undefined, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
-          onConfirmed()
+          const createdOrder = await submitStoreOrder({ business, type, requestedDate: targetDeliveryDate || undefined, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
+          onConfirmed(createdOrder._id)
         } catch (error) {
           console.error("Order submission failed", error)
           setSubmissionState("error")
