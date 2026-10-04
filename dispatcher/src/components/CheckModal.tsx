@@ -37,7 +37,7 @@ export function CheckModal({
   onClose,
   onSchedule,
   lockedIds = [],
-  routeName = "Galle → Matara",
+  routeName = "Route",
   validation,
   onRetryValidation,
   scheduling = false,

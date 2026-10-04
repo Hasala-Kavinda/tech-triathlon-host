@@ -1,24 +1,29 @@
 import { Bolt, Check, CheckCircle2, Clock, Search, Settings, Snowflake, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { PreparedTrip } from "../App";
-import { addDays, dateLabel } from "../lib/dates";
+import { evaluateRoute, planFromVehicle, rankVehiclesForOrders, recompute, type PlanEdit, type PlanResult } from "@route-engine";
 import { CheckModal } from "../components/CheckModal";
-import { blockedReason, canGo, isAtQuota, isDayLimit, recordTurn, vehicleDay, volumeOf } from "../components/planning/helpers";
+import { LoadBars } from "../components/planning/LoadBars";
 import { OrderRow } from "../components/planning/OrderRow";
-import { ReachMap } from "../components/planning/ReachMap";
-import { TurnsToday } from "../components/planning/TurnsToday";
+import { RouteMap } from "../components/planning/RouteMap";
 import { VehicleGraphic } from "../components/planning/VehicleGraphic";
-import { VolumeRow } from "../components/planning/VolumeRow";
+import { VehicleGrid } from "../components/planning/VehicleGrid";
 import { ReviewModal } from "../components/ReviewModal";
-import { Button, Heading, PageTitle, ProgressBar, TextInput, UnstyledButton } from "../components/ui";
+import { Button, Heading, PageTitle, TextInput, UnstyledButton } from "../components/ui";
 import { DAILY_TURN_LIMIT } from "../lib/constants";
-import type { Order, ShopType, Vehicle } from "../types/dispatcher";
+import { addDays, dateLabel } from "../lib/dates";
+import { hhmm, reasonLabel, toEngineOrder, toUiVehicle, topReason, uiVehicleType, useContextWithDeparture, useEngineContext } from "../lib/routeEngine";
+import { usePlanningCheck, type PlanningService } from "../lib/usePlanningCheck";
+import type { Order, ShopType } from "../types/dispatcher";
+
+/**
+ * Route scheduling, vehicle-first. Eligibility, the suggested pack, the route/map and the load all
+ * come from the route-suggestion engine (backend/src/route-engine); this page only holds UI state
+ * and forwards edits to the engine's `recompute`.
+ */
 export default function SchedulePage({
-  navigateHome,
-  vehicles,
-  setVehicles,
   orders,
-  setOrders,
+  ordersDate,
+  dueVersion,
   onOpenManageVehicles,
   onOpenDefer,
   planning,
@@ -30,22 +35,16 @@ export default function SchedulePage({
   today: string | null
   planningDate: string | null
   onPlanningDateChange: (date: string) => void
-  navigateHome: (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => void | Promise<void>
-  /** Live planning service. Absent in prototype mode, where navigateHome does everything. */
-  planning?: {
-    prepare: (scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => Promise<PreparedTrip>
-    publish: (prepared: PreparedTrip) => Promise<void>
-    onPublished: (message: string, scheduled: Order[]) => void
-  }
-  vehicles: Vehicle[]
-  setVehicles: React.Dispatch<React.SetStateAction<Vehicle[]>>
+  /** Open orders for `ordersDate`, and a counter that changes whenever they change server-side. */
   orders: Order[]
-  setOrders: React.Dispatch<React.SetStateAction<Order[]>>
+  ordersDate: string | null
+  dueVersion: number
+  /** Live planning service (draft + validate + publish). Absent in prototype mode, where there is no backend. */
+  planning?: PlanningService
   onOpenManageVehicles: () => void
   onOpenDefer: () => void
 }) {
   const params = new URLSearchParams(window.location.search)
-  // A route planned for a day after today is a "future" plan (departure defaults to the early slot).
   const isDatePreset = Boolean(today && planningDate && planningDate !== today)
   const routeDate = planningDate ?? ""
   const routeDateLabel = planningDate && today ? dateLabel(planningDate, today) : "loading date…"
@@ -58,144 +57,138 @@ export default function SchedulePage({
     return brand === "Fresh" || brand === "Tech" || brand === "Style" ? brand : "All"
   })
   const [tags, setTags] = useState<string[]>([])
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null)
-  const [added, setAdded] = useState<string[]>([])
+  const [search, setSearch] = useState("")
   const [overlay, setOverlay] = useState<"review" | "check" | null>(null)
-  const [reviewPack, setReviewPack] = useState<Order[]>([])
+  const [reviewIds, setReviewIds] = useState<string[]>([])
+  const [reviewDropped, setReviewDropped] = useState<string[]>([])
   const [checked, setChecked] = useState<string[]>([])
+  const [notice, setNotice] = useState("")
+  const [plan, setPlan] = useState<PlanResult | null>(null)
 
   const highlightedOrder = params.get("order")
 
-  // Backend validation of the route shown in the check sheet. A draft trip is created and
-  // validated whenever the sheet opens or the pack, vehicle or slot changes.
-  const [prepared, setPrepared] = useState<PreparedTrip | null>(null)
-  const [validation, setValidation] = useState<React.ComponentProps<typeof CheckModal>["validation"]>(undefined)
-  const [scheduling, setScheduling] = useState(false)
-  const [submitError, setSubmitError] = useState("")
-  const [recheck, setRecheck] = useState(0)
+  const engine = useEngineContext(planningDate, dueVersion)
+  const ctx = useContextWithDeparture(engine.ctx, departsTime)
+  const ordersReady = ordersDate === planningDate
+  const openOrders = useMemo(() => (ordersReady ? orders.filter((o) => !o.deferred) : []), [orders, ordersReady])
+  const engineOrders = useMemo(() => openOrders.map(toEngineOrder).filter((o): o is NonNullable<typeof o> => o !== null), [openOrders])
+  const orderByApiId = useMemo(() => new Map(openOrders.map((o) => [o.apiId, o])), [openOrders])
+  const orderByNumber = useMemo(() => new Map(openOrders.map((o) => [o.id, o])), [openOrders])
 
-  // Vehicles that can go: under weekly quota and under the daily turn limit
-  const availableVehicles = vehicles.filter(canGo)
-  const overQuotaCount = vehicles.filter(isAtQuota).length
-  const dayLimitCount = vehicles.filter((v) => !isAtQuota(v) && isDayLimit(v)).length
+  // All vehicles, ranked by the engine; with no orders chosen yet this reports vehicle state only
+  // (closed day, routes today, weekly fuel).
+  const ranking = useMemo(() => (ctx ? rankVehiclesForOrders([], engine.vehicles, ctx) : []), [ctx, engine.vehicles])
 
-  // Filter orders by shop type (excluding deferred)
-  const openOrders = orders.filter((o) => !o.deferred)
+  // Keep the plan live when the underlying data changes (orders refetched, departure slot, new usage).
+  useEffect(() => {
+    if (!ctx) return
+    setPlan((prev) => {
+      if (!prev?.vehicleId) return prev
+      const base = planFromVehicle(prev.vehicleId, engineOrders, engine.vehicles, ctx, { autoSelect: false, excludeOrderIds: prev.suggestionExcludedIds })
+      return recompute(base, { type: "addMany", orderIds: prev.selectedIds }, engineOrders, engine.vehicles, ctx)
+    })
+  }, [ctx, engineOrders, engine.vehicles])
+
+  const selectVehicle = (vehicleId: string | null) => {
+    setNotice("")
+    setPlan(vehicleId && ctx ? planFromVehicle(vehicleId, engineOrders, engine.vehicles, ctx, { autoSelect: false }) : null)
+  }
+
+  /** Every dispatcher edit goes through the engine's recompute, so route, map, load and banner always agree. */
+  const applyEdit = (edit: PlanEdit): PlanResult | null => {
+    if (!plan || !ctx) return null
+    const next = recompute(plan, edit, engineOrders, engine.vehicles, ctx)
+    setPlan(next)
+    const rejected = next.lastEdit?.rejected
+    setNotice(rejected?.length ? `Can't add: ${[...new Set(rejected.map(reasonLabel))].join(", ")}` : "")
+    return next
+  }
+
+  const vehicleEng = plan?.vehicleId ? engine.vehicles.find((v) => v.vehicleId === plan.vehicleId) ?? null : null
+  const vehicle = vehicleEng && ctx ? toUiVehicle(vehicleEng, ctx.vehicleState[vehicleEng.vehicleId]) : null
+  const route = plan?.route ?? null
+  const selected = useMemo(() => new Set(plan?.selectedIds ?? []), [plan])
+  const selectedOrders = plan ? plan.selectedIds.map((id) => orderByApiId.get(id)).filter((o): o is Order => Boolean(o)) : []
+  const suggestionPack = plan?.suggestion?.suggested ?? []
+  const suggestedIds = useMemo(() => new Set(suggestionPack.map((o) => o.id)), [suggestionPack])
+  const remainingSuggested = suggestionPack.filter((o) => !selected.has(o.id))
+  const suggestedKg = remainingSuggested.reduce((sum, o) => sum + o.weightKg, 0)
+  const suggestionCheck = useMemo(
+    () => (vehicleEng && ctx && remainingSuggested.length ? evaluateRoute(vehicleEng, [...(plan?.selectedIds ?? []).map((id) => engineOrders.find((o) => o.id === id)!).filter(Boolean), ...remainingSuggested], ctx) : null),
+    [vehicleEng, ctx, remainingSuggested, plan, engineOrders],
+  )
+  const packed = selected.size > 0
+  const eligibilityOf = (order: Order) => plan?.eligibleOrders.find((a) => a.order.id === order.apiId)
+
   const displayedOrders = useMemo(() => {
-    const list = orderFilter === "All"
-      ? openOrders
-      : openOrders.filter((o) => o.type === orderFilter)
-
+    const list = orderFilter === "All" ? openOrders : openOrders.filter((o) => o.type === orderFilter)
+    const eligible = (o: Order) => (plan?.eligibleOrders.find((a) => a.order.id === o.apiId)?.eligible ?? true)
     return [...list].sort(
       (a, b) =>
         Number(b.emergency) - Number(a.emergency) ||
-        (vehicle ? Number(b.suggested) - Number(a.suggested) : 0) ||
-        Number(b.inReach) - Number(a.inReach),
+        Number(suggestedIds.has(b.apiId ?? "")) - Number(suggestedIds.has(a.apiId ?? "")) ||
+        Number(eligible(b)) - Number(eligible(a)),
     )
-  }, [openOrders, orderFilter, vehicle])
+  }, [openOrders, orderFilter, plan, suggestedIds])
 
-  // "All" is every open (not deferred) order, emergency or not; the header uses the same list.
   const emergencyCount = openOrders.filter((o) => o.emergency).length
-  const fleetCount = (type: Vehicle["type"]) => vehicles.filter((v) => v.type === type).length
-
-  const suggestedOrders = useMemo(() => {
-    return openOrders.filter((o) => o.suggested && o.inReach)
-  }, [openOrders])
-
-  const addedOrders = useMemo(() => {
-    return openOrders.filter((o) => added.includes(o.id))
-  }, [openOrders, added])
-
-  const suggestedKg = suggestedOrders.reduce((sum, o) => sum + o.kg, 0)
-  const loadKg = addedOrders.reduce((sum, o) => sum + o.kg, 0)
-  const capacityPercent = vehicle
-    ? Math.round((loadKg / vehicle.capacityKg) * 100)
-    : 0
-
-  const packed = added.length > 0
-  const isAllSuggestedPacked =
-    suggestedOrders.length > 0 &&
-    suggestedOrders.every((o) => added.includes(o.id))
-
-  const currentStep = !vehicle
-    ? tags.length
-      ? "Step 2 · vehicle search"
-      : "Step 1 · all orders, all vehicles"
-    : packed
-      ? "Step 4 · orders packed"
-      : "Step 3 · vehicle picked, suggested pack"
-
-  const toggleAdded = (id: string) => {
-    setAdded((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
-    )
+  const toggleAdded = (order: Order) => {
+    if (!order.apiId) return
+    applyEdit(selected.has(order.apiId) ? { type: "drop", orderId: order.apiId } : { type: "add", orderId: order.apiId })
   }
 
   const openReview = () => {
-    setReviewPack(suggestedOrders)
+    setReviewIds(remainingSuggested.map((o) => o.id))
+    setReviewDropped([])
     setOverlay("review")
   }
+  const reviewPack = reviewIds.map((id) => orderByApiId.get(id)).filter((o): o is Order => Boolean(o))
+  const excludedNow = new Set([...(plan?.suggestionExcludedIds ?? []), ...reviewIds, ...reviewDropped])
+  const alternativesLeft = (plan?.eligibleOrders ?? []).some((a) => a.eligible && !a.alreadyAdded && !excludedNow.has(a.order.id))
+  const suggestAnother = () => {
+    if (!plan || !ctx) return
+    const next = recompute(plan, { type: "resuggest", excludeOrderIds: [...excludedNow] }, engineOrders, engine.vehicles, ctx)
+    setPlan(next)
+    setReviewIds((next.suggestion?.suggested ?? []).filter((o) => !next.selectedIds.includes(o.id)).map((o) => o.id))
+    setReviewDropped([])
+  }
 
+  const packOrders: Order[] = route
+    ? route.stops.map((s) => orderByApiId.get(s.orderId)).filter((o): o is Order => Boolean(o)).map((o, i) => ({ ...o, stop: i + 1 }))
+    : []
+  const check = usePlanningCheck({
+    planning: planning ?? { prepare: () => Promise.reject(new Error("Planning service unavailable")), publish: () => Promise.resolve(), onPublished: () => undefined },
+    open: overlay === "check", vehicle, orders: packOrders, route, routeDate, departsTime, onScheduled: () => setOverlay(null),
+  })
   const openCheck = () => {
-    setChecked(added)
-    // The button must stay disabled until the planning service has answered.
-    setValidation(planning ? { phase: "loading" } : undefined)
+    setChecked(packOrders.map((o) => o.id))
     setOverlay("check")
   }
 
-  const packKey = addedOrders.map((o) => o.id).join("|")
-  useEffect(() => {
-    if (!planning || overlay !== "check" || !vehicle || !addedOrders.length) return
-    let stale = false
-    setPrepared(null)
-    setSubmitError("")
-    setValidation({ phase: "loading" })
-    planning.prepare(addedOrders, vehicle, routeDate, departsTime)
-      .then((trip) => {
-        if (stale) return
-        setPrepared(trip)
-        setValidation({ phase: "ready", valid: trip.valid, rules: trip.rules })
-      })
-      .catch((error) => {
-        if (!stale) setValidation({ phase: "error", message: error instanceof Error ? error.message : "The route could not be checked." })
-      })
-    return () => { stale = true }
-    // addedOrders is derived from packKey; planning callbacks are recreated on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay, vehicle?.id, packKey, routeDate, departsTime, recheck])
+  const reasonCount = (code: string) => ranking.filter((r) => r.reasons.some((x) => x.code === code && x.scope === "vehicle")).length
+  const availableCount = ranking.filter((r) => r.eligible).length
+  const fleetCount = (type: "Van" | "Lorry" | "Refrigerated") => engine.vehicles.filter((v) => uiVehicleType(v) === type).length
+  const matchingRanking = ranking.filter(({ vehicle: v }) =>
+    tags.every((tag) => uiVehicleType(v).toLowerCase().includes(tag.toLowerCase())) &&
+    (!search || `${v.vehicleId} ${uiVehicleType(v)} ${v.depot}`.toLowerCase().includes(search.toLowerCase())),
+  )
 
-  const schedule = async () => {
-    if (!vehicle) return
-    if (!planning) {
-      setOverlay(null)
-      recordTurn(vehicle)
-      void navigateHome(`Route ${vehicle.id} scheduled`, addedOrders, vehicle, routeDate, departsTime)
-      return
-    }
-    if (!prepared) return
-    setScheduling(true)
-    setSubmitError("")
-    try {
-      await planning.publish(prepared)
-      recordTurn(vehicle)
-      setOverlay(null)
-      planning.onPublished(`Route ${vehicle.id} scheduled`, addedOrders)
-    } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "The route could not be scheduled.")
-    } finally {
-      setScheduling(false)
-    }
-  }
+  const currentStep = !vehicle
+    ? tags.length ? "Step 2 · vehicle search" : "Step 1 · all orders, all vehicles"
+    : packed ? "Step 4 · orders packed" : "Step 3 · vehicle picked, suggested pack"
+  const departsLabel = route?.departureMin != null ? hhmm(route.departureMin) : departsTime
+  const routeName = route?.stops[0] ? `${vehicle?.depot ?? "Depot"} → ${route.stops[0].district}` : "Route"
 
-  const matchingVehicles = useMemo(() => {
-    if (!tags.length) return vehicles
-    return vehicles.filter((v) =>
-      tags.every((tag) => v.type.toLowerCase().includes(tag.toLowerCase())),
+  if (!planning) {
+    return (
+      <section className="page page-enter">
+        <div className="page-heading"><PageTitle>Route scheduling</PageTitle></div>
+        <div className="workspace-card calendar-empty">
+          <strong>Route suggestions need the planning service</strong>
+          <span>Orders, vehicles and the suggestion engine load from the backend, which is not connected in prototype mode.</span>
+        </div>
+      </section>
     )
-  }, [vehicles, tags])
-
-  const addTag = (tag: string) => {
-    if (!tags.includes(tag)) setTags((prev) => [...prev, tag])
   }
 
   return (
@@ -213,7 +206,7 @@ export default function SchedulePage({
             >
               <Clock size={16} />
               <span>
-                Route date: {routeDateLabel} · departs {departsTime} ▾
+                Route date: {routeDateLabel} · departs {departsLabel} ▾
               </span>
             </button>
             {dateChipOpen && (
@@ -232,8 +225,7 @@ export default function SchedulePage({
                         onClick={() => {
                           if (date !== planningDate) {
                             // A different day has different orders: start a fresh pack for it.
-                            setAdded([])
-                            setVehicle(null)
+                            setPlan(null)
                             onPlanningDateChange(date)
                           }
                           setDepartsTime(date === today ? "12:30" : "07:00")
@@ -247,7 +239,7 @@ export default function SchedulePage({
                     ))
                     : <span>Loading the date…</span>}
                 </div>
-                <strong>Departure slot</strong>
+                <strong>Style / Tech departure slot</strong>
                 <div className="route-time-slots">
                   {["07:00", "08:30", "12:30", "14:00", "16:00"].map((t) => (
                     <button
@@ -263,6 +255,7 @@ export default function SchedulePage({
                     </button>
                   ))}
                 </div>
+                <small>Fresh trips depart at 03:30 (plus Fresh minutes the vehicle already used).</small>
               </div>
             )}
             <span className="step-subtitle">{currentStep}</span>
@@ -297,45 +290,66 @@ export default function SchedulePage({
             })}
           </div>
 
-          {/* AI Suggestion / Packed Banner */}
-          {vehicle ? (
+          {/* AI Suggestion / Packed Banner - every number comes from the engine */}
+          {vehicle && plan ? (
             packed ? (
               <div className="suggestion-banner suggestion-banner--packed">
                 <CheckCircle2 size={24} color="var(--cobalt-500)" />
                 <div>
-                  <strong>Pack added · {added.length} of {suggestedOrders.length}</strong>
-                  <span>{loadKg.toLocaleString()} kg loaded</span>
+                  <strong>Pack added · {selected.size} {selected.size === 1 ? "order" : "orders"}</strong>
+                  <span>
+                    {route?.load.weightKg.toLocaleString()} kg loaded
+                    {remainingSuggested.length ? ` · ${remainingSuggested.length} more suggested` : ""}
+                  </span>
                 </div>
-                <Button onClick={() => setAdded([])} variant="secondary">
+                {remainingSuggested.length ? (
+                  <Button onClick={openReview} variant="secondary">Review</Button>
+                ) : null}
+                <Button onClick={() => applyEdit({ type: "clear" })} variant="secondary">
                   Undo
+                </Button>
+              </div>
+            ) : remainingSuggested.length ? (
+              <div className="suggestion-banner suggestion-banner--ai">
+                <Bolt size={24} color="var(--cobalt-500)" />
+                <div>
+                  <strong>AI suggested: {remainingSuggested.length} {remainingSuggested.length === 1 ? "order" : "orders"}</strong>
+                  <span>
+                    {suggestedKg.toLocaleString()} kg
+                    {suggestionCheck?.tripMinutes != null ? ` · ${suggestionCheck.tripMinutes} min` : ""}
+                    {suggestionCheck?.feasible ? ", fits reach" : suggestionCheck?.violations[0] ? ` · ${suggestionCheck.violations[0].message}` : ""}
+                  </span>
+                </div>
+                <Button onClick={openReview} variant="primary">
+                  Review
                 </Button>
               </div>
             ) : (
               <div className="suggestion-banner suggestion-banner--ai">
                 <Bolt size={24} color="var(--cobalt-500)" />
                 <div>
-                  <strong>AI suggested: {suggestedOrders.length} {suggestedOrders.length === 1 ? "order" : "orders"}</strong>
-                  <span>{suggestedKg.toLocaleString()} kg, fits reach</span>
+                  <strong>No orders fit {vehicle.id}</strong>
+                  <span>{topReason(plan.eligibleOrders) ?? "No open orders for this date"}</span>
                 </div>
-                <Button onClick={openReview} variant="primary">
-                  Review
-                </Button>
               </div>
             )
           ) : null}
+          {notice ? <p role="alert" style={{ color: "var(--critical-500)", margin: "4px 0" }}>{notice}</p> : null}
 
           {/* Orders List */}
           <div className="order-list">
+            {!ordersReady ? <span className="mute">Loading orders…</span> : null}
+            {ordersReady && !displayedOrders.length ? <span className="mute">No open orders for {routeDateLabel}.</span> : null}
             {displayedOrders.map((order) => (
               <OrderRow
-                added={added.includes(order.id)}
-                aiSuggested={order.suggested}
-                datePreset={isDatePreset ? "28" : undefined}
+                added={selected.has(order.apiId ?? "")}
+                aiSuggested={suggestedIds.has(order.apiId ?? "")}
                 highlighted={highlightedOrder === order.id}
                 key={order.id}
                 order={order}
                 selectedVehicle={vehicle}
-                toggleAdded={toggleAdded}
+                toggleAdded={() => toggleAdded(order)}
+                {...(eligibilityOf(order) ? { eligibility: eligibilityOf(order)! } : {})}
               />
             ))}
           </div>
@@ -354,31 +368,33 @@ export default function SchedulePage({
           <div className="availability-wrap">
             <div className="availability">
               <strong>
-                Vehicles available · {availableVehicles.length} of {vehicles.length}
-                {overQuotaCount > 0 ? (
-                  <span style={{ color: "var(--critical-500)", marginLeft: "4px" }}>
-                    · {overQuotaCount} over quota
-                  </span>
+                Vehicles available · {availableCount} of {ranking.length}
+                {reasonCount("FUEL_QUOTA") > 0 ? (
+                  <span style={{ color: "var(--critical-500)", marginLeft: "4px" }}>· {reasonCount("FUEL_QUOTA")} over quota</span>
                 ) : ""}
-                {dayLimitCount > 0 ? (
-                  <span style={{ color: "var(--sunburst-900)", marginLeft: "4px" }}>
-                    · {dayLimitCount} at day limit
-                  </span>
+                {reasonCount("TURNS_PER_DAY") > 0 ? (
+                  <span style={{ color: "var(--sunburst-900)", marginLeft: "4px" }}>· {reasonCount("TURNS_PER_DAY")} at day limit</span>
+                ) : ""}
+                {reasonCount("NOT_OPERATING_DAY") > 0 ? (
+                  <span style={{ color: "var(--critical-500)", marginLeft: "4px" }}>· closed day</span>
                 ) : ""}
               </strong>
-              <span>
-                <Truck aria-hidden="true" size={24} /> Van ×{fleetCount("Van")}
-              </span>
-              <span>
-                <Truck aria-hidden="true" size={24} /> Lorry ×{fleetCount("Lorry")}
-              </span>
-              <span>
-                <Snowflake aria-hidden="true" size={19} /> Refrigerated ×{fleetCount("Refrigerated")}
-              </span>
+              <span><Truck aria-hidden="true" size={24} /> Van ×{fleetCount("Van")}</span>
+              <span><Truck aria-hidden="true" size={24} /> Lorry ×{fleetCount("Lorry")}</span>
+              <span><Snowflake aria-hidden="true" size={19} /> Refrigerated ×{fleetCount("Refrigerated")}</span>
             </div>
           </div>
 
-          {vehicle ? (
+          {ctx?.devMode ? (
+            <p className="mute" role="note" style={{ margin: "4px 0", fontSize: 12 }}>
+              Development mode: closed-day, Fresh-deadline and due-date rules are shown as warnings, not blockers. All other rules apply.
+            </p>
+          ) : null}
+
+          {engine.status === "loading" ? <div className="vehicle-search"><span className="mute">Loading vehicles and planning data…</span></div> : null}
+          {engine.status === "error" ? <div className="vehicle-search"><p role="alert" style={{ color: "var(--critical-500)" }}>{engine.error}</p></div> : null}
+
+          {engine.status === "ready" && vehicle && route && plan && ctx ? (
             /* Selected Vehicle View */
             <div className="selected-vehicle">
               <div className="selected-card">
@@ -387,124 +403,57 @@ export default function SchedulePage({
                   <div className="selected-card__title">
                     <strong className="data-text">{vehicle.id}</strong>
                     <span>{vehicle.type}</span>
-                    <TurnsToday vehicle={vehicle} />
-                    <UnstyledButton onClick={() => setVehicle(null)}>
-                      Change
-                    </UnstyledButton>
+                    <span className="turns-today">Turns today {ctx.vehicleState[vehicle.id]?.turnsToday ?? 0} / {DAILY_TURN_LIMIT}</span>
+                    <UnstyledButton onClick={() => selectVehicle(null)}>Change</UnstyledButton>
                   </div>
-                  <div className="selected-card__load">
-                    <strong>
-                      Load {loadKg.toLocaleString()} /{" "}
-                      {vehicle.capacityKg.toLocaleString()} kg
-                    </strong>
-                    <b>{capacityPercent}%</b>
-                  </div>
-                  <ProgressBar
-                    value={capacityPercent}
-                    warning={capacityPercent >= 90}
-                  />
-                  <VolumeRow used={volumeOf(addedOrders)} vehicle={vehicle} />
+                  <LoadBars route={route} vehicle={vehicle} />
                 </div>
               </div>
 
-              <ReachMap packed={packed} />
+              <RouteMap depot={vehicle.depot ?? "Depot"} route={route} />
 
               <div className="selected-footer">
                 <strong>
-                  {added.length} {added.length === 1 ? "order" : "orders"} ·{" "}
-                  {loadKg.toLocaleString()} kg
+                  {selected.size} {selected.size === 1 ? "order" : "orders"} · {route.load.weightKg.toLocaleString()} kg
                 </strong>
-                <Button
-                  disabled={!packed}
-                  icon={Check}
-                  onClick={openCheck}
-                  variant="primary"
-                >
+                <Button disabled={!packed} icon={Check} onClick={openCheck} variant="primary">
                   Check
                 </Button>
               </div>
             </div>
-          ) : (
+          ) : null}
+
+          {engine.status === "ready" && !vehicle && ctx ? (
             /* Vehicle Search & Grid View */
             <div className="vehicle-search">
               <div className={`tag-search ${tags.length ? "tag-search--active" : ""}`}>
                 <Search aria-hidden="true" size={22} />
                 {tags.map((tag) => (
-                  <UnstyledButton
-                    className="active-tag"
-                    key={tag}
-                    onClick={() => setTags((current) => current.filter((t) => t !== tag))}
-                  >
+                  <UnstyledButton className="active-tag" key={tag} onClick={() => setTags((current) => current.filter((t) => t !== tag))}>
                     {tag}
                     <X aria-hidden="true" size={15} />
                   </UnstyledButton>
                 ))}
                 <TextInput
                   aria-label="Search vehicles or add a tag"
+                  onChange={(e) => setSearch(e.target.value)}
                   placeholder={tags.length ? "Add another tag…" : "Search vehicles or add a tag…"}
+                  value={search}
                 />
               </div>
 
               <div className="suggested-tags">
                 <span>Tags:</span>
-                {["Van", "Lorry", "Refrigerated", "Tail lift"]
-                  .filter((t) => !tags.includes(t))
-                  .map((t) => (
-                    <UnstyledButton key={t} onClick={() => addTag(t)}>
-                      + {t}
-                    </UnstyledButton>
-                  ))}
+                {["Van", "Lorry", "Refrigerated"].filter((t) => !tags.includes(t)).map((t) => (
+                  <UnstyledButton key={t} onClick={() => setTags((prev) => [...prev, t])}>+ {t}</UnstyledButton>
+                ))}
               </div>
 
-              {tags.length ? (
-                <strong className="matching-count">
-                  {matchingVehicles.length} vehicles match
-                </strong>
-              ) : null}
+              {tags.length || search ? <strong className="matching-count">{matchingRanking.length} vehicles match</strong> : null}
 
-              <div className={`vehicle-grid ${tags.length ? "vehicle-grid--filtered" : ""}`}>
-                {matchingVehicles.map((v) => {
-                  const blocked = blockedReason(v)
-                  const { turnsToday, volumeM3 } = vehicleDay(v)
-                  return (
-                    <UnstyledButton
-                      className={`vehicle-card ${blocked ? "vehicle-card--quota-reached" : ""}`}
-                      key={v.id}
-                      onClick={() => {
-                        if (blocked) {
-                          onOpenManageVehicles()
-                        } else {
-                          setVehicle(v)
-                        }
-                      }}
-                      title={
-                        isAtQuota(v)
-                          ? "Weekly quota reached · raise it in Manage vehicles"
-                          : blocked
-                            ? `${turnsToday} turns done today (max ${DAILY_TURN_LIMIT}) · free again tomorrow`
-                            : "Select vehicle"
-                      }
-                    >
-                      <VehicleGraphic vehicle={v} />
-                      <strong className="data-text">{v.id}</strong>
-                      <b>{v.type}</b>
-                      {blocked ? (
-                        <span className="vehicle-card__quota-text">{blocked}</span>
-                      ) : (
-                        <span>
-                          {v.capacityKg.toLocaleString()} kg · {volumeM3} m³ · {v.length}
-                        </span>
-                      )}
-                      <span className="vehicle-card__turns">
-                        Turns today {turnsToday} / {DAILY_TURN_LIMIT}
-                      </span>
-                      <em>{blocked ? "Manage →" : "Select →"}</em>
-                    </UnstyledButton>
-                  )
-                })}
-              </div>
+              <VehicleGrid ctx={ctx} filtered={tags.length > 0} onPick={selectVehicle} ranking={matchingRanking} />
             </div>
-          )}
+          ) : null}
 
           <div className="panel-actions">
             <p>Turns, km, fuel and quotas for every vehicle.</p>
@@ -520,33 +469,42 @@ export default function SchedulePage({
       {overlay === "review" && vehicle ? (
         <ReviewModal
           onAdd={() => {
-            setAdded(reviewPack.map((o) => o.id))
+            applyEdit({ type: "addMany", orderIds: reviewIds })
             setOverlay(null)
           }}
           onClose={() => setOverlay(null)}
-          onDrop={(id) => setReviewPack((prev) => prev.filter((o) => o.id !== id))}
+          onDrop={(id) => {
+            const apiId = orderByNumber.get(id)?.apiId
+            if (!apiId) return
+            setReviewIds((prev) => prev.filter((x) => x !== apiId))
+            setReviewDropped((prev) => [...prev, apiId])
+          }}
+          onSuggestAnother={suggestAnother}
           pack={reviewPack}
+          suggestAnotherDisabled={!alternativesLeft}
           vehicle={vehicle}
         />
       ) : null}
 
-      {/* Check Modal */}
+      {/* Check Modal - validated by the real planning rules (separate from the suggestion engine) */}
       {overlay === "check" && vehicle ? (
         <CheckModal
           checked={checked}
           onClose={() => setOverlay(null)}
           onDrop={(id) => {
-            setAdded((prev) => prev.filter((item) => item !== id))
+            const apiId = orderByNumber.get(id)?.apiId
+            if (apiId) applyEdit({ type: "drop", orderId: apiId })
             setChecked((prev) => prev.filter((item) => item !== id))
           }}
-          onRetryValidation={() => setRecheck((count) => count + 1)}
-          onSchedule={() => void schedule()}
-          pack={addedOrders}
-          scheduling={scheduling}
+          onRetryValidation={check.retry}
+          onSchedule={() => void check.schedule()}
+          pack={packOrders}
+          routeName={routeName}
+          scheduling={check.scheduling}
           setChecked={setChecked}
           vehicle={vehicle}
-          {...(planning ? { validation } : {})}
-          {...(submitError ? { submitError } : {})}
+          {...(check.validation ? { validation: check.validation } : {})}
+          {...(check.submitError ? { submitError: check.submitError } : {})}
         />
       ) : null}
     </section>

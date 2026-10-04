@@ -16,6 +16,11 @@ describe("reference data preflight", () => {
     })
   })
 
+  it("accepts the official outlets.csv shape (no outlet_name, extra mall_window column)", () => {
+    const { outlet_name: _omitted, ...official } = outlet
+    expect(validateReferenceData({ outlets: [{ ...official, mall_window: "" }], vehicles: [vehicle], calendar: [day("2026-10-01")], products: [product], productFile: "products.demo.csv" })).toMatchObject({ outlets: 1 })
+  })
+
   it("rejects duplicates, broken dates and unsupported values together", () => {
     const badProduct = { ...product, brand: "Unknown", order_types: "mystery" }
     expect(() => validateReferenceData({

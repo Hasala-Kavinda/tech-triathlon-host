@@ -16,6 +16,7 @@ import { allocateOrdersToTrip, deferOrder, deferOrderBatch } from "../orders/ord
 import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
+import { buildEngineContext } from "./engine-context.js"
 import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const tripBody = z.object({
@@ -55,6 +56,14 @@ export async function planningRoutes(app: FastifyInstance) {
     parseServiceDate(query.data.to)
     if (query.data.to < query.data.from) throw badRequest("to must not be before from.")
     return ok(request, await OrderReadPort.dueSummary(query.data.from, query.data.to))
+  })
+
+  app.get("/planning/engine-context", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher")
+    const query = z.object({ serviceDate: z.string() }).safeParse(request.query)
+    if (!query.success) throw badRequest("A valid serviceDate is required.")
+    parseServiceDate(query.data.serviceDate)
+    return ok(request, await buildEngineContext(query.data.serviceDate, app.config.referenceDataDir, app.config.devMode))
   })
 
   app.get("/planning/due-orders", { preHandler: app.authenticate }, async (request) => {

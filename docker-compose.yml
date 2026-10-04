@@ -65,6 +65,8 @@ services:
       PORT: 3000
       MONGODB_URI: mongodb://mongo:27017/waylink?replicaSet=rs0
       JWT_SECRET: ${JWT_SECRET:-development-only-secret-change-me-now}
+      # District travel times and service allowances for the route-suggestion engine are read from here.
+      REFERENCE_DATA_DIR: /reference-data
       # Development phase: relaxes the order-date and Fresh-deadline rules for testing. Set DEV_MODE=false
       # (the code default) for production, where it is also refused at startup.
       DEV_MODE: ${DEV_MODE:-true}

@@ -19,6 +19,9 @@ export type Vehicle = {
       id: string
       type: "Van" | "Lorry" | "Refrigerated"
       capacityKg: number
+      /** Real cargo volume (m3) and depot from the fleet reference data, when known. */
+      volumeM3?: number
+      depot?: string
       length: string
       turns: number
       turnQuota: number
@@ -42,6 +45,12 @@ export type Order = {
       deferredTo?: string
       deferredNotice?: string
       dueDay?: number
+      /** Real planning fields (live mode): outlet, volume, cold chain, due date and status. */
+      outletId?: string
+      volumeM3?: number
+      needsReefer?: boolean
+      requestedDate?: string
+      status?: string
     };
 export type Person = {
       id: string

@@ -8,7 +8,9 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@route-engine": ["../backend/src/route-engine/index.ts"],
+      "@route-engine/*": ["../backend/src/route-engine/*"]
     },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,

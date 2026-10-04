@@ -1,0 +1,11 @@
+// Public surface of the route-engine. Nothing outside this folder imports it yet (isolated by design).
+export * from "./types.js"
+export { DEFAULT_CONFIG } from "./config.js"
+export { evaluateRoute } from "./evaluate.js"
+export { rankVehiclesForOrders } from "./rankVehicles.js"
+export { filterEligibleOrders } from "./eligibleOrders.js"
+export { suggestOrderPack } from "./suggestPack.js"
+export { buildRoute } from "./buildRoute.js"
+export { planFromVehicle, planFromOrders, recompute } from "./plan.js"
+export { cutoffBucket } from "./time.js"
+export { parseCsv, buildTravelTable, buildAllowanceTable, EngineDataError } from "./tables.js"

@@ -18,7 +18,8 @@ export type ReferenceDataSummary = {
   calendarEnd: string
 }
 
-const OUTLET_COLUMNS = ["outlet_id", "outlet_name", "brand", "district", "depot", "window_open_time", "window_close_time"]
+// outlet_name is optional: the official outlets.csv has none, so the seed falls back to the outlet id.
+const OUTLET_COLUMNS = ["outlet_id", "brand", "district", "depot", "window_open_time", "window_close_time"]
 const VEHICLE_COLUMNS = ["vehicle_id", "type", "temp", "weight_cap_kg", "volume_cap_m3", "fuel_type", "km_per_l", "weekly_fuel_quota_l", "depot"]
 const CALENDAR_COLUMNS = ["date", "dow_name", "is_weekend", "iso_year", "iso_week", "is_payday", "is_holiday", "monsoon", "is_operating"]
 const PRODUCT_COLUMNS = ["sku", "name", "brand", "order_types", "unit", "weight_kg", "volume_m3", "temperature_class"]

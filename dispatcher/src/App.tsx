@@ -6,9 +6,11 @@ import { ManageVehiclesModal } from "./components/ManageVehiclesModal"
 import { OrderDetailsModal } from "./components/OrderDetailsModal"
 import { OrderLogPage } from "./components/OrderLogPage"
 import { openOrderDetails, vehicleDay } from "./components/planning/helpers"
-import { DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT, TODAY } from "./lib/constants"
+import { DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT } from "./lib/constants"
 import { addDays, colomboDate, isIsoDate } from "./lib/dates"
 import { useServerClock } from "./lib/useServerClock"
+import type { PlanningService } from "./lib/usePlanningCheck"
+import type { RouteResult } from "@route-engine"
 import DueSchedulePage from "./pages/DueSchedulePage"
 import HomePage from "./pages/HomePage"
 import MonitorPage from "./pages/MonitorPage"
@@ -52,8 +54,14 @@ const toOrder = (order: PlanningOrder): Order => ({
   items: `${order.items.reduce((sum, item) => sum + item.quantity, 0)} units`,
   kg: order.totalWeightKg,
   emergency: order.cutoffBucket === "after_cutoff",
+  // Reach and suggestions are decided by the route-suggestion engine on the scheduling screens, not stored on the order.
   inReach: true,
-  suggested: true,
+  suggested: false,
+  outletId: order.outletId,
+  volumeM3: order.totalVolumeM3,
+  needsReefer: order.items.some((item) => item.temperatureClass === "chilled" || item.temperatureClass === "frozen"),
+  requestedDate: order.requestedDate,
+  status: order.status,
 })
 
 const clock = (value?: string) =>
@@ -98,6 +106,8 @@ function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>(PROTOTYPE_MODE ? initialVehicles : [])
   const [drivers, setDrivers] = useState<DriverReference[]>([])
   const [orders, setOrders] = useState<Order[]>(PROTOTYPE_MODE ? initialOrders : [])
+  // The planning date the `orders` list was loaded for (null until the first load finishes).
+  const [ordersDate, setOrdersDate] = useState<string | null>(null)
   const [routes, setRoutes] = useState<RouteRecord[]>(PROTOTYPE_MODE ? initialRoutes : [])
   const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
 
@@ -129,6 +139,7 @@ function App() {
     const liveTrips = tripLists.flat().filter((trip) => ["published", "loading", "load_confirmed", "claimed", "in_transit"].includes(trip.status))
     const details = await Promise.all(liveTrips.map((trip) => planningApi.tripDetail(trip._id)))
     setOrders(apiOrders.map(toOrder))
+    setOrdersDate(date)
     setRoutes(details.map(toRouteRecord))
     setDueVersion((version) => version + 1)
   }
@@ -149,19 +160,24 @@ function App() {
 
   useEffect(() => {
     if (PROTOTYPE_MODE || !today) return
-    void Promise.all([planningApi.vehicles(today), planningApi.drivers()])
-      .then(([apiVehicles, apiDrivers]) => {
-        setVehicles(apiVehicles.map((vehicle) => ({
-          id: vehicle.vehicleId,
-          type: vehicle.temperatureClass === "reefer" ? "Refrigerated" : vehicle.type.toLowerCase() === "van" ? "Van" : "Lorry",
-          capacityKg: vehicle.weightCapacityKg,
-          length: "Reference fleet",
-          turns: 0,
-          turnQuota: 2,
-          km: 0,
-          kmQuota: Math.round(vehicle.weeklyFuelQuotaL * vehicle.kmPerL),
-          fuel: 100,
-        })))
+    void Promise.all([planningApi.vehicles(today), planningApi.drivers(), planningApi.engineContext(today)])
+      .then(([apiVehicles, apiDrivers, usage]) => {
+        setVehicles(apiVehicles.map((vehicle) => {
+          const used = usage.vehicleState[vehicle.vehicleId]
+          return {
+            id: vehicle.vehicleId,
+            type: vehicle.temperatureClass === "reefer" ? "Refrigerated" : vehicle.type.toLowerCase() === "van" ? "Van" : "Lorry",
+            capacityKg: vehicle.weightCapacityKg,
+            volumeM3: vehicle.volumeCapacityM3,
+            depot: vehicle.depot,
+            length: vehicle.depot,
+            turns: used?.turnsToday ?? 0,
+            turnQuota: 2,
+            km: Math.round((used?.weeklyFuelUsedL ?? 0) * vehicle.kmPerL),
+            kmQuota: Math.round(vehicle.weeklyFuelQuotaL * vehicle.kmPerL),
+            fuel: Math.max(0, Math.round(100 - ((used?.weeklyFuelUsedL ?? 0) / vehicle.weeklyFuelQuotaL) * 100)),
+          }
+        }))
         setDrivers(apiDrivers)
       })
       .catch((error) => {
@@ -199,6 +215,12 @@ function App() {
     navigate(`/schedule?date=${date}${brand ? `&brand=${brand}` : ""}`)
   }
 
+  // Calendar "schedule now": the picked orders become the mandatory set of the order-first flow.
+  const scheduleNow = (date: string, orderApiIds: string[]) => {
+    setPlanningDate(date)
+    navigate(`/schedule?mode=due&date=${date}&mandatory=${orderApiIds.join(",")}`)
+  }
+
   const serviceDate = today ?? colomboDate(new Date())
   const prototypeMode = import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE === "true"
 
@@ -208,25 +230,41 @@ function App() {
     return value.toISOString().slice(0, 10)
   }
 
+  const atMinutes = (date: string, minutes: number) => new Date(new Date(`${date}T00:00:00+05:30`).getTime() + minutes * 60_000)
+
   // Creates a draft trip and has the backend validate it, so the review sheet can show the
   // real constraint results. Drafts do not lock orders or the vehicle's turn; publishing does.
-  const prepareTrip = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string): Promise<PreparedTrip> => {
+  // When the engine's route is supplied, the draft carries exactly what the dispatcher sees: the
+  // engine's stop sequence, departure, arrival times, trip duration and distance.
+  const prepareTrip = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string, route?: RouteResult): Promise<PreparedTrip> => {
     const liveOrders = scheduled.filter((order): order is Order & { apiId: string } => Boolean(order.apiId))
     if (liveOrders.length !== scheduled.length) throw new Error("One or more selected orders are not backed by the planning service.")
-    const driver = drivers[0]
-    if (!driver) throw new Error("No active Driver is available for this route.")
-    const departureAt = new Date(`${targetDate}T${departureTime}:00+05:30`)
+    const sequenced = route
+      ? route.stops.map((stop) => liveOrders.find((order) => order.apiId === stop.orderId)).filter((order): order is Order & { apiId: string } => Boolean(order))
+      : liveOrders
+    const departureAt = route?.departureMin != null ? atMinutes(targetDate, route.departureMin) : new Date(`${targetDate}T${departureTime}:00+05:30`)
+    const plannedEndAt = new Date(departureAt.getTime() + (route?.tripMinutes ?? (liveOrders.length + 1) * 30) * 60_000)
+    // A Driver is not a planning constraint for the engine, but a person cannot drive two overlapping trips.
+    const existing = (await planningApi.trips(targetDate)) as unknown as Array<{ driverId?: string; departureAt: string; plannedEndAt?: string; status: string }>
+    const busy = new Set(existing
+      .filter((trip) => trip.driverId && trip.status !== "draft" && trip.status !== "cancelled" && new Date(trip.departureAt) < plannedEndAt && new Date(trip.plannedEndAt ?? trip.departureAt) > departureAt)
+      .map((trip) => String(trip.driverId)))
+    const driver = drivers.find((candidate) => !busy.has(candidate._id))
+    if (!driver) throw new Error(drivers.length ? "Every active Driver already has a trip in this time window." : "No active Driver is available for this route.")
     const input: TripInput = {
       serviceDate: targetDate,
       departureAt: departureAt.toISOString(),
-      plannedEndAt: new Date(departureAt.getTime() + (liveOrders.length + 1) * 30 * 60_000).toISOString(),
+      plannedEndAt: plannedEndAt.toISOString(),
       vehicleId: vehicle.id,
       driverId: driver._id,
-      distanceKm: Math.max(10, liveOrders.length * 12),
-      stops: liveOrders.map((order, index) => ({
-        orderId: order.apiId,
-        plannedArrivalAt: new Date(departureAt.getTime() + (index + 1) * 20 * 60_000).toISOString(),
-      })),
+      distanceKm: route?.distanceKm ?? Math.max(10, liveOrders.length * 12),
+      stops: sequenced.map((order, index) => {
+        const planned = route?.stops.find((stop) => stop.orderId === order.apiId)?.arrivalMin
+        return {
+          orderId: order.apiId,
+          plannedArrivalAt: (planned != null ? atMinutes(targetDate, planned) : new Date(departureAt.getTime() + (index + 1) * 20 * 60_000)).toISOString(),
+        }
+      }),
     }
     const draft = await planningApi.createTrip(input)
     const validation = await planningApi.validateTrip(draft._id)
@@ -241,9 +279,10 @@ function App() {
     await planningApi.publishTrip(prepared.tripId, prepared.version)
   }
 
-  const publishSchedule = async (scheduled: Order[], vehicle: Vehicle, targetDate: string, departureTime: string) => {
-    if (prototypeMode) return
-    await publishPrepared(await prepareTrip(scheduled, vehicle, targetDate, departureTime))
+  const planningService: PlanningService | undefined = prototypeMode ? undefined : {
+    prepare: prepareTrip,
+    publish: publishPrepared,
+    onPublished: (message, scheduled) => onTripPublished(message, scheduled),
   }
 
   // Called once the backend has published the trip.
@@ -271,25 +310,6 @@ function App() {
         .map((o) => ({ ...o, stop: ids.indexOf(o.id) + 1, dueDay: day }))
       return [...updated, ...missing]
     })
-  }
-
-  const completeSchedule = async (message: string, scheduled: Order[], vehicle: Vehicle, routeDate: string, departureTime: string) => {
-    try {
-      await publishSchedule(scheduled, vehicle, routeDate, departureTime)
-      finishSchedule(message, scheduled)
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "The route could not be published.")
-    }
-  }
-
-  const completeImmediate = async (message: string, scheduled: Order[], day: number, vehicle: Vehicle, departureTime: string) => {
-    try {
-      const targetDate = datePlusDays(serviceDate, Math.max(0, day - TODAY))
-      await publishSchedule(scheduled, vehicle, targetDate, departureTime)
-      finishSchedule(message, scheduled, day)
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "The route could not be published.")
-    }
   }
 
   const completeApproval = (message: string) => {
@@ -351,39 +371,30 @@ function App() {
           new URLSearchParams(search).get("mode") ?? "",
         ) ? (
         <DueSchedulePage
-          day={
-            new URLSearchParams(search).get("mode") === "immediate"
-              ? 27
-              : Number(
-                (new URLSearchParams(search).get("date") ?? "2026-09-27").slice(8, 10),
-              ) || 27
-          }
+          dueVersion={dueVersion}
           key={search}
+          mandatoryApiIds={(new URLSearchParams(search).get("mandatory") ?? "").split(",").filter(Boolean)}
           onOpenDefer={() => setDeferOpen(true)}
           onOpenManageVehicles={() => setManageVehiclesOpen(true)}
           onOpenNormal={() => navigate("/schedule")}
-          onScheduled={completeImmediate}
           orders={orders}
-          vehicles={vehicles}
+          ordersDate={ordersDate}
+          planningDate={planningDate}
+          today={today}
+          {...(planningService ? { planning: planningService } : {})}
         />
       ) : path === "/schedule" ? (
         <SchedulePage
+          dueVersion={dueVersion}
           key={search}
-          navigateHome={completeSchedule}
-          today={today}
-          planningDate={planningDate}
-          onPlanningDateChange={setPlanningDate}
-          planning={prototypeMode ? undefined : {
-            prepare: prepareTrip,
-            publish: publishPrepared,
-            onPublished: onTripPublished,
-          }}
           onOpenDefer={() => setDeferOpen(true)}
           onOpenManageVehicles={() => setManageVehiclesOpen(true)}
+          onPlanningDateChange={setPlanningDate}
           orders={orders}
-          setOrders={setOrders}
-          setVehicles={setVehicles}
-          vehicles={vehicles}
+          ordersDate={ordersDate}
+          planningDate={planningDate}
+          today={today}
+          {...(planningService ? { planning: planningService } : {})}
         />
       ) : path === "/orders" ? (
         <OrderLogPage
@@ -422,6 +433,7 @@ function App() {
           orders={orders}
           routes={routes}
           openDay={openRouteDay}
+          scheduleNow={scheduleNow}
           setFilter={setHomeFilter}
           synced={serverClock.synced}
           toast={toast}

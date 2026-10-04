@@ -1,7 +1,7 @@
 import { colomboDate } from "../lib/dates"
 import { apiRequest } from "./client"
 
-export type PlanningOrder = { _id: string; orderNumber: string; outletId: string; brand: "Fresh" | "Style" | "Tech"; items: Array<{ quantity: number; unit: string }>; totalWeightKg: number; cutoffBucket: string; status: string }
+export type PlanningOrder = { _id: string; orderNumber: string; outletId: string; brand: "Fresh" | "Style" | "Tech"; items: Array<{ quantity: number; unit: string; temperatureClass?: string }>; totalWeightKg: number; totalVolumeM3: number; requestedDate: string; cutoffBucket: string; status: string; allocatedTripId?: string }
 export type CalendarDayInfo = { date: string; dayOfWeek: string; isOperating: boolean; isHoliday: boolean; festival?: string }
 export type DueSummaryRow = { date: string; brand: "Fresh" | "Style" | "Tech"; due: number; unscheduled: number }
 export type DueOrder = PlanningOrder & { requestedDate: string; allocatedTripId?: string }
@@ -34,7 +34,17 @@ export type TripSummary = {
   stops: Array<{ stopId: string; outletId: string; status: string; plannedArrivalAt?: string }>
   orders: Array<{ _id: string; brand: "Fresh" | "Style" | "Tech" }>
 }
-export type FleetVehicle = { vehicleId: string; type: string; temperatureClass: string; weightCapacityKg: number; kmPerL: number; weeklyFuelQuotaL: number }
+export type FleetVehicle = { vehicleId: string; type: string; temperatureClass: string; depot: string; weightCapacityKg: number; volumeCapacityM3: number; kmPerL: number; weeklyFuelQuotaL: number }
+export type EngineContextPayload = {
+  serviceDate: string
+  /** Backend DEV_MODE: closed-day, Fresh-deadline and due-date rules are warnings, not blockers. */
+  devMode?: boolean
+  isOperatingDay?: boolean
+  outlets: Array<{ outletId: string; brand: "Fresh" | "Style" | "Tech"; district: string; depot: string; dockType: string; parkingConstraint: string; windowOpen: string; windowClose: string }>
+  travelRows: Array<Record<string, string>>
+  allowanceRows: Array<Record<string, string>>
+  vehicleState: Record<string, { turnsToday: number; weeklyFuelUsedL: number; usedMinutes: { fresh: number; styleTech: number } }>
+}
 export type DriverReference = { _id: string; employeeId: string; name: string; depot?: string }
 export type TripDraft = { _id: string; version: number; tripNumber: string; status: string }
 export type TripInput = {
@@ -68,6 +78,7 @@ export const planningApi = {
       return { today: guess, serverNowMs: Date.now(), synced: false }
     }
   },
+  engineContext: (serviceDate: string) => apiRequest<EngineContextPayload>(`/planning/engine-context?serviceDate=${encodeURIComponent(serviceDate)}`),
   calendarRange: (from: string, to: string) => apiRequest<CalendarDayInfo[]>(`/calendar?from=${from}&to=${to}`),
   dueSummary: (from: string, to: string) => apiRequest<DueSummaryRow[]>(`/planning/due-summary?from=${from}&to=${to}`),
   dueOrders: (date: string, brand?: string | null) => apiRequest<DueOrder[]>(`/planning/due-orders?date=${encodeURIComponent(date)}${brand ? `&brand=${encodeURIComponent(brand)}` : ""}`),

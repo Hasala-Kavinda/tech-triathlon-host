@@ -400,6 +400,3 @@ export const completedRouteRecord: RouteRecord = {
     };
 export const DAILY_TURN_LIMIT = 2;
 export const OPEN_ORDER_EVENT = "waytrack:open-order";
-export const TODAY = 27;
-export const TODAY_ORDER_IDS = ["ORD-1047", "ORD-1056"];
-export const DEPOT = { x: 50, y: 232 };

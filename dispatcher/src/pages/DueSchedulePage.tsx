@@ -1,151 +1,163 @@
 import { AlertCircle, Bolt, Check, CheckCircle2, Clock, Lock, Settings, Snowflake, Truck } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { evaluateRoute, planFromOrders, recompute, type PlanEdit, type PlanResult } from "@route-engine";
 import { CheckModal } from "../components/CheckModal";
-import { blockedReason, canGo, dayLabel, isAtQuota, orderRowOpenProps, orderVolume, recordTurn, ROUTE_EXTRAS_BY_DAY, routeNameFor, vehicleDay, volumeOf } from "../components/planning/helpers";
-import { RouteLineMap } from "../components/planning/RouteLineMap";
-import { TurnsToday } from "../components/planning/TurnsToday";
+import { orderRowOpenProps } from "../components/planning/helpers";
+import { LoadBars } from "../components/planning/LoadBars";
+import { RouteMap } from "../components/planning/RouteMap";
 import { VehicleGraphic } from "../components/planning/VehicleGraphic";
-import { VolumeRow } from "../components/planning/VolumeRow";
+import { VehicleGrid } from "../components/planning/VehicleGrid";
 import { ReviewModal } from "../components/ReviewModal";
-import { Button, Heading, PageTitle, ProgressBar, ShopTag, UnstyledButton } from "../components/ui";
-import { DAILY_TURN_LIMIT, TODAY, TODAY_ORDER_IDS } from "../lib/constants";
-import type { Order, Vehicle } from "../types/dispatcher";
+import { Button, Heading, PageTitle, ShopTag, UnstyledButton } from "../components/ui";
+import { DAILY_TURN_LIMIT } from "../lib/constants";
+import { dateLabel } from "../lib/dates";
+import { hhmm, reasonLabel, toEngineOrder, toUiVehicle, uiVehicleType, useContextWithDeparture, useEngineContext } from "../lib/routeEngine";
+import { usePlanningCheck, type PlanningService } from "../lib/usePlanningCheck";
+import type { Order } from "../types/dispatcher";
 
+/**
+ * Order-first ("schedule now" from the calendar). The orders picked in the calendar are mandatory:
+ * the engine ranks vehicles for exactly those orders, suggests the best fit, then suggests more orders
+ * for the route. Mandatory orders stay locked through every edit (the engine guarantees it too).
+ */
 export default function DueSchedulePage({
-  day,
-  vehicles,
+  mandatoryApiIds,
   orders,
+  ordersDate,
+  dueVersion,
+  today,
+  planningDate,
+  planning,
   onOpenManageVehicles,
   onOpenDefer,
   onOpenNormal,
-  onScheduled,
 }: {
-  day: number
-  vehicles: Vehicle[]
+  /** Backend ids of the orders chosen in the calendar. */
+  mandatoryApiIds: string[]
   orders: Order[]
+  ordersDate: string | null
+  dueVersion: number
+  today: string | null
+  planningDate: string | null
+  planning?: PlanningService
   onOpenManageVehicles: () => void
   onOpenDefer: () => void
   onOpenNormal: () => void
-  onScheduled: (message: string, scheduled: Order[], day: number, vehicle: Vehicle, departureTime: string) => void | Promise<void>
 }) {
-  const isToday = day === TODAY
-  const label = dayLabel(day)
   const highlightedOrder = new URLSearchParams(window.location.search).get("order")
-  const openOrders = orders.filter((o) => !o.deferred)
+  const routeDate = planningDate ?? ""
+  const label = planningDate && today ? dateLabel(planningDate, today) : "loading date…"
+  const isToday = Boolean(planningDate && planningDate === today)
+  const [departsTime] = useState(() => (isToday ? "12:30" : "07:00"))
 
-  // Orders due that day that still need a route (locked on this page).
-  const locked = useMemo(() => {
-    const dueThatDay = openOrders.filter(
-      (o) => (o.dueDay ?? TODAY) === day && !o.stop,
-    )
-    if (!isToday) return dueThatDay
-    const known = openOrders.filter((o) => TODAY_ORDER_IDS.includes(o.id))
-    return known.length ? known : dueThatDay.filter((o) => !o.emergency).slice(0, 2)
-  }, [openOrders, day, isToday])
-
-  // Other orders on the same route: the day's known extras plus open orders
-  // due later in the same towns.
-  const extras = useMemo(() => {
-    const lockedIds = locked.map((o) => o.id)
-    const towns = locked.map((o) => o.town)
-    const fromData = openOrders.filter(
-      (o) =>
-        !lockedIds.includes(o.id) &&
-        !o.stop &&
-        !o.emergency &&
-        o.inReach &&
-        (o.dueDay ?? TODAY) > day &&
-        towns.includes(o.town),
-    )
-    const known = (ROUTE_EXTRAS_BY_DAY[day] ?? [])
-      .map((e) => orders.find((o) => o.id === e.id) ?? e)
-      .filter((o) => !o.deferred && !o.stop && !lockedIds.includes(o.id))
-    const list = [...known, ...fromData.filter((o) => !known.some((k) => k.id === o.id))]
-    return list.slice(0, 4)
-  }, [orders, openOrders, locked, day])
-
-  const lockedKg = locked.reduce((sum, o) => sum + o.kg, 0)
-
-  // Suggestion rule: under weekly quota, big enough for the locked orders,
-  // smallest good fit first, then fewest turns, then most fuel.
-  const candidates = useMemo(
-    () =>
-      vehicles
-        .filter((v) => canGo(v) && v.capacityKg >= lockedKg && vehicleDay(v).volumeM3 >= volumeOf(locked))
-        .sort(
-          (a, b) => a.capacityKg - b.capacityKg || a.turns - b.turns || b.fuel - a.fuel,
-        ),
-    [vehicles, lockedKg],
-  )
-
-  const [suggestIndex, setSuggestIndex] = useState(0)
-  const [manualVehicle, setManualVehicle] = useState<Vehicle | null>(null)
+  const [plan, setPlan] = useState<PlanResult | null>(null)
+  const [manualVehicle, setManualVehicle] = useState(false)
   const [choosing, setChoosing] = useState(false)
-  const [added, setAdded] = useState<string[]>([])
   const [overlay, setOverlay] = useState<"review" | "check" | null>(null)
-  const [reviewPack, setReviewPack] = useState<Order[]>([])
+  const [reviewIds, setReviewIds] = useState<string[]>([])
+  const [reviewDropped, setReviewDropped] = useState<string[]>([])
   const [checked, setChecked] = useState<string[]>([])
+  const [notice, setNotice] = useState("")
 
-  const aiVehicle = candidates.length ? candidates[suggestIndex % candidates.length] : null
-  const vehicle = manualVehicle ?? aiVehicle
-  const isAiPick = !manualVehicle && Boolean(aiVehicle)
+  const engine = useEngineContext(planningDate, dueVersion)
+  const ctx = useContextWithDeparture(engine.ctx, departsTime)
+  const ordersReady = ordersDate === planningDate
+  const openOrders = useMemo(() => (ordersReady ? orders.filter((o) => !o.deferred) : []), [orders, ordersReady])
+  const engineOrders = useMemo(() => openOrders.map(toEngineOrder).filter((o): o is NonNullable<typeof o> => o !== null), [openOrders])
+  const orderByApiId = useMemo(() => new Map(openOrders.map((o) => [o.apiId, o])), [openOrders])
+  const orderByNumber = useMemo(() => new Map(openOrders.map((o) => [o.id, o])), [openOrders])
+  const mandatoryOpen = mandatoryApiIds.filter((id) => orderByApiId.has(id))
+  const missingMandatory = ordersReady && mandatoryOpen.length !== mandatoryApiIds.length
 
-  const addedExtras = extras.filter((o) => added.includes(o.id))
-  const remainingExtras = extras.filter((o) => !added.includes(o.id))
-  const pack = [...locked, ...addedExtras]
-  const loadKg = pack.reduce((sum, o) => sum + o.kg, 0)
-  const capacity = vehicle?.capacityKg ?? 1
-  const capacityPercent = Math.round((loadKg / capacity) * 100)
-  const remainingKg = remainingExtras.reduce((sum, o) => sum + o.kg, 0)
-  const routeName = routeNameFor(pack)
-  const packVolume = volumeOf(pack)
-  const volumeCap = vehicle ? vehicleDay(vehicle).volumeM3 : 1
-  const departs = isToday ? "now" : "07:00"
+  // Plan (re)built from the engine whenever its inputs change; the dispatcher's added orders and chosen
+  // vehicle are carried over so the screen never goes stale.
+  useEffect(() => {
+    if (!ctx || !ordersReady || !mandatoryOpen.length || missingMandatory) { setPlan(null); return }
+    setPlan((prev) => {
+      const keepVehicle = manualVehicle && prev?.vehicleId ? { vehicleId: prev.vehicleId } : {}
+      const base = planFromOrders(mandatoryOpen, engineOrders, engine.vehicles, ctx, { autoSelect: false, ...keepVehicle, excludeOrderIds: prev?.suggestionExcludedIds ?? [] })
+      if (!prev?.vehicleId || !base.vehicleId) return base
+      return recompute(base, { type: "addMany", orderIds: prev.selectedIds }, engineOrders, engine.vehicles, ctx)
+    })
+    // mandatoryOpen is derived from the URL ids and the order list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx, engineOrders, engine.vehicles, ordersReady, mandatoryApiIds.join(",")])
 
-  const toggleAdded = (order: Order) => {
-    setAdded((prev) =>
-      prev.includes(order.id)
-        ? prev.filter((id) => id !== order.id)
-        : loadKg + order.kg <= capacity && packVolume + orderVolume(order) <= volumeCap
-          ? [...prev, order.id]
-          : prev,
-    )
+  const applyEdit = (edit: PlanEdit) => {
+    if (!plan || !ctx) return
+    const next = recompute(plan, edit, engineOrders, engine.vehicles, ctx)
+    setPlan(next)
+    const rejected = next.lastEdit?.rejected
+    setNotice(rejected?.length ? `Can't add: ${[...new Set(rejected.map(reasonLabel))].join(", ")}` : "")
   }
 
-  const suggestAnother = () => {
-    const next = candidates[(suggestIndex + 1) % Math.max(candidates.length, 1)]
-    setManualVehicle(null)
-    setChoosing(false)
-    setSuggestIndex((i) => i + 1)
-    if (next) {
-      let kg = lockedKg
-      setAdded((prev) =>
-        prev.filter((id) => {
-          const o = extras.find((e) => e.id === id)
-          if (!o || kg + o.kg > next.capacityKg) return false
-          kg += o.kg
-          return true
-        }),
-      )
-    }
+  const vehicleEng = plan?.vehicleId ? engine.vehicles.find((v) => v.vehicleId === plan.vehicleId) ?? null : null
+  const vehicle = vehicleEng && ctx ? toUiVehicle(vehicleEng, ctx.vehicleState[vehicleEng.vehicleId]) : null
+  const route = plan?.route ?? null
+  const mandatoryIds = new Set(plan?.mandatoryIds ?? [])
+  const selected = new Set(plan?.selectedIds ?? [])
+  const locked = (plan?.mandatoryIds ?? []).map((id) => orderByApiId.get(id)).filter((o): o is Order => Boolean(o))
+  const suggestionExtras = (plan?.suggestion?.suggested ?? []).filter((o) => !mandatoryIds.has(o.id) && !selected.has(o.id))
+  const extraKg = suggestionExtras.reduce((sum, o) => sum + o.weightKg, 0)
+  const extras = (plan?.eligibleOrders ?? []).filter((a) => !mandatoryIds.has(a.order.id))
+  const suggestedIds = new Set((plan?.suggestion?.suggested ?? []).map((o) => o.id))
+  const aiBest = plan?.ranking.find((r) => r.eligible)?.vehicle.vehicleId
+  const isAiPick = Boolean(vehicle) && !manualVehicle && vehicle?.id === aiBest
+  const otherVehicles = (plan?.ranking ?? []).filter((r) => r.eligible && r.vehicle.vehicleId !== plan?.vehicleId).length
+  const suggestionCheck = useMemo(() => {
+    if (!vehicleEng || !ctx || !suggestionExtras.length || !plan) return null
+    const current = plan.selectedIds.map((id) => engineOrders.find((o) => o.id === id)).filter((o): o is NonNullable<typeof o> => Boolean(o))
+    return evaluateRoute(vehicleEng, [...current, ...suggestionExtras], ctx)
+  }, [vehicleEng, ctx, suggestionExtras, plan, engineOrders])
+
+  const reviewPack = reviewIds.map((id) => orderByApiId.get(id)).filter((o): o is Order => Boolean(o))
+  const excludedNow = new Set([...(plan?.suggestionExcludedIds ?? []), ...reviewIds, ...reviewDropped])
+  const alternativesLeft = extras.some((a) => a.eligible && !a.alreadyAdded && !excludedNow.has(a.order.id))
+  const openReview = () => {
+    setReviewIds(suggestionExtras.map((o) => o.id))
+    setReviewDropped([])
+    setOverlay("review")
+  }
+  const suggestAnotherPack = () => {
+    if (!plan || !ctx) return
+    const next = recompute(plan, { type: "resuggest", excludeOrderIds: [...excludedNow] }, engineOrders, engine.vehicles, ctx)
+    setPlan(next)
+    setReviewIds((next.suggestion?.suggested ?? []).filter((o) => !next.mandatoryIds.includes(o.id) && !next.selectedIds.includes(o.id)).map((o) => o.id))
+    setReviewDropped([])
   }
 
-  const available = (type: string) =>
-    vehicles.filter((v) => v.type === type && canGo(v)).length
+  const packOrders: Order[] = route
+    ? route.stops.map((s) => orderByApiId.get(s.orderId)).filter((o): o is Order => Boolean(o)).map((o, i) => ({ ...o, stop: i + 1 }))
+    : []
+  const check = usePlanningCheck({
+    planning: planning ?? { prepare: () => Promise.reject(new Error("Planning service unavailable")), publish: () => Promise.resolve(), onPublished: () => undefined },
+    open: overlay === "check", vehicle, orders: packOrders, route, routeDate, departsTime, onScheduled: () => setOverlay(null),
+  })
+  const routeName = route?.stops[0] ? `${vehicle?.depot ?? "Depot"} → ${route.stops[0].district}` : "Route"
+  const available = (type: "Van" | "Lorry" | "Refrigerated") => (plan?.ranking ?? []).filter((r) => r.eligible && uiVehicleType(r.vehicle) === type).length
+  const departsLabel = route?.departureMin != null ? hhmm(route.departureMin) : departsTime
 
-  if (!locked.length) {
+  if (!planning) {
     return (
       <section className="page page-enter">
-        <div className="page-heading">
-          <PageTitle>Route scheduling</PageTitle>
+        <div className="page-heading"><PageTitle>Route scheduling</PageTitle></div>
+        <div className="workspace-card calendar-empty">
+          <strong>Scheduling needs the planning service</strong>
+          <span>Orders, vehicles and the suggestion engine load from the backend, which is not connected in prototype mode.</span>
         </div>
+      </section>
+    )
+  }
+
+  if (!mandatoryApiIds.length || missingMandatory) {
+    return (
+      <section className="page page-enter">
+        <div className="page-heading"><PageTitle>Route scheduling</PageTitle></div>
         <div className="workspace-card calendar-empty">
           <CheckCircle2 aria-hidden="true" size={32} />
-          <strong>Every order due {isToday ? "today" : label.short} already has a route</strong>
-          <span>Use normal scheduling to plan other orders.</span>
-          <Button onClick={onOpenNormal} variant="primary">
-            Open scheduling
-          </Button>
+          <strong>{missingMandatory ? "Those orders already have a route" : "No orders selected"}</strong>
+          <span>{missingMandatory ? "They are no longer open for planning." : "Pick the orders to schedule in the calendar, or use normal scheduling."}</span>
+          <Button onClick={onOpenNormal} variant="primary">Open scheduling</Button>
         </div>
       </section>
     )
@@ -159,15 +171,9 @@ export default function DueSchedulePage({
           <div className="route-date-wrapper">
             <span className={`route-date-chip ${isToday ? "" : "route-date-chip--future"}`}>
               <Clock size={16} />
-              <span>
-                {isToday
-                  ? "Immediate · Today · Sun 27 · departs now"
-                  : `Route date: ${label.short} · departs ${departs}`}
-              </span>
+              <span>Route date: {label} · departs {departsLabel}</span>
             </span>
-            <span className="step-subtitle">
-              From calendar · vehicle picked, add more on route
-            </span>
+            <span className="step-subtitle">From calendar · vehicle suggested, add more on route</span>
           </div>
         </div>
       </div>
@@ -175,31 +181,20 @@ export default function DueSchedulePage({
       <div className="workspace-card schedule-workspace">
         {/* Left: orders */}
         <section className="orders-panel calendar-vehicle-entry">
-          <div
-            className="orders-heading"
-          >
+          <div className="orders-heading">
             <div>
               <Heading>Orders</Heading>
               <span>
                 {openOrders.length} open ·{" "}
-                <b style={{ color: "var(--critical-500)" }}>
-                  {openOrders.filter((o) => o.emergency).length} emergency
-                </b>
+                <b style={{ color: "var(--critical-500)" }}>{openOrders.filter((o) => o.emergency).length} emergency</b>
               </span>
             </div>
           </div>
 
           <div className="order-filters">
-            <span className="order-filter order-filter--active">
-              Due {day} Sep · {locked.length}
-            </span>
+            <span className="order-filter order-filter--active">Due {label} · {locked.length}</span>
             {(["Fresh", "Tech", "Style"] as const).map((type) => (
-              <UnstyledButton
-                className="order-filter"
-                key={type}
-                onClick={onOpenNormal}
-                title="Open normal scheduling"
-              >
+              <UnstyledButton className="order-filter" key={type} onClick={onOpenNormal} title="Open normal scheduling">
                 {type} · {openOrders.filter((o) => o.type === type).length}
               </UnstyledButton>
             ))}
@@ -207,101 +202,69 @@ export default function DueSchedulePage({
 
           <div className="order-list calendar-picked-orders">
             <strong className="locked-orders-label">
-              <Lock aria-hidden="true" size={18} /> Due{" "}
-              {isToday ? "today" : label.short} · added, can&apos;t be removed
+              <Lock aria-hidden="true" size={18} /> Due {isToday ? "today" : label} · added, can&apos;t be removed
             </strong>
             {locked.map((order) => (
               <div
-                className={`order-row order-row--locked ${order.emergency ? "order-row--emergency" : ""
-                  } ${highlightedOrder === order.id ? "order-row--highlighted" : ""} order-row--clickable`}
+                className={`order-row order-row--locked ${order.emergency ? "order-row--emergency" : ""} ${highlightedOrder === order.id ? "order-row--highlighted" : ""} order-row--clickable`}
                 key={order.id}
                 {...orderRowOpenProps(order)}
               >
-                {order.emergency ? (
-                  <AlertCircle className="order-row__alert" aria-hidden="true" size={26} />
-                ) : (
-                  <span className="order-row__alert-space" />
-                )}
+                {order.emergency ? <AlertCircle className="order-row__alert" aria-hidden="true" size={26} /> : <span className="order-row__alert-space" />}
                 <div className="order-row__content">
                   <div className="order-row__line">
                     <span className="data-text">{order.id}</span>
                     <ShopTag type={order.type} />
                     <strong className="order-row__kg">{order.kg} kg</strong>
-                    <Button
-                      className="order-row__action"
-                      disabled
-                      title={`Due ${isToday ? "today" : label.short}, can't be removed`}
-                      variant="confirm"
-                    >
+                    <Button className="order-row__action" disabled title={`Due ${isToday ? "today" : label}, can't be removed`} variant="confirm">
                       ✓ Added
                     </Button>
                   </div>
-                  <span className="order-row__meta">
-                    {order.shop} · {order.town} · {order.items} · due{" "}
-                    {isToday ? "today" : label.weekday + " " + day}
-                  </span>
+                  <span className="order-row__meta">{order.shop} · due {isToday ? "today" : label}</span>
                 </div>
               </div>
             ))}
 
-            {remainingExtras.length ? (
+            {vehicle && suggestionExtras.length ? (
               <div className="suggestion-banner suggestion-banner--ai route-suggestion-banner">
                 <Bolt size={24} color="var(--cobalt-500)" />
                 <div>
-                  <strong>
-                    AI: also on this route · {remainingExtras.length}{" "}
-                    {remainingExtras.length === 1 ? "order" : "orders"}
-                  </strong>
+                  <strong>AI: also on this route · {suggestionExtras.length} {suggestionExtras.length === 1 ? "order" : "orders"}</strong>
                   <span>
-                    +{remainingKg} kg · load {loadKg + remainingKg} /{" "}
-                    {capacity.toLocaleString()} kg
+                    +{extraKg.toLocaleString()} kg · load {((route?.load.weightKg ?? 0) + extraKg).toLocaleString()} / {vehicle.capacityKg.toLocaleString()} kg
+                    {suggestionCheck?.tripMinutes != null ? ` · ${suggestionCheck.tripMinutes} min` : ""}
                   </span>
                 </div>
-                <Button
-                  onClick={() => {
-                    setReviewPack(remainingExtras)
-                    setOverlay("review")
-                  }}
-                  variant="primary"
-                >
-                  Review
-                </Button>
+                <Button onClick={openReview} variant="primary">Review</Button>
               </div>
             ) : null}
+            {notice ? <p role="alert" style={{ color: "var(--critical-500)", margin: "4px 0" }}>{notice}</p> : null}
 
-            {extras.map((order) => {
-              const isAdded = added.includes(order.id)
-              const fits =
-                isAdded ||
-                (loadKg + order.kg <= capacity && packVolume + orderVolume(order) <= volumeCap)
+            {extras.map(({ order, eligible, reasons, alreadyAdded }) => {
+              const ui = orderByApiId.get(order.id)
+              if (!ui) return null
               return (
-                <div
-                  className="order-row order-row--clickable"
-                  key={order.id}
-                  {...orderRowOpenProps(order)}
-                >
+                <div className="order-row order-row--clickable" key={order.id} {...orderRowOpenProps(ui)}>
                   <span className="order-row__alert-space" />
                   <div className="order-row__content">
                     <div className="order-row__line">
-                      <span className="data-text">{order.id}</span>
-                      <ShopTag type={order.type} />
-                      <Bolt aria-label="AI suggested order" className="suggestion-star" size={20} />
-                      <strong className="order-row__kg">{order.kg} kg</strong>
-                      {fits ? (
+                      <span className="data-text">{ui.id}</span>
+                      <ShopTag type={ui.type} />
+                      {suggestedIds.has(order.id) ? <Bolt aria-label="AI suggested order" className="suggestion-star" size={20} /> : null}
+                      <strong className="order-row__kg">{ui.kg} kg</strong>
+                      {alreadyAdded || eligible ? (
                         <Button
                           className="order-row__action"
-                          onClick={() => toggleAdded(order)}
-                          variant={isAdded ? "primary" : "secondary"}
+                          onClick={() => applyEdit(alreadyAdded ? { type: "drop", orderId: order.id } : { type: "add", orderId: order.id })}
+                          variant={alreadyAdded ? "primary" : "secondary"}
                         >
-                          {isAdded ? "✓ Added" : "+ Add"}
+                          {alreadyAdded ? "✓ Added" : "+ Add"}
                         </Button>
                       ) : (
-                        <span className="out-of-reach">Over capacity</span>
+                        <span className="out-of-reach" title={reasons.map((r) => r.message).join("\n")}>{reasons[0] ? reasonLabel(reasons[0]) : "Out of reach"}</span>
                       )}
                     </div>
-                    <span className="order-row__meta">
-                      {order.shop} · {order.town} · {order.items}
-                    </span>
+                    <span className="order-row__meta">{ui.shop} · {ui.items}</span>
                   </div>
                 </div>
               )
@@ -321,93 +284,48 @@ export default function DueSchedulePage({
         <section className="vehicle-panel">
           <div className="availability-wrap">
             <div className="availability">
-              <strong>Available</strong>
-              <span>
-                <Truck aria-hidden="true" size={24} /> ×{available("Van")}
-              </span>
-              <span>
-                <Truck aria-hidden="true" size={24} /> ×{available("Lorry")}
-              </span>
-              <span>
-                <Snowflake aria-hidden="true" size={19} /> ×{available("Refrigerated")}
-              </span>
+              <strong>Available for these orders</strong>
+              <span><Truck aria-hidden="true" size={24} /> Van ×{available("Van")}</span>
+              <span><Truck aria-hidden="true" size={24} /> Lorry ×{available("Lorry")}</span>
+              <span><Snowflake aria-hidden="true" size={19} /> Refrigerated ×{available("Refrigerated")}</span>
             </div>
           </div>
 
-          {choosing || !vehicle ? (
+          {ctx?.devMode ? (
+            <p className="mute" role="note" style={{ margin: "4px 0", fontSize: 12 }}>
+              Development mode: closed-day, Fresh-deadline and due-date rules are shown as warnings, not blockers. All other rules apply.
+            </p>
+          ) : null}
+
+          {engine.status === "loading" || (engine.status === "ready" && !ordersReady) ? <div className="vehicle-search"><span className="mute">Loading vehicles and orders…</span></div> : null}
+          {engine.status === "error" ? <div className="vehicle-search"><p role="alert" style={{ color: "var(--critical-500)" }}>{engine.error}</p></div> : null}
+
+          {engine.status === "ready" && plan && ctx && (choosing || !vehicle) ? (
             <div className="vehicle-search">
-              <strong className="matching-count">
-                {vehicle ? "Choose another vehicle" : "No vehicle can take these orders"}
-              </strong>
-              <div className="vehicle-grid">
-                {vehicles.map((v) => {
-                  const quota = blockedReason(v) !== null
-                  const tooSmall =
-                    v.capacityKg < lockedKg || vehicleDay(v).volumeM3 < volumeOf(locked)
-                  return (
-                    <UnstyledButton
-                      className={`vehicle-card ${quota || tooSmall ? "vehicle-card--quota-reached" : ""}`}
-                      key={v.id}
-                      onClick={() => {
-                        if (quota) return onOpenManageVehicles()
-                        if (tooSmall) return
-                        setManualVehicle(v)
-                        setChoosing(false)
-                      }}
-                      title={
-                        isAtQuota(v)
-                          ? "Weekly quota reached · raise it in Manage vehicles"
-                          : quota
-                            ? `${DAILY_TURN_LIMIT} turns done today · free again tomorrow`
-                            : tooSmall
-                              ? "Too small for these orders"
-                              : "Select vehicle"
-                      }
-                    >
-                      <VehicleGraphic vehicle={v} />
-                      <strong className="data-text">{v.id}</strong>
-                      <b>{v.type}</b>
-                      <span className={quota ? "vehicle-card__quota-text" : ""}>
-                        {quota
-                          ? blockedReason(v)
-                          : tooSmall
-                            ? "Too small"
-                            : `${v.capacityKg.toLocaleString()} kg · ${vehicleDay(v).volumeM3} m³ · ${v.length}`}
-                      </span>
-                      <span className="vehicle-card__turns">
-                        Turns today {vehicleDay(v).turnsToday} / {DAILY_TURN_LIMIT}
-                      </span>
-                      <em>{quota ? "Manage →" : "Select →"}</em>
-                    </UnstyledButton>
-                  )
-                })}
-              </div>
-              {vehicle ? (
-                <Button onClick={() => setChoosing(false)} variant="secondary">
-                  Back to AI suggestion
-                </Button>
-              ) : null}
+              <strong className="matching-count">{vehicle ? "Choose another vehicle" : "No vehicle can take these orders"}</strong>
+              <VehicleGrid
+                ctx={ctx}
+                onPick={(id) => { setManualVehicle(true); setChoosing(false); applyEdit({ type: "setVehicle", vehicleId: id }) }}
+                ranking={plan.ranking}
+                showFit
+              />
+              {vehicle ? <Button onClick={() => setChoosing(false)} variant="secondary">Back to AI suggestion</Button> : null}
             </div>
-          ) : (
+          ) : null}
+
+          {engine.status === "ready" && plan && ctx && !choosing && vehicle && route ? (
             <div className="selected-vehicle">
-              <div
-                className={`selected-card ${isAiPick ? "selected-card--ai" : ""}`}
-                style={{ flexDirection: "column", gap: 0 }}
-              >
+              <div className={`selected-card ${isAiPick ? "selected-card--ai" : ""}`} style={{ flexDirection: "column", gap: 0 }}>
                 <div className="calendar-selected-card__label">
                   <strong>
                     <Bolt aria-hidden="true" size={20} />
                     {isAiPick ? "AI suggested vehicle · Best fit" : "Vehicle chosen by you"}
                   </strong>
                   <Button
-                    disabled={candidates.length < 2 && isAiPick}
+                    disabled={otherVehicles < 1}
                     icon={Bolt}
-                    onClick={suggestAnother}
-                    title={
-                      candidates.length < 2
-                        ? "No other vehicle fits these orders"
-                        : "Suggest the next best vehicle"
-                    }
+                    onClick={() => { setManualVehicle(false); applyEdit({ type: "nextVehicle" }) }}
+                    title={otherVehicles < 1 ? "No other vehicle fits these orders" : "Suggest the next best vehicle"}
                     variant="secondary"
                   >
                     Suggest another
@@ -419,41 +337,26 @@ export default function DueSchedulePage({
                     <div className="selected-card__title">
                       <strong className="data-text">{vehicle.id}</strong>
                       <span>{vehicle.type}</span>
-                      <TurnsToday vehicle={vehicle} />
+                      <span className="turns-today">Turns today {ctx.vehicleState[vehicle.id]?.turnsToday ?? 0} / {DAILY_TURN_LIMIT}</span>
                       <UnstyledButton onClick={() => setChoosing(true)}>Change</UnstyledButton>
                     </div>
-                    <div className="selected-card__load">
-                      <strong>
-                        Load {loadKg.toLocaleString()} / {vehicle.capacityKg.toLocaleString()} kg
-                      </strong>
-                      <b>{capacityPercent}%</b>
-                    </div>
-                    <ProgressBar value={capacityPercent} warning={capacityPercent >= 90} />
-                    <VolumeRow used={volumeOf(pack)} vehicle={vehicle} />
+                    <LoadBars route={route} vehicle={vehicle} />
                   </div>
                 </div>
               </div>
 
-              <RouteLineMap added={added} extras={extras} locked={locked} />
+              <RouteMap depot={vehicle.depot ?? "Depot"} route={route} />
 
               <div className="selected-footer">
                 <strong>
-                  {pack.length} {pack.length === 1 ? "order" : "orders"} ·{" "}
-                  {loadKg.toLocaleString()} kg
+                  {route.stops.length} {route.stops.length === 1 ? "order" : "orders"} · {route.load.weightKg.toLocaleString()} kg
                 </strong>
-                <Button
-                  icon={Check}
-                  onClick={() => {
-                    setChecked(pack.map((o) => o.id))
-                    setOverlay("check")
-                  }}
-                  variant="primary"
-                >
+                <Button icon={Check} onClick={() => { setChecked(packOrders.map((o) => o.id)); setOverlay("check") }} variant="primary">
                   Check
                 </Button>
               </div>
             </div>
-          )}
+          ) : null}
 
           <div className="panel-actions">
             <p>Turns, km, fuel and quotas for every vehicle.</p>
@@ -467,19 +370,18 @@ export default function DueSchedulePage({
 
       {overlay === "review" && vehicle ? (
         <ReviewModal
-          onAdd={() => {
-            let kg = loadKg
-            const fitting = reviewPack.filter((o) => {
-              if (kg + o.kg > vehicle.capacityKg) return false
-              kg += o.kg
-              return true
-            })
-            setAdded((prev) => [...prev, ...fitting.map((o) => o.id)])
-            setOverlay(null)
-          }}
+          baseKg={route ? route.load.weightKg : 0}
+          onAdd={() => { applyEdit({ type: "addMany", orderIds: reviewIds }); setOverlay(null) }}
           onClose={() => setOverlay(null)}
-          onDrop={(id) => setReviewPack((prev) => prev.filter((o) => o.id !== id))}
+          onDrop={(id) => {
+            const apiId = orderByNumber.get(id)?.apiId
+            if (!apiId) return
+            setReviewIds((prev) => prev.filter((x) => x !== apiId))
+            setReviewDropped((prev) => [...prev, apiId])
+          }}
+          onSuggestAnother={suggestAnotherPack}
           pack={reviewPack}
+          suggestAnotherDisabled={!alternativesLeft}
           vehicle={vehicle}
         />
       ) : null}
@@ -490,26 +392,19 @@ export default function DueSchedulePage({
           lockedIds={locked.map((o) => o.id)}
           onClose={() => setOverlay(null)}
           onDrop={(id) => {
-            setAdded((prev) => prev.filter((item) => item !== id))
+            const apiId = orderByNumber.get(id)?.apiId
+            if (apiId && !mandatoryIds.has(apiId)) applyEdit({ type: "drop", orderId: apiId })
             setChecked((prev) => prev.filter((item) => item !== id))
           }}
-          onSchedule={() => {
-            setOverlay(null)
-            recordTurn(vehicle)
-            void onScheduled(
-              isToday
-                ? `Route ${vehicle.id} scheduled · ${pack.length} orders, leaving now`
-                : `Route ${vehicle.id} scheduled for ${label.short} · departs ${departs}`,
-              pack,
-              day,
-              vehicle,
-              departs,
-            )
-          }}
-          pack={pack}
+          onRetryValidation={check.retry}
+          onSchedule={() => void check.schedule()}
+          pack={packOrders}
           routeName={routeName}
+          scheduling={check.scheduling}
           setChecked={setChecked}
           vehicle={vehicle}
+          {...(check.validation ? { validation: check.validation } : {})}
+          {...(check.submitError ? { submitError: check.submitError } : {})}
         />
       ) : null}
     </section>

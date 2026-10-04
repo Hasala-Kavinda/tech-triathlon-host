@@ -14,6 +14,9 @@ WORKDIR /app
 COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY ${APP_DIR}/ ./
+# The Dispatcher imports the pure route-suggestion engine from the backend package (vite alias
+# "@route-engine" -> ../backend/src/route-engine). Other apps simply ignore it.
+COPY backend/src/route-engine /backend/src/route-engine
 RUN npm run build
 
 FROM nginx:1.29-alpine

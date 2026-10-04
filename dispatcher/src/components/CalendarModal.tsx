@@ -17,6 +17,8 @@ type CalendarModalProps = {
   /** The home screen's shop-type filter; null = all brands. */
   brand?: ShopType | null
   onClose: () => void
+  /** Order-first flow: schedule these orders now (they become mandatory on the route). */
+  onScheduleNow: (date: string, orderApiIds: string[]) => void
   /** Go to Route scheduling for this date. The calendar never schedules anything itself. */
   onOpenDay: (date: string) => void
 }
@@ -45,12 +47,13 @@ const toOrder = (order: DueOrder): Order => ({
   suggested: true,
 })
 
-export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey = 0, brand = null, onClose, onOpenDay }: CalendarModalProps) {
+export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey = 0, brand = null, onClose, onScheduleNow, onOpenDay }: CalendarModalProps) {
   const now = useNow(offsetMs)
   const [monthStart, setMonthStart] = useState(monthStartOf(initialDate))
   const [selected, setSelected] = useState(initialDate)
   const [dayOrders, setDayOrders] = useState<DueOrder[] | null>(null)
   const [dayFailed, setDayFailed] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
 
   const nextMonthStart = shiftMonth(monthStart, 1)
   const monthEnd = addDays(nextMonthStart, -1)
@@ -68,6 +71,7 @@ export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey 
     let cancelled = false
     setDayOrders(null)
     setDayFailed(false)
+    setPicked([])
     planningApi.dueOrders(selected, brand)
       .then((rows) => { if (!cancelled) setDayOrders(rows) })
       .catch(() => { if (!cancelled) { setDayOrders([]); setDayFailed(true) } })
@@ -184,10 +188,19 @@ export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey 
               </p>
               <div className="calendar-order-list">
                 {dayOrders.map((order) => (
+                  <div className="calendar-order-pick" key={order._id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      aria-label={`Schedule ${order.orderNumber} now`}
+                      checked={picked.includes(order._id)}
+                      disabled={isScheduled(order)}
+                      onChange={() => setPicked((prev) => (prev.includes(order._id) ? prev.filter((id) => id !== order._id) : [...prev, order._id]))}
+                      title={isScheduled(order) ? "Already scheduled" : "Pick to schedule now (the order becomes mandatory on the route)"}
+                      type="checkbox"
+                    />
                   <UnstyledButton
                     className={`calendar-order ${order.cutoffBucket === "after_cutoff" ? "calendar-order--emergency" : ""}`}
-                    key={order._id}
                     onClick={() => openOrderDetails(toOrder(order))}
+                    style={{ flex: 1 }}
                     title="Open order details"
                   >
                     <span>
@@ -210,6 +223,7 @@ export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey 
                       {order.status.replaceAll("_", " ")}
                     </strong>
                   </UnstyledButton>
+                  </div>
                 ))}
               </div>
             </>
@@ -222,7 +236,10 @@ export function CalendarModal({ today, offsetMs, synced, initialDate, reloadKey 
           )}
 
           <div className="calendar-date-actions">
-            <Button onClick={() => onOpenDay(selected)} variant="primary">
+            <Button disabled={!picked.length} onClick={() => onScheduleNow(selected, picked)} variant="primary">
+              {picked.length ? `Schedule ${picked.length} selected now →` : "Pick orders to schedule now"}
+            </Button>
+            <Button onClick={() => onOpenDay(selected)} variant="secondary">
               {selected === today ? "Open route scheduling for today →" : `Open route scheduling for ${shortDate(selected)} →`}
             </Button>
           </div>

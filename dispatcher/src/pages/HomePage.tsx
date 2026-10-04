@@ -20,6 +20,7 @@ export default function HomePage({
   offsetMs,
   synced,
   openDay,
+  scheduleNow,
   routes,
   orders,
 }: {
@@ -35,6 +36,8 @@ export default function HomePage({
   synced: boolean
   /** Opens Route scheduling for a date (sets the Route date, then navigates). */
   openDay: (date: string, brand?: ShopType | null) => void
+  /** Order-first scheduling: the picked orders become mandatory on the chosen date. */
+  scheduleNow: (date: string, orderApiIds: string[]) => void
   routes: RouteRecord[]
   orders: Order[]
 }) {
@@ -210,6 +213,10 @@ export default function HomePage({
           reloadKey={dueVersion}
           offsetMs={offsetMs}
           onClose={() => setCalendarOpen(false)}
+          onScheduleNow={(date, ids) => {
+            setCalendarOpen(false)
+            scheduleNow(date, ids)
+          }}
           onOpenDay={(date) => {
             setCalendarOpen(false)
             openDay(date, filter)

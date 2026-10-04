@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route engine harness</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b2430; --mute:#6b7685; --line:#dde2ea; --ok:#12805c; --bad:#b42318; --warn:#b54708; --accent:#2457d6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --card:#1b212b; --ink:#e8ecf2; --mute:#98a2b3; --line:#2a3340; --ok:#4cc29a; --bad:#f97066; --warn:#fdb022; --accent:#7aa2ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  .banner { background:#fff4e5; color:#7a4100; padding:8px 16px; font-size:13px; }
+  @media (prefers-color-scheme: dark) { .banner { background:#3a2a10; color:#fdd9a0; } }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap:12px; padding:12px 16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:0; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--mute); margin:0 0 8px; }
+  label { display:inline-flex; gap:6px; align-items:center; margin-right:10px; color:var(--mute); }
+  input, select, button { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); }
+  button { cursor:pointer; } button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  table { width:100%; border-collapse:collapse; } td, th { padding:3px 6px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; }
+  .list { max-height:340px; overflow:auto; }
+  .row { padding:6px; border:1px solid var(--line); border-radius:6px; margin-bottom:6px; cursor:default; }
+  .row.pick { cursor:pointer; } .row.pick:hover { border-color:var(--accent); }
+  .row.faded { opacity:.45; } .row.sel { outline:2px solid var(--accent); }
+  .tag { display:inline-block; padding:0 6px; border-radius:10px; font-size:11px; border:1px solid var(--line); margin-left:4px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .mute { color:var(--mute); }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; } .bar > i { display:block; height:100%; background:var(--accent); }
+  .bar.over > i { background:var(--bad); }
+  .syn { font-size:11px; color:var(--warn); }
+  small { color:var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Route engine harness</h1>
+  <label>Service date <input id="date" type="date" /></label>
+  <label>Flow
+    <select id="flow"><option value="vehicle">1 · Vehicle-first</option><option value="order">2 · Order-first (mandatory orders)</option></select>
+  </label>
+  <label>Style/Tech departure <input id="stdep" type="time" title="Needed to evaluate mall windows; the rules do not specify one" /></label>
+  <button id="reload">Reload data</button>
+  <span id="status" class="mute"></span>
+</header>
+<div class="banner">Isolated test page - not part of the Dispatcher. Reference data = real Drive Data CSVs. Orders marked <b>SYNTHETIC</b> are made up here; real orders come from MongoDB when it has any. Fresh/Style+Tech minutes already used today are NOT derivable from the DB: enter them under "Vehicle state".</div>
+<main>
+  <section id="orders-sec"><h2>Open orders</h2>
+    <div>
+      <label>Outlet <select id="nOutlet"></select></label>
+      <label>kg <input id="nKg" type="number" value="50" style="width:70px" /></label>
+      <label>m³ <input id="nM3" type="number" value="0.5" step="0.1" style="width:60px" /></label>
+      <label><input id="nChill" type="checkbox" /> chilled</label>
+      <button id="addSyn">+ synthetic order</button>
+    </div>
+    <div id="orders" class="list" style="margin-top:8px"></div>
+  </section>
+  <section><h2>Vehicles <small id="vsub"></small></h2>
+    <div><label>Vehicle state override <select id="svSel"></select></label>
+      <label>turns <input id="svTurns" type="number" min="0" max="2" style="width:50px" /></label>
+      <label>fresh min <input id="svFresh" type="number" min="0" style="width:60px" /></label>
+      <label>style+tech min <input id="svST" type="number" min="0" style="width:60px" /></label>
+      <label>fuel used L <input id="svFuel" type="number" min="0" style="width:70px" /></label>
+      <button id="svApply">Apply</button></div>
+    <div id="vehicles" class="list" style="margin-top:8px"></div>
+  </section>
+  <section><h2>Selected route <small id="rsub"></small></h2><div id="route"></div></section>
+  <section><h2>Orders for this vehicle (eligible / not)</h2><div id="eligible" class="list"></div></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id)
+const S = { boot: null, orders: [], synthetic: [], mandatory: new Set(), plan: null, vehicleId: null, state: {}, flow: "vehicle" }
+const hm = (m) => m == null ? "?" : String(Math.floor(m/60)).padStart(2,"0") + ":" + String(Math.round(m%60)).padStart(2,"0")
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]))
+const api = async (path, body) => {
+  const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined)
+  const json = await res.json(); if (!res.ok) throw new Error(json.error || res.statusText); return json
+}
+const stdep = () => { const v = $("stdep").value; return v ? Number(v.slice(0,2))*60 + Number(v.slice(3)) : undefined }
+const payload = (extra) => ({ date: $("date").value, orders: allOrders(), state: S.state, ...(stdep() === undefined ? {} : { styleTechDepartureMin: stdep() }), ...extra })
+const allOrders = () => [...S.orders, ...S.synthetic]
+const reasons = (rs) => rs.map((r) => `<div class="bad">• ${esc(r.message)} <small>(rule ${r.rule})</small></div>`).join("")
+
+async function load() {
+  $("status").textContent = "loading…"
+  S.boot = await api("/api/bootstrap?date=" + $("date").value)
+  S.orders = S.boot.orders; S.state = {}
+  $("status").textContent = "DB: " + S.boot.db + " · " + S.orders.length + " real orders"
+  $("nOutlet").innerHTML = S.boot.outlets.map((o) => `<option value="${o.outletId}">${o.outletId} · ${o.brand} · ${o.district} · ${o.dockType}${o.parkingConstraint !== "normal" ? " · " + o.parkingConstraint : ""} · ${o.windowOpen}-${o.windowClose}</option>`).join("")
+  $("svSel").innerHTML = S.boot.vehicles.map((v) => `<option>${v.vehicleId}</option>`).join("")
+  S.plan = null; S.vehicleId = null; S.mandatory.clear()
+  await refresh()
+}
+
+async function refresh() {
+  S.flow = $("flow").value
+  try {
+    if (S.flow === "order") {
+      if (!S.mandatory.size) { S.plan = null } else S.plan = await api("/api/plan-orders", payload({ mandatoryIds: [...S.mandatory], ...(S.vehicleId ? { vehicleId: S.vehicleId } : {}) }))
+    } else if (S.vehicleId) S.plan = await api("/api/plan-vehicle", payload({ vehicleId: S.vehicleId }))
+    else S.plan = null
+    if (S.plan && S.flow === "order" && !S.vehicleId) S.vehicleId = null
+  } catch (e) { $("status").textContent = "error: " + e.message }
+  render()
+}
+
+async function edit(edit) {
+  try { S.plan = await api("/api/recompute", payload({ previous: S.plan, edit })); S.vehicleId = S.plan.vehicleId } catch (e) { $("status").textContent = "error: " + e.message }
+  render()
+}
+
+function render() {
+  const plan = S.plan
+  const sel = new Set(plan ? plan.selectedIds : [])
+  // orders
+  $("orders").innerHTML = allOrders().map((o) => `<div class="row">
+    <b>${esc(o.orderNumber)}</b> ${o.id.startsWith("syn") ? '<span class="syn">SYNTHETIC</span>' : ""}
+    <span class="tag">${o.brand}</span>${o.needsReefer ? '<span class="tag">chilled</span>' : ""}<span class="tag">${esc(o.status)}</span><br/>
+    <small>${o.outletId} · ${o.weightKg} kg · ${o.volumeM3} m³</small>
+    ${S.flow === "order" ? `<label style="margin-left:8px"><input type="checkbox" data-m="${o.id}" ${S.mandatory.has(o.id) ? "checked" : ""}/> mandatory</label>` : ""}
+  </div>`).join("") || '<span class="mute">No orders for this date. Add synthetic orders above.</span>'
+  document.querySelectorAll("[data-m]").forEach((el) => el.onchange = () => { el.checked ? S.mandatory.add(el.dataset.m) : S.mandatory.delete(el.dataset.m); S.vehicleId = null; refresh() })
+
+  // vehicles
+  const ranking = plan ? plan.ranking : null
+  const rows = ranking || S.boot.vehicles.map((vehicle) => ({ vehicle, eligible: true, reasons: [], fitScore: 0 }))
+  $("vsub").textContent = ranking ? (S.flow === "order" ? "ranked for the mandatory orders" : "all shown; faded = ineligible") : "pick a vehicle (vehicle-first) or mark mandatory orders (order-first)"
+  $("vehicles").innerHTML = rows.map((r) => `<div class="row pick ${r.eligible ? "" : "faded"} ${plan && plan.vehicleId === r.vehicle.vehicleId ? "sel" : ""}" data-v="${r.vehicle.vehicleId}">
+    <b>${r.vehicle.vehicleId}</b> <span class="tag">${r.vehicle.type}</span><span class="tag">${r.vehicle.temp}</span><span class="tag">${r.vehicle.depot}</span>
+    ${r.eligible ? `<span class="ok"> eligible${ranking ? " · fit " + r.fitScore : ""}</span>` : '<span class="bad"> ineligible</span>'}<br/>
+    <small>${r.vehicle.weightCapKg} kg · ${r.vehicle.volumeCapM3} m³ · quota ${r.vehicle.weeklyFuelQuotaL} L</small>
+    ${r.eligible ? "" : reasons(r.reasons)}</div>`).join("")
+  document.querySelectorAll("[data-v]").forEach((el) => el.onclick = async () => {
+    S.vehicleId = el.dataset.v
+    if (S.flow === "order" && plan) await edit({ type: "setVehicle", vehicleId: S.vehicleId }); else await refresh()
+  })
+
+  // route
+  const route = plan && plan.route
+  $("rsub").textContent = plan && plan.vehicleId ? plan.vehicleId + " · " + S.flow + "-first" : ""
+  if (!route) { $("route").innerHTML = plan && !plan.vehicleId ? '<div class="bad">No vehicle can serve these mandatory orders (see reasons on the vehicles).</div>' : '<span class="mute">Nothing selected.</span>'; $("eligible").innerHTML = ""; return }
+  const b = route.budget
+  const pct = (n) => Math.min(100, n)
+  $("route").innerHTML = `
+    <div>${route.feasible ? '<b class="ok">Feasible</b>' : '<b class="bad">Violates rules</b>'}
+      ${route.tripMinutes != null ? ` · trip <b>${route.tripMinutes} min</b> · ${route.distanceKm} km · ${route.fuelL.toFixed(1)} L` : ""}</div>
+    <div class="mute">Weight ${route.load.weightKg} kg (${route.load.weightPct}%)</div><div class="bar ${route.load.weightPct > 100 ? "over" : ""}"><i style="width:${pct(route.load.weightPct)}%"></i></div>
+    <div class="mute">Volume ${route.load.volumeM3} m³ (${route.load.volumePct}%)</div><div class="bar ${route.load.volumePct > 100 ? "over" : ""}"><i style="width:${pct(route.load.volumePct)}%"></i></div>
+    ${b.pool ? `<div class="mute">${b.pool === "fresh" ? "Fresh" : "Style+Tech"} budget: ${b.usedBefore} + ${route.tripMinutes} = ${b.afterTrip} / ${b.limit} min</div><div class="bar ${b.fits ? "" : "over"}"><i style="width:${pct(b.afterTrip / b.limit * 100)}%"></i></div>` : ""}
+    ${reasons(route.violations)}${route.warnings.map((w) => `<div class="warn">• ${esc(w)}</div>`).join("")}
+    ${plan.lastEdit && plan.lastEdit.rejected ? `<div class="bad"><b>Add rejected:</b></div>${reasons(plan.lastEdit.rejected)}` : ""}
+    ${plan.lastEdit && plan.lastEdit.dropped && plan.lastEdit.dropped.length ? `<div class="warn">Dropped on vehicle change: ${plan.lastEdit.dropped.length} order(s)</div>` : ""}
+    <table style="margin-top:8px"><tr><th>#</th><th>Order</th><th>Outlet</th><th>Arrive</th><th>Handling</th><th></th></tr>
+    ${route.stops.map((s) => `<tr><td>${s.sequence}</td><td>${esc(s.orderNumber)}</td><td>${s.outletId} <small>${s.district}</small></td><td>${hm(s.arrivalMin)}</td><td>${s.handlingMin}m</td>
+      <td><button data-drop="${s.orderId}">drop</button>${plan.mandatoryIds.includes(s.orderId) ? ' <span class="tag">mandatory</span>' : ""}</td></tr>`).join("")}</table>
+    <h2 style="margin-top:10px">Map stops</h2>
+    ${route.mapStops.map((m) => `<span class="tag ${m.status === "on_route" ? "ok" : m.status === "in_reach" ? "warn" : "mute"}" title="${esc(m.reasons.map((r) => r.message).join("; "))}">${esc(m.orderNumber)} · ${m.status.replace("_", " ")}</span>`).join(" ")}`
+  document.querySelectorAll("[data-drop]").forEach((el) => el.onclick = () => { S.mandatory.delete(el.dataset.drop); edit({ type: "drop", orderId: el.dataset.drop }) })
+
+  // eligible orders
+  $("eligible").innerHTML = plan.eligibleOrders.map((a) => `<div class="row ${a.eligible ? "" : "faded"}">
+    <b>${esc(a.order.orderNumber)}</b> <span class="tag">${a.order.brand}</span> <small>${a.order.outletId} · ${a.order.weightKg} kg</small>
+    ${a.alreadyAdded ? '<span class="tag ok">on route</span>' : a.eligible ? `<button data-add="${a.order.id}">add</button>` : ""}
+    ${a.alreadyAdded || a.eligible ? "" : reasons(a.reasons)}</div>`).join("")
+  document.querySelectorAll("[data-add]").forEach((el) => el.onclick = () => edit({ type: "add", orderId: el.dataset.add }))
+}
+
+$("addSyn").onclick = () => {
+  const outlet = S.boot.outlets.find((o) => o.outletId === $("nOutlet").value)
+  const n = S.synthetic.length + 1
+  S.synthetic.push({ id: "syn" + n, orderNumber: "SYN-" + String(n).padStart(3, "0"), outletId: outlet.outletId, brand: outlet.brand, status: "submitted", allocated: false,
+    requestedDate: $("date").value, weightKg: Number($("nKg").value), volumeM3: Number($("nM3").value), needsReefer: $("nChill").checked })
+  refresh()
+}
+$("svSel").onchange = () => { const s = S.state[$("svSel").value] || (S.boot.vehicleState[$("svSel").value]) || {}; $("svTurns").value = s.turnsToday ?? 0; $("svFresh").value = s.usedMinutes?.fresh ?? 0; $("svST").value = s.usedMinutes?.styleTech ?? 0; $("svFuel").value = Math.round((s.weeklyFuelUsedL ?? 0) * 10) / 10 }
+$("svApply").onclick = () => { S.state[$("svSel").value] = { turnsToday: Number($("svTurns").value), weeklyFuelUsedL: Number($("svFuel").value), usedMinutes: { fresh: Number($("svFresh").value), styleTech: Number($("svST").value) } }; refresh() }
+$("flow").onchange = () => { S.vehicleId = null; S.plan = null; refresh() }
+$("stdep").onchange = refresh
+$("date").onchange = load
+$("reload").onclick = load
+$("date").value = new Date(Date.now() + 5.5*3600e3).toISOString().slice(0,10)
+load().then(() => $("svSel").onchange())
+</script>
+</body>
+</html>

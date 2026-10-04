@@ -1,5 +1,7 @@
 import { AlertCircle, Bolt } from "lucide-react";
 import { Button, ShopTag } from "../../components/ui";
+import type { Violation } from "@route-engine";
+import { reasonLabel, reasonText } from "../../lib/routeEngine";
 import type { Order, Vehicle } from "../../types/dispatcher";
 import { orderRowOpenProps } from "./helpers";
 
@@ -10,7 +12,7 @@ export function OrderRow({
   toggleAdded,
   aiSuggested,
   highlighted,
-  datePreset,
+  eligibility,
 }: {
   order: Order
   selectedVehicle: Vehicle | null
@@ -18,13 +20,14 @@ export function OrderRow({
   toggleAdded: (id: string) => void
   aiSuggested?: boolean
   highlighted?: boolean
-  datePreset?: string
+  /** The engine's verdict for this order on the selected vehicle (absent until a vehicle is picked). */
+  eligibility?: { eligible: boolean; reasons: Violation[] }
 }) {
-  const isDuePresetDay = datePreset && order.dueDay === 28
+  const outOfReach = Boolean(selectedVehicle && eligibility && !eligibility.eligible)
 
   return (
     <div
-      className={`order-row ${order.emergency ? "order-row--emergency" : ""} ${selectedVehicle && !order.inReach ? "order-row--disabled" : ""
+      className={`order-row ${order.emergency ? "order-row--emergency" : ""} ${outOfReach ? "order-row--disabled" : ""
         } ${highlighted ? "order-row--highlighted" : ""} order-row--clickable`}
       {...orderRowOpenProps(order)}
     >
@@ -41,21 +44,7 @@ export function OrderRow({
         <div className="order-row__line">
           <span className="data-text">{order.id}</span>
           <ShopTag type={order.type} />
-          {isDuePresetDay ? (
-            <span
-              style={{
-                padding: "2px 8px",
-                borderRadius: "999px",
-                background: "var(--sunburst-100)",
-                color: "var(--sunburst-900)",
-                fontWeight: 700,
-                fontSize: "11px",
-              }}
-            >
-              Due Mon 28
-            </span>
-          ) : null}
-          {selectedVehicle && (aiSuggested ?? order.suggested) ? (
+          {selectedVehicle && aiSuggested ? (
             <Bolt
               className="suggestion-star"
               aria-label="Suggested order"
@@ -64,7 +53,7 @@ export function OrderRow({
           ) : null}
           <strong className="order-row__kg">{order.kg} kg</strong>
           {selectedVehicle ? (
-            order.inReach ? (
+            !outOfReach ? (
               <Button
                 className="order-row__action"
                 onClick={() => toggleAdded(order.id)}
@@ -73,7 +62,9 @@ export function OrderRow({
                 {added ? "✓ Added" : "+ Add"}
               </Button>
             ) : (
-              <span className="out-of-reach">Out of reach</span>
+              <span className="out-of-reach" title={reasonText(eligibility?.reasons ?? [])}>
+                {eligibility?.reasons[0] ? reasonLabel(eligibility.reasons[0]) : "Out of reach"}
+              </span>
             )
           ) : null}
         </div>
