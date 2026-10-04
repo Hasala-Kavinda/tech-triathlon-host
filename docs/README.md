@@ -1,5 +1,7 @@
 # WayLink
 
+Check the Driver's Ui in Mobile View
+
 WayLink is a delivery planning and execution system for Waypoint Group, built for the Tech-Triathlon 2026 Designathon. One Fastify API and one MongoDB database serve five web apps (a shared login plus one app per operational role), so an order is the same record from the shop that places it to the driver who delivers it.
 
 ```
