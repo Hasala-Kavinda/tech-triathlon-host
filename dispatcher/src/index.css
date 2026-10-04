@@ -2331,6 +2331,19 @@ button:disabled {
   color: var(--cobalt-500);
 }
 
+.calendar-day--closed,
+.week-day--closed {
+  opacity: 0.45;
+}
+
+.calendar-day--closed:not(.calendar-day--selected) {
+  background: repeating-linear-gradient(135deg, transparent 0 5px, var(--navy-50) 5px 7px);
+}
+
+.calendar-day:disabled {
+  cursor: not-allowed;
+}
+
 .calendar-day i {
   position: absolute;
   bottom: 4px;

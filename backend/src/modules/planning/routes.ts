@@ -47,6 +47,24 @@ export async function planningRoutes(app: FastifyInstance) {
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
+  app.get("/planning/due-summary", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher")
+    const query = z.object({ from: z.string(), to: z.string() }).safeParse(request.query)
+    if (!query.success) throw badRequest("from and to dates are required.")
+    parseServiceDate(query.data.from)
+    parseServiceDate(query.data.to)
+    if (query.data.to < query.data.from) throw badRequest("to must not be before from.")
+    return ok(request, await OrderReadPort.dueSummary(query.data.from, query.data.to))
+  })
+
+  app.get("/planning/due-orders", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher")
+    const query = z.object({ date: z.string(), brand: z.string().optional() }).safeParse(request.query)
+    if (!query.success) throw badRequest("A valid date is required.")
+    parseServiceDate(query.data.date)
+    return ok(request, await OrderReadPort.findDueByDate(query.data.date, query.data.brand))
+  })
+
   app.post("/planning/trips", { preHandler: app.authenticate }, async (request, reply) => {
     const auth = requireRole(request, "dispatcher")
     const parsed = tripBody.safeParse(request.body)

@@ -52,7 +52,11 @@ export default function SchedulePage({
   const [departsTime, setDepartsTime] = useState(() => (isDatePreset ? "07:00" : "12:30"))
   const [dateChipOpen, setDateChipOpen] = useState(false)
 
-  const [orderFilter, setOrderFilter] = useState<"All" | ShopType>("All")
+  const [orderFilter, setOrderFilter] = useState<"All" | ShopType>(() => {
+    // The home screen passes its shop-type filter along as ?brand=
+    const brand = params.get("brand")
+    return brand === "Fresh" || brand === "Tech" || brand === "Style" ? brand : "All"
+  })
   const [tags, setTags] = useState<string[]>([])
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [added, setAdded] = useState<string[]>([])
@@ -217,7 +221,11 @@ export default function SchedulePage({
                 <strong>Route date</strong>
                 <div className="route-date-options">
                   {today
-                    ? Array.from({ length: 7 }, (_, offset) => addDays(today, offset)).map((date) => (
+                    ? [
+                      ...Array.from({ length: 7 }, (_, offset) => addDays(today, offset)),
+                      // A date picked in the calendar widget can be beyond the 7-day window.
+                      ...(planningDate && planningDate > addDays(today, 6) ? [planningDate] : []),
+                    ].map((date) => (
                       <button
                         className={`route-date-option ${planningDate === date ? "route-date-option--active" : ""}`}
                         key={date}

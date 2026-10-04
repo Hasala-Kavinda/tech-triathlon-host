@@ -60,6 +60,16 @@ export async function referenceRoutes(app: FastifyInstance) {
     return page(request, rows, query.data.page, query.data.pageSize, total)
   })
 
+  app.get("/calendar", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher", "store_manager")
+    const query = z.object({ from: z.string(), to: z.string() }).safeParse(request.query)
+    if (!query.success) throw badRequest("from and to dates are required.")
+    const from = parseServiceDate(query.data.from)
+    const to = parseServiceDate(query.data.to)
+    if (query.data.to < query.data.from || to.diff(from, "days").days > 62) throw badRequest("The date range is invalid or longer than 62 days.")
+    return ok(request, await CalendarDayReadPort.findRange(query.data.from, query.data.to))
+  })
+
   app.get("/calendar/:date", { preHandler: app.authenticate }, async (request) => {
     requireRole(request, "dispatcher", "store_manager")
     const parsed = z.object({ date: z.string() }).safeParse(request.params)

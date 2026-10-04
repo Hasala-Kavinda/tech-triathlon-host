@@ -1,5 +1,7 @@
 import { ArrowRight, CheckCircle2, ChevronRight, X } from "lucide-react";
 import { useState } from "react";
+import { shortDate, addDays } from "../lib/dates";
+import { countsByDate, useDueRange } from "../lib/dueData";
 import { CalendarModal } from "../components/CalendarModal";
 import { DayPlannerCard } from "../components/planning/DayPlannerCard";
 import { FilterCard } from "../components/planning/FilterCard";
@@ -13,8 +15,11 @@ export default function HomePage({
   filter,
   setFilter,
   approved,
-  viewDate,
-  setViewDate,
+  today,
+  dueVersion,
+  offsetMs,
+  synced,
+  openDay,
   routes,
   orders,
 }: {
@@ -23,15 +28,25 @@ export default function HomePage({
   filter: ShopType | null
   setFilter: React.Dispatch<React.SetStateAction<ShopType | null>>
   approved: boolean
-  viewDate: number
-  setViewDate: React.Dispatch<React.SetStateAction<number>>
+  today: string | null
+  /** Bumped by App whenever orders change server-side, to refetch the due counts. */
+  dueVersion: number
+  offsetMs: number
+  synced: boolean
+  /** Opens Route scheduling for a date (sets the Route date, then navigates). */
+  openDay: (date: string, brand?: ShopType | null) => void
   routes: RouteRecord[]
   orders: Order[]
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false)
-  const [calendarDay, setCalendarDay] = useState(viewDate)
+  const [calendarDate, setCalendarDate] = useState<string | null>(null)
   const [showAllCompleted, setShowAllCompleted] = useState(false)
-  const isToday = viewDate === 27
+  // Due counts and operating days for the 7-day strip; refetched whenever App bumps `dueVersion` (after scheduling/deferring).
+  const { calendar, summary } = useDueRange(today, today ? addDays(today, 6) : null, dueVersion)
+  const stripCounts = countsByDate(summary, filter)
+  const todayByBrand = (brand: ShopType) =>
+    summary.find((row) => row.date === today && row.brand === brand)?.unscheduled ?? 0
+  const todayUnscheduled = today ? stripCounts.get(today)?.unscheduled ?? 0 : 0
 
   // Live mode shows every published route the backend returns; the id filter only
   // selects the sample routes in prototype mode.
@@ -43,46 +58,21 @@ export default function HomePage({
     : activeToday
 
   const completedRoute = completedRouteRecord
-  const futureRoute: RouteRecord = {
-    id: "WP PK-7741",
-    route: "Galle → Weligama · Coastal 02",
-    tags: ["Fresh", "Tech"],
-    done: 0,
-    total: 3,
-    remarks: 0,
+  const filterCounts = {
+    Fresh: todayByBrand("Fresh"),
+    Tech: todayByBrand("Tech"),
+    Style: todayByBrand("Style"),
   }
-
-  const futureOrders = orders.filter((o) => o.dueDay === 28 && !o.stop)
-  const shownFutureOrders = filter
-    ? futureOrders.filter((order) => order.type === filter)
-    : futureOrders
-
-  const showFutureRoute = !filter || futureRoute.tags.includes(filter)
-  const filterCounts = isToday
-    ? { Fresh: 4, Tech: 2, Style: 3 }
-    : { Fresh: 1, Tech: 1, Style: 0 }
 
   return (
     <section className="page page-enter">
       <div className="page-heading">
         <div className="home-title-row">
           <PageTitle>Dispatcher home</PageTitle>
-          <span className={isToday ? "plan-pill" : "plan-pill plan-pill--future"}>
-            {isToday
-              ? "Today's plan · Sun 27 Sep"
-              : "Planning ahead · Mon 28 Sep"}
+          <span className="plan-pill">
+            Today's plan{today ? ` · ${shortDate(today)}` : ""}
           </span>
         </div>
-        {!isToday ? (
-          <Button
-            onClick={() => {
-              setViewDate(27)
-              window.history.pushState({}, "", "/home")
-            }}
-          >
-            ← Back to today
-          </Button>
-        ) : null}
       </div>
       {toast ? (
         <div className="toast" role="status">
@@ -113,47 +103,39 @@ export default function HomePage({
         </div>
         <div className="home-day-grid">
           <aside className="day-plan-column">
-            <DayPlannerCard
-              day={viewDate}
-              filter={filter}
-              onOpenCalendar={() => {
-                setCalendarDay(viewDate)
-                setCalendarOpen(true)
-              }}
-              onSelectDay={(day) => {
-                setCalendarDay(day)
-                setCalendarOpen(true)
-              }}
-            />
+            {today ? (
+              <DayPlannerCard
+                today={today}
+                offsetMs={offsetMs}
+                synced={synced}
+                counts={stripCounts}
+                calendar={calendar}
+                onOpenCalendar={() => {
+                  setCalendarDate(today)
+                  setCalendarOpen(true)
+                }}
+                onSelectDay={(date) => {
+                  setCalendarDate(date)
+                  setCalendarOpen(true)
+                }}
+              />
+            ) : null}
             <Button
               className="schedule-cta"
               icon={ArrowRight}
-              onClick={() =>
-                navigate(
-                  isToday
-                    ? "/schedule"
-                    : `/schedule?date=2026-09-${viewDate}`,
-                )
-              }
+              onClick={() => (today ? openDay(today, filter) : navigate("/schedule"))}
               variant="primary"
             >
               <span className="schedule-cta__copy">
-                <strong>
-                  {isToday
-                    ? "Schedule orders"
-                    : `Schedule orders for Mon ${viewDate}`}
-                </strong>
+                <strong>Schedule orders</strong>
                 <small>
-                  {isToday
-                    ? `${filter === "Fresh" ? 1 : 2} order${filter === "Fresh" ? "" : "s"} due today not scheduled`
-                    : "2 orders due that day not scheduled"}
+                  {`${todayUnscheduled} order${todayUnscheduled === 1 ? "" : "s"} due today not scheduled`}
                 </small>
               </span>
             </Button>
           </aside>
           <section className="day-routes-column">
-            {isToday ? (
-              <>
+            <>
                 <div className="section-heading">
                   <Heading>Active routes</Heading>
                   <span>
@@ -217,91 +199,23 @@ export default function HomePage({
                     <ChevronRight aria-hidden="true" size={21} />
                   </UnstyledButton>
                 ) : null}
-              </>
-            ) : (
-              <>
-                <div className="section-heading">
-                  <Heading>Scheduled routes</Heading>
-                  <span>Mon 28 Sep · {showFutureRoute ? 1 : 0} route</span>
-                </div>
-                {showFutureRoute ? (
-                  <UnstyledButton
-                    className="future-route-row"
-                    onClick={() => navigate("/schedule?date=2026-09-28")}
-                  >
-                    <span>
-                      <span className="data-text">{futureRoute.id}</span>
-                      <ShopTag type="Fresh" />
-                      <ShopTag type="Tech" />
-                      <small>{futureRoute.route}</small>
-                    </span>
-                    <span>
-                      <strong>0/3 shops</strong>
-                      <ProgressBar value={0} />
-                    </span>
-                    <b>Starts 07:00</b>
-                    <ChevronRight aria-hidden="true" size={21} />
-                  </UnstyledButton>
-                ) : null}
-                <div className="section-heading future-due-heading">
-                  <Heading>Due Mon 28, not scheduled</Heading>
-                  <span>{shownFutureOrders.length} orders</span>
-                </div>
-                <div className="future-order-list">
-                  {shownFutureOrders.map((order) => (
-                    <UnstyledButton
-                      className="future-order-row"
-                      key={order.id}
-                      onClick={() =>
-                        navigate(
-                          `/schedule?date=2026-09-28&order=${order.id}`,
-                        )
-                      }
-                    >
-                      <span>
-                        <span className="data-text">{order.id}</span>
-                        <ShopTag type={order.type} />
-                        <small>
-                          {order.shop} · {order.town} · {order.kg} kg
-                        </small>
-                      </span>
-                      <b>Not scheduled</b>
-                    </UnstyledButton>
-                  ))}
-                </div>
-                <div className="section-heading future-completed-heading">
-                  <Heading>Completed</Heading>
-                  <span>none yet · future day</span>
-                </div>
-              </>
-            )}
+            </>
           </section>
         </div>
       </div>
-      {calendarOpen ? (
+      {calendarOpen && today && calendarDate ? (
         <CalendarModal
-          initialDay={calendarDay}
+          initialDate={calendarDate}
+          brand={filter}
+          reloadKey={dueVersion}
+          offsetMs={offsetMs}
           onClose={() => setCalendarOpen(false)}
-          onOpenDay={(day) => {
+          onOpenDay={(date) => {
             setCalendarOpen(false)
-            setViewDate(day)
-            window.history.pushState(
-              {},
-              "",
-              day === 27 ? "/home" : "/home?date=2026-09-28",
-            )
+            openDay(date, filter)
           }}
-          onSchedule={(day, orderId) => {
-            setCalendarOpen(false)
-            // Any day: due-day scheduling — that day's due orders locked,
-            // AI suggested vehicle, more orders on the route.
-            navigate(
-              day === 27
-                ? `/schedule?mode=immediate${orderId ? `&order=${orderId}` : ""}`
-                : `/schedule?mode=due&date=2026-09-${String(day).padStart(2, "0")}${orderId ? `&order=${orderId}` : ""}`,
-            )
-          }}
-          orders={orders}
+          synced={synced}
+          today={today}
         />
       ) : null}
     </section>

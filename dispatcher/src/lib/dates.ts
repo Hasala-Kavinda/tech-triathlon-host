@@ -20,6 +20,18 @@ export function addDays(iso: string, days: number) {
 const part = (iso: string, options: Intl.DateTimeFormatOptions) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options }).format(new Date(`${iso}T12:00:00Z`))
 
+export const dayParts = (iso: string) => ({
+  weekday: part(iso, { weekday: "short" }),
+  day: Number(iso.slice(8, 10)),
+  month: part(iso, { month: "short" }),
+})
+
+/** "Sat 3 Oct" */
+export const shortDate = (iso: string) => {
+  const p = dayParts(iso)
+  return `${p.weekday} ${p.day} ${p.month}`
+}
+
 /** "Sat 3 Oct", prefixed with "Today ·" or "Tomorrow ·" when it is. */
 export function dateLabel(iso: string, today: string) {
   const base = `${part(iso, { weekday: "short" })} ${part(iso, { day: "numeric" })} ${part(iso, { month: "short" })}`

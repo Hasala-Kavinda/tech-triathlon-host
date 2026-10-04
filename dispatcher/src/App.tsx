@@ -8,6 +8,7 @@ import { OrderLogPage } from "./components/OrderLogPage"
 import { openOrderDetails, vehicleDay } from "./components/planning/helpers"
 import { DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT, TODAY } from "./lib/constants"
 import { addDays, colomboDate, isIsoDate } from "./lib/dates"
+import { useServerClock } from "./lib/useServerClock"
 import DueSchedulePage from "./pages/DueSchedulePage"
 import HomePage from "./pages/HomePage"
 import MonitorPage from "./pages/MonitorPage"
@@ -92,9 +93,6 @@ function App() {
   }, [])
   const [approved, setApproved] = useState(false)
   const [homeFilter, setHomeFilter] = useState<ShopType | null>(null)
-  const [viewDate, setViewDate] = useState(() =>
-    new URLSearchParams(window.location.search).get("date") ? 28 : 27,
-  )
 
   // Outside prototype mode nothing is shown until the backend answers.
   const [vehicles, setVehicles] = useState<Vehicle[]>(PROTOTYPE_MODE ? initialVehicles : [])
@@ -105,7 +103,10 @@ function App() {
 
   // "Today" and the date being planned. Today comes from the server's clock (Asia/Colombo), the
   // same clock that decides each order's cutoff bucket; the Dispatcher can plan another day.
-  const [today, setToday] = useState<string | null>(PROTOTYPE_MODE ? PROTOTYPE_TODAY : null)
+  const serverClock = useServerClock(!PROTOTYPE_MODE)
+  const today = PROTOTYPE_MODE ? PROTOTYPE_TODAY : serverClock.today
+  // Bumped whenever orders change server-side so the home due-calendar refetches its counts.
+  const [dueVersion, setDueVersion] = useState(0)
   const [planningDate, setPlanningDate] = useState<string | null>(() => {
     const requested = new URLSearchParams(window.location.search).get("date")
     if (isIsoDate(requested)) return requested
@@ -113,15 +114,8 @@ function App() {
   })
 
   useEffect(() => {
-    if (PROTOTYPE_MODE) return
-    let cancelled = false
-    void planningApi.today().then((date) => {
-      if (cancelled) return
-      setToday(date)
-      setPlanningDate((current) => current ?? date)
-    })
-    return () => { cancelled = true }
-  }, [])
+    if (today) setPlanningDate((current) => current ?? today)
+  }, [today])
 
   // The planning queue and the route list are always read back from the backend, so an
   // order that was scheduled disappears because its status/allocation changed, not because
@@ -136,6 +130,7 @@ function App() {
     const details = await Promise.all(liveTrips.map((trip) => planningApi.tripDetail(trip._id)))
     setOrders(apiOrders.map(toOrder))
     setRoutes(details.map(toRouteRecord))
+    setDueVersion((version) => version + 1)
   }
 
   // Changing the planned date re-queries the orders for that date.
@@ -184,9 +179,8 @@ function App() {
     const onPopState = () => {
       setPath(getInitialPath())
       setSearch(window.location.search)
-      setViewDate(
-        new URLSearchParams(window.location.search).get("date") ? 28 : 27,
-      )
+      const requested = new URLSearchParams(window.location.search).get("date")
+      if (isIsoDate(requested)) setPlanningDate(requested)
     }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
@@ -197,6 +191,12 @@ function App() {
     setPath(getInitialPath())
     setSearch(window.location.search)
     setToast("")
+  }
+
+  // Calendar widget: pick the Route date, then open Route scheduling. Nothing is scheduled here.
+  const openRouteDay = (date: string, brand?: ShopType | null) => {
+    setPlanningDate(date)
+    navigate(`/schedule?date=${date}${brand ? `&brand=${brand}` : ""}`)
   }
 
   const serviceDate = today ?? colomboDate(new Date())
@@ -334,6 +334,7 @@ function App() {
       ),
     )
     setDeferOpen(false)
+    setDueVersion((version) => version + 1)
     setToast(`${selectedIds.length} orders deferred to ${deferTo.split(" · ")[0]}`)
   }
 
@@ -420,10 +421,13 @@ function App() {
           navigate={navigate}
           orders={orders}
           routes={routes}
+          openDay={openRouteDay}
           setFilter={setHomeFilter}
-          setViewDate={setViewDate}
+          synced={serverClock.synced}
           toast={toast}
-          viewDate={viewDate}
+          today={today}
+          dueVersion={dueVersion}
+          offsetMs={serverClock.offsetMs}
         />
       )}
 

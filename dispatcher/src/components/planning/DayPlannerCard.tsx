@@ -1,60 +1,48 @@
-import { useEffect, useState } from "react";
 import { UnstyledButton } from "../../components/ui";
-import type { ShopType } from "../../types/dispatcher";
+import type { CalendarDayInfo } from "../../api/planning";
+import { addDays, dayParts, shortDate } from "../../lib/dates";
+import type { DayCounts } from "../../lib/dueData";
+import { colomboTime, useNow } from "../../lib/useServerClock";
 
 export function DayPlannerCard({
-  day,
-  filter,
+  today,
+  offsetMs,
+  synced,
+  counts,
+  calendar,
   onOpenCalendar,
   onSelectDay,
 }: {
-  day: number
-  filter: ShopType | null
+  today: string
+  offsetMs: number
+  synced: boolean
+  /** Per-date counts (due = all requested that day, unscheduled = still needs scheduling), scoped to the active brand filter. */
+  counts: Map<string, DayCounts>
+  calendar: Map<string, CalendarDayInfo>
   onOpenCalendar: () => void
-  onSelectDay: (day: number) => void
+  onSelectDay: (date: string) => void
 }) {
-  const [clock, setClock] = useState(() => new Date(2026, 8, 27, 10, 42))
-  const isToday = day === 27
-  const scope = filter ?? "All"
-  const todayDue = scope === "Fresh" ? 2 : scope === "Tech" ? 1 : scope === "Style" ? 2 : 5
-  const todayUnscheduled =
-    scope === "Fresh" || scope === "Style" ? 1 : scope === "Tech" ? 0 : 2
-  const nextDue = scope === "Fresh" ? 3 : scope === "Tech" ? 2 : scope === "Style" ? 2 : 7
-  const week = [
-    { label: "Sun", day: 27, count: 5 },
-    { label: "Mon", day: 28, count: 3 },
-    { label: "Tue", day: 29, count: 0 },
-    { label: "Wed", day: 30, count: 4 },
-    { label: "Thu", day: 1, count: 0 },
-    { label: "Fri", day: 2, count: 3 },
-    { label: "Sat", day: 3, count: 0 },
-  ]
-
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setClock((current) => new Date(current.getTime() + 60_000)),
-      60_000,
-    )
-    return () => window.clearInterval(timer)
-  }, [])
+  const now = useNow(offsetMs)
+  const todayParts = dayParts(today)
+  const todayCounts = counts.get(today) ?? { due: 0, unscheduled: 0 }
+  const nextDays = [1, 2, 3].map((n) => addDays(today, n))
+  const nextDue = nextDays.reduce((sum, date) => sum + (counts.get(date)?.unscheduled ?? 0), 0)
+  const week = Array.from({ length: 7 }, (_, n) => addDays(today, n))
+  // Only mark a day closed once the calendar actually loaded for this range.
+  const isClosed = (date: string) => calendar.size > 0 && !calendar.get(date)?.isOperating
 
   return (
     <div className="day-planner-card">
       <div className="day-planner-card__top">
         <span className="day-planner-date">
-          <small>{isToday ? "Sun" : "Mon"}</small>
-          <strong>{day}</strong>
-          <b>Sep</b>
+          <small>{todayParts.weekday}</small>
+          <strong>{todayParts.day}</strong>
+          <b>{todayParts.month}</b>
         </span>
         <span className="day-planner-clock">
-          <strong>
-            {clock.toLocaleTimeString("en", {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </strong>
+          <strong>{colomboTime(now)}</strong>
           <span>
-            <i /> Live{isToday ? "" : " · today Sun 27"}
+            <i /> {synced ? "Live" : "Offline"}
           </span>
         </span>
         <UnstyledButton onClick={onOpenCalendar}>
@@ -63,30 +51,34 @@ export function DayPlannerCard({
       </div>
       <div className="day-planner-stats">
         <div className="day-stat day-stat--due">
-          <strong>{isToday ? todayDue : 3}</strong>
-          <b>{isToday ? "Due today" : "Due Mon 28"}</b>
-          <span>
-            {isToday ? todayUnscheduled : 2} not scheduled yet
-          </span>
+          <strong>{todayCounts.unscheduled}</strong>
+          <b>Due today</b>
+          <span>{todayCounts.due - todayCounts.unscheduled} of {todayCounts.due} scheduled</span>
         </div>
         <div className="day-stat">
-          <strong>{isToday ? nextDue : 1}</strong>
-          <b>{isToday ? "Due next 3 days" : "Route scheduled"}</b>
-          <span>{isToday ? "Mon 28 – Wed 30" : "WP PK-7741 · 07:00"}</span>
+          <strong>{nextDue}</strong>
+          <b>Due next 3 days</b>
+          <span>{shortDate(nextDays[0]!)} – {shortDate(nextDays[2]!)}</span>
         </div>
       </div>
       <div className="week-strip">
-        {week.map((item) => (
-          <UnstyledButton
-            className={item.day === day ? "week-day week-day--active" : "week-day"}
-            key={`${item.label}-${item.day}`}
-            onClick={() => onSelectDay(item.day)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.day}</strong>
-            {item.count ? <b>{item.count}</b> : null}
-          </UnstyledButton>
-        ))}
+        {week.map((date) => {
+          const count = counts.get(date)?.unscheduled ?? 0
+          const closed = isClosed(date)
+          const parts = dayParts(date)
+          return (
+            <UnstyledButton
+              className={`week-day${date === today ? " week-day--active" : ""}${closed ? " week-day--closed" : ""}`}
+              key={date}
+              onClick={() => onSelectDay(date)}
+              title={closed ? "Not an operating day" : undefined}
+            >
+              <span>{parts.weekday}</span>
+              <strong>{parts.day}</strong>
+              {count ? <b>{count}</b> : null}
+            </UnstyledButton>
+          )
+        })}
       </div>
     </div>
   )

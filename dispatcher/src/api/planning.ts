@@ -2,6 +2,9 @@ import { colomboDate } from "../lib/dates"
 import { apiRequest } from "./client"
 
 export type PlanningOrder = { _id: string; orderNumber: string; outletId: string; brand: "Fresh" | "Style" | "Tech"; items: Array<{ quantity: number; unit: string }>; totalWeightKg: number; cutoffBucket: string; status: string }
+export type CalendarDayInfo = { date: string; dayOfWeek: string; isOperating: boolean; isHoliday: boolean; festival?: string }
+export type DueSummaryRow = { date: string; brand: "Fresh" | "Style" | "Tech"; due: number; unscheduled: number }
+export type DueOrder = PlanningOrder & { requestedDate: string; allocatedTripId?: string }
 export type OrderDetail = {
   _id: string
   orderNumber: string
@@ -52,14 +55,22 @@ export const planningApi = {
    * the imported calendar) the device clock is used.
    */
   async today() {
+    return (await planningApi.serverClock()).today
+  },
+  /** Server time (ms since epoch) plus today in Asia/Colombo; `synced` is false when the server could not be reached. */
+  async serverClock(): Promise<{ today: string; serverNowMs: number; synced: boolean }> {
     const guess = colomboDate(new Date())
     try {
       const day = await apiRequest<{ serverNow: string }>(`/calendar/${guess}`)
-      return colomboDate(new Date(day.serverNow))
+      const serverNowMs = new Date(day.serverNow).getTime()
+      return { today: colomboDate(new Date(serverNowMs)), serverNowMs, synced: true }
     } catch {
-      return guess
+      return { today: guess, serverNowMs: Date.now(), synced: false }
     }
   },
+  calendarRange: (from: string, to: string) => apiRequest<CalendarDayInfo[]>(`/calendar?from=${from}&to=${to}`),
+  dueSummary: (from: string, to: string) => apiRequest<DueSummaryRow[]>(`/planning/due-summary?from=${from}&to=${to}`),
+  dueOrders: (date: string, brand?: string | null) => apiRequest<DueOrder[]>(`/planning/due-orders?date=${encodeURIComponent(date)}${brand ? `&brand=${encodeURIComponent(brand)}` : ""}`),
   orders: (serviceDate: string) => apiRequest<PlanningOrder[]>(`/planning/orders?serviceDate=${encodeURIComponent(serviceDate)}&pageSize=100`),
   order: (orderId: string) => apiRequest<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`),
   vehicles: (serviceDate: string) => apiRequest<FleetVehicle[]>(`/reference/vehicles?serviceDate=${encodeURIComponent(serviceDate)}`),

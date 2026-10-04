@@ -1,7 +1,52 @@
 import mongoose from "mongoose"
 import { Order } from "./persistence/order.model.js"
 
+/** Orders a dispatcher can still schedule: not yet allocated to a trip. */
+const UNSCHEDULED_STATUSES = ["submitted", "deferred"]
+
 export const OrderReadPort = {
+  /**
+   * Every non-cancelled order due on a date (scheduled or not), for the due-calendar detail panel.
+   */
+  findDueByDate: async (requestedDate: string, brand?: string) => {
+    const filter: Record<string, unknown> = { requestedDate, status: { $ne: "cancelled" } }
+    if (brand) filter.brand = brand
+    return Order.find(filter).sort({ cutoffBucket: 1, createdAt: 1 }).limit(200).lean()
+  },
+
+  /**
+   * Per-date, per-brand due counts over [from, to] (requestedDate is the "due" date).
+   * `due` excludes cancelled orders; `unscheduled` uses the same predicate as findEligibleForDatePaged.
+   * Used by: Planning dispatcher due-calendar widget.
+   */
+  dueSummary: async (from: string, to: string) => {
+    return Order.aggregate<{ date: string; brand: string; due: number; unscheduled: number }>([
+      { $match: { requestedDate: { $gte: from, $lte: to }, status: { $ne: "cancelled" } } },
+      {
+        $group: {
+          _id: { date: "$requestedDate", brand: "$brand" },
+          due: { $sum: 1 },
+          unscheduled: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $in: ["$status", UNSCHEDULED_STATUSES] },
+                    { $eq: [{ $type: "$allocatedTripId" }, "missing"] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $project: { _id: 0, date: "$_id.date", brand: "$_id.brand", due: 1, unscheduled: 1 } },
+      { $sort: { date: 1, brand: 1 } },
+    ])
+  },
+
   /**
    * Find a single order by its MongoDB _id.
    * Used by: Planning, Driver, Operations for cross-module reads.
@@ -39,7 +84,7 @@ export const OrderReadPort = {
   ) => {
     const filter: Record<string, unknown> = {
       requestedDate,
-      status: status ?? { $in: ["submitted", "deferred"] },
+      status: status ?? { $in: UNSCHEDULED_STATUSES },
       allocatedTripId: { $exists: false },
     }
     if (brand) filter.brand = brand
