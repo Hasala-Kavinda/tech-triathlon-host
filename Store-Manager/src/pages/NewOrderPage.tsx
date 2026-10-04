@@ -23,7 +23,7 @@ export function NewOrderPage({ business,
           type: OrderType
           onTypeChange: (type: OrderType) => void
           quantities: OrderDrafts
-          onQuantitiesChange: (drafts: OrderDrafts) => void
+          onQuantitiesChange: React.Dispatch<React.SetStateAction<OrderDrafts>>
           initialSearch?: string
           initialSummaryOpen?: boolean
           onReview: () => void
@@ -59,13 +59,13 @@ export function NewOrderPage({ business,
           );
 
     function updateQuantity(productId: string, quantity: number) {
-        onQuantitiesChange({
-          ...quantities,
+        onQuantitiesChange((prev) => ({
+          ...prev,
           [type]: {
-            ...getDraft(quantities, type),
+            ...getDraft(prev, type),
             [productId]: Math.max(0, quantity),
           },
-        })
+        }))
     }
 
     function changeOrderType(nextType: OrderType) {
@@ -74,7 +74,7 @@ export function NewOrderPage({ business,
     }
 
     function clearCurrentOrder() {
-        onQuantitiesChange({ ...quantities, [type]: {} })
+        onQuantitiesChange((prev) => ({ ...prev, [type]: {} }))
     }
 
     return (
