@@ -24,7 +24,7 @@ export function ProfileMenu({ navigate }: { navigate: (path: string) => void }) 
     }
   }, [open])
 
-  const LOGIN_URL = import.meta.env.VITE_LOGIN_URL || "https://kraken-hack-login.vercel.app/";
+  const LOGIN_URL = import.meta.env.VITE_LOGIN_URL || "https://tech-triathlon-login.vercel.app/";
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   async function signOut() {

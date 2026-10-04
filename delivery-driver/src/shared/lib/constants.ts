@@ -2,7 +2,7 @@
 
 export const LOGIN_URL: string =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_LOGIN_URL) ||
-  'https://kraken-hack-login.vercel.app/';
+  'https://tech-triathlon-login.vercel.app/';
 
 export const CANONICAL_DRIVER = {
   driverId: '8821',
