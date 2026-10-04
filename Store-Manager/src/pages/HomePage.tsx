@@ -89,7 +89,7 @@ export function HomePage({
           </motion.section>
 
     <AnimatePresence initial={false}>
-            {attentionDelivery && (
+            {(attentionDelivery || loading) && (
               <motion.section
                 className="home-section attention-section"
                 layout
@@ -105,18 +105,31 @@ export function HomePage({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={calmSpring}
                 >
-                  <span className="attention-icon">
-                    <AlertTriangle />
-                  </span>
-                  <div className="attention-copy">
-                    <strong>Delivery awaiting confirmation</strong>
-                    <p>
-                      <span className="data-id">{attentionDelivery.orderId || attentionDelivery._id.slice(-8).toUpperCase()}</span>
-                      {attentionDelivery.arrivedAt ? ` · Driver completed delivery at ${new Date(attentionDelivery.arrivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : " · Arrived"}
-                    </p>
-                    <small>Confirm the received quantities when ready.</small>
-                  </div>
-                  <Button tone="secondary" onClick={() => onOpenOrder(attentionDelivery._id, "verify-delivery", "verify")}>Review delivery</Button>
+                  {loading ? (
+                    <div style={{ display: "flex", alignItems: "center", width: "100%", padding: "12px 16px" }}>
+                      <div className="skeleton" style={{ width: 24, height: 24, borderRadius: "50%", marginRight: 16 }} />
+                      <div style={{ flex: 1 }}>
+                        <div className="skeleton skeleton--title" style={{ width: "40%", marginBottom: 8 }} />
+                        <div className="skeleton skeleton--text" style={{ width: "70%" }} />
+                      </div>
+                      <div className="skeleton" style={{ width: 120, height: 36, borderRadius: 6 }} />
+                    </div>
+                  ) : attentionDelivery ? (
+                    <>
+                      <span className="attention-icon">
+                        <AlertTriangle />
+                      </span>
+                      <div className="attention-copy">
+                        <strong>Delivery awaiting confirmation</strong>
+                        <p>
+                          <span className="data-id">{attentionDelivery.orderId || attentionDelivery._id.slice(-8).toUpperCase()}</span>
+                          {attentionDelivery.arrivedAt ? ` · Driver completed delivery at ${new Date(attentionDelivery.arrivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : " · Arrived"}
+                        </p>
+                        <small>Confirm the received quantities when ready.</small>
+                      </div>
+                      <Button tone="secondary" onClick={() => onOpenOrder(attentionDelivery._id, "verify-delivery", "verify")}>Review delivery</Button>
+                    </>
+                  ) : null}
                 </motion.div>
               </motion.section>
             )}
@@ -244,6 +257,7 @@ export function UpcomingDeliveryRow({ delivery, onOpen }: { delivery: UpcomingDe
     return (
     <motion.button
       className="upcoming-row"
+      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingRight: 8, paddingLeft: 8, gap: 16 }}
       type="button"
       layout
       onClick={onOpen}

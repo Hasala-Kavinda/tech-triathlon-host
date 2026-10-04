@@ -83,7 +83,7 @@ export function TopBar({
           <nav className="top-nav" aria-label="Primary navigation">
             {["Home", "Orders", "Deliveries"].map((label) => (
               <button
-                className={"top-nav-item " + (current === label ? "active" : "")}
+                className={"top-nav-item " + (current === label ? "top-nav-item--selected" : "")}
                 key={label}
                 onClick={() => onNavigate(label)}
                 type="button"
