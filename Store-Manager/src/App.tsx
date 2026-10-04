@@ -218,7 +218,6 @@ export default function App() {
               <ReviewOrderPage business={business}
                 type={orderType}
                 quantities={drafts}
-                afterCutoff={false}
                 forceError={false}
                 onBack={() => goToView("new-order")}
                 onConfirmed={() => goToView("confirmation")}
@@ -237,7 +236,6 @@ export default function App() {
               <OrderConfirmationPage business={business}
                 type={orderType}
                 quantities={drafts}
-                afterCutoff={false}
                 onHome={() => goToView("home")}
                 onViewOrder={() => {
                   setOrderDetailState("confirmed")

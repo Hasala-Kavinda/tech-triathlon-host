@@ -6,22 +6,22 @@ import {  Button  } from '../components/common/Button';
 import { SubmissionError } from "../components/orders/SubmissionError";
 import { selectedProducts, getDraft, formatOrderType, getDefaultOrderType, formatOutlet, pluralizeUnit } from "../lib/utils";
 import type { OrderType, OrderDrafts, SubmissionState, CatalogProduct } from "../types/store";
+import { useCutoff } from "../hooks/useCutoff";
 
 export function ReviewOrderPage({ business, 
       type,
       quantities,
-      afterCutoff,
       forceError,
       onBack,
       onConfirmed,
     }: { business: "fresh" | "style" | "tech"
           type: OrderType
           quantities: OrderDrafts
-          afterCutoff: boolean
           forceError: boolean
           onBack: () => void
           onConfirmed: () => void
         }) {
+    const { isClosed: afterCutoff, targetDeliveryDate } = useCutoff();
     const [submissionState, setSubmissionState] = useState<SubmissionState>("idle");
     const items = selectedProducts(business, type, getDraft(quantities, type));
     const totalUnits = items.reduce((total, item) => total + item.quantity, 0);
@@ -31,7 +31,7 @@ export function ReviewOrderPage({ business,
         if (forceError) { setSubmissionState("error"); return }
 
         try {
-          await submitStoreOrder({ business, type, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
+          await submitStoreOrder({ business, type, requestedDate: targetDeliveryDate || undefined, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
           onConfirmed()
         } catch (error) {
           console.error("Order submission failed", error)
@@ -49,7 +49,7 @@ export function ReviewOrderPage({ business,
         </div>
       </div>
 
-      <ReviewContext business={business} type={type} afterCutoff={afterCutoff} />
+      <ReviewContext business={business} type={type} />
 
       <div className="review-layout">
         <section className="review-products-panel">
@@ -159,11 +159,9 @@ export function ReviewOrderPage({ business,
 
 export function ReviewContext({ business, 
       type,
-      afterCutoff,
-
-    }: { business: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
-
+        }: { business: "fresh" | "style" | "tech", type: OrderType
         }) {
+    const { isClosed: afterCutoff, timeRemaining, targetDeliveryStr } = useCutoff();
     return (
     <div className="review-context">
       <div>
@@ -179,13 +177,13 @@ export function ReviewContext({ business,
           {afterCutoff ? "Following planning run" : "Target delivery"}
         </span>
         <strong>
-          {afterCutoff ? "Friday, 2 October" : "Tomorrow · Thursday, 1 October"}
+          {targetDeliveryStr}
         </strong>
       </div>
       <div>
         <span>Cutoff</span>
         <strong>
-          {afterCutoff ? "Next-day ordering closed" : "2h 14m remaining"}
+          {afterCutoff ? "Next-day ordering closed" : `${timeRemaining} remaining`}
         </strong>
       </div>
     </div>

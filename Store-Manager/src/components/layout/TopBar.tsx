@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {  IconButton, Button  } from '../common/Button';
 import { calmSpring, navigation } from '../../lib/constants';
 import { readSession } from '../../auth/session';
+import { useCutoff } from '../../hooks/useCutoff';
 
 function getInitials(name?: string) {
   if (!name) return "";
@@ -26,13 +27,12 @@ export function TopBar({
       current,
       onNavigate,
       business,
-      afterCutoff = false,
     }: {
           current: string
           onNavigate: (label: string) => void
           business: "fresh" | "style" | "tech"
-          afterCutoff?: boolean
         }) {
+    const { isClosed, timeRemaining } = useCutoff();
     const [showNotifs, setShowNotifs] = useState(false);
     const [showCutoff, setShowCutoff] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
@@ -97,7 +97,7 @@ export function TopBar({
 
       <div className="topbar-right">
         <div className="topbar-cutoff-wrapper" ref={cutoffRef}>
-          <GlobalCutoff closed={afterCutoff} open={showCutoff} setOpen={(val) => {
+          <GlobalCutoff closed={isClosed} timeRemaining={timeRemaining} open={showCutoff} setOpen={(val) => {
             setShowCutoff(val)
             if (val) {
               setShowNotifs(false)
@@ -268,7 +268,7 @@ export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "s
     )
 }
 
-export function GlobalCutoff({ closed = false, open, setOpen }: { closed?: boolean, open: boolean, setOpen: (v: boolean) => void }) {
+export function GlobalCutoff({ closed = false, timeRemaining, open, setOpen }: { closed?: boolean, timeRemaining: string, open: boolean, setOpen: (v: boolean) => void }) {
     return (
     <div className="global-cutoff-container" style={{ position: "relative" }}>
       <button 
@@ -277,10 +277,10 @@ export function GlobalCutoff({ closed = false, open, setOpen }: { closed?: boole
       >
         <Clock3 className="cutoff-icon" style={{ width: 14, height: 14 }} />
         <span className="cutoff-pill-text desktop-only">
-          {closed ? "Next-day cutoff passed" : "Next-day cutoff · 2h 14m"}
+          {closed ? "Next-day cutoff passed" : `Next-day cutoff · ${timeRemaining}`}
         </span>
         <span className="cutoff-pill-text mobile-only">
-          {closed ? "Cutoff passed" : "Cutoff · 2h 14m"}
+          {closed ? "Cutoff passed" : `Cutoff · ${timeRemaining}`}
         </span>
       </button>
 

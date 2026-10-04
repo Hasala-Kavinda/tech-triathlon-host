@@ -3,17 +3,17 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { formatOrderType, getDefaultOrderType, formatOutlet } from "../../lib/utils";
 import type { OrderType, CatalogProduct } from "../../types/store";
 import { StatusPill } from "../common/StatusPill";
+import { useCutoff } from "../../hooks/useCutoff";
 import { overlaySpring } from "../../lib/constants";
 
 export function ConfirmationCard({ business, 
       type,
-      afterCutoff,
       items,
 
-    }: { business: "fresh" | "style" | "tech", type: OrderType, afterCutoff: boolean
-
+    }: { business: "fresh" | "style" | "tech", type: OrderType
           items: Array<CatalogProduct & { quantity: number }>
         }) {
+    const { targetDeliveryStr } = useCutoff();
     const totalUnits = items.reduce((total, item) => total + item.quantity, 0);
     const details = [
             { label: "Order number", value: "Pending assignment", data: true },
@@ -28,7 +28,7 @@ export function ConfirmationCard({ business,
             },
             {
               label: "Target planning run",
-              value: afterCutoff ? "Friday, 2 October" : "Thursday, 1 October",
+              value: targetDeliveryStr,
             },
             { label: "Outlet", value: formatOutlet(business) },
             {
