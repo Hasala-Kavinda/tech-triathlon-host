@@ -124,7 +124,7 @@ export function TopBar({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 4, scale: 0.95 }}
               transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              style={{ position: "absolute", top: 48, right: 0, width: 320, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 16 }}>
+              style={{ position: "absolute", top: 48, right: 0, width: 320, maxHeight: 400, overflowY: "auto", background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 16 }}>
               <div style={{ fontWeight: 600, marginBottom: 12 }}>Notifications</div>
               <div onClick={() => { setShowNotifs(false); onNavigate("Deliveries"); }} style={{ padding: 12, background: "var(--navy-50)", borderRadius: 6, marginBottom: 8, cursor: "pointer", fontSize: 13, color: "var(--text-primary)" }}>
                 <strong>ORD-1045</strong> awaits receipt confirmation
@@ -151,7 +151,7 @@ export function TopBar({
             }}
           >
             <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>{initials}</span>
-            <span style={{ fontWeight: 500, fontSize: '14px' }}>{shortName}</span>
+            <span style={{ fontWeight: 500, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>{shortName}</span>
             <ChevronDown size={16} />
           </button>
 

@@ -51,7 +51,7 @@ export function DeliveriesPage({ business, onOpenOrder }: { business: "fresh" | 
             ) : null}
             <div className="upcoming-list">
               {liveDeliveries.map((delivery) => (
-                <div className="upcoming-row" key={delivery._id}>
+                <div className="upcoming-row" style={{ display: "flex", justifyContent: "space-between", padding: "16px", alignItems: "center" }} key={delivery._id}>
                   <span className="upcoming-record"><strong className="data-id">{delivery._id.slice(-8).toUpperCase()}</strong><span>{delivery.items.length} products</span></span>
                   <span className="upcoming-date">{delivery.arrivedAt ? new Date(delivery.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Scheduled"}</span>
                   <span className="upcoming-status"><strong>{delivery.status.split("_").join(" ")}</strong></span>
