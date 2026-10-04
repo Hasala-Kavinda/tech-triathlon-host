@@ -1,62 +1,110 @@
 import { ArrowLeft, PackageCheck, CheckCircle2, AlertTriangle, Search, PackageOpen, ArrowRight, Check, ChevronUp, ChevronDown } from "lucide-react";
 import {  AnimatePresence, motion  } from 'motion/react';
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {  Button  } from '../components/common/Button';
 import {  DirectQuantityControl  } from '../components/common/QuantityControl';
 import {  StatusPill  } from '../components/common/StatusPill';
-import { selectedProducts, getDefaultOrderType, getDraft, formatOrderType, pluralizeUnit } from "../lib/utils";
-import {  ReceiptFlowState, ReceiptIssueType, OrderType, CatalogProduct  } from '../types/store';
+import { pluralizeUnit, formatOrderType, getDefaultOrderType } from "../lib/utils";
+import type { ReceiptFlowState, ReceiptIssueType, OrderType, CatalogProduct } from '../types/store';
 import { calmSpring, overlaySpring } from "../lib/constants";
+import { getOrder, storeDeliveryApi } from "../api/store";
+import { clockTime } from "../lib/time";
 
-const dummyDrafts: any = {
-  fresh: { dry: { rice: 20, "milk-powder": 30, flour: 10, "cooking-oil": 20 } },
-  style: { dry: {} },
-  tech: { dry: {} }
-};
+/** One delivered product, with what was expected and what the driver recorded. */
+type ReceiptLine = CatalogProduct & { quantity: number; delivered: number };
+type LoadedDelivery = {
+  delivery: { _id: string; version: number; status: string; completedAt?: string }
+  orderNumbers: string[]
+  orderId: string | null
+  lines: ReceiptLine[]
+}
 
-export function ReceiptFlowPage({ 
+/**
+ * Receipt confirmation for a real delivery. The products and quantities come from the delivery record (joined with
+ * the order for names/units); "Confirm full receipt" and "Report an issue" both call
+ * POST /store/deliveries/:id/receipt, so the receipt is actually saved.
+ */
+export function ReceiptFlowPage({
       business,
       state,
       onStateChange,
       onBack,
       onHome,
       onViewOrder,
-      onBusinessChange,
-      orderId = "Pending",
+      deliveryId,
     }: {
+          deliveryId?: string
           orderId?: string
           business: "fresh" | "style" | "tech"
           state: ReceiptFlowState
           onStateChange: (state: ReceiptFlowState) => void
           onBack: () => void
           onHome: () => void
-          onViewOrder: (withIssue: boolean) => void
-            onOpenOrder: (id: string, view: string, state: string) => void
+          onViewOrder: (withIssue: boolean, orderId: string | null) => void
+            onOpenOrder?: (id: string, view: string, state: string) => void
             onBusinessChange?: (b: "fresh" | "style" | "tech") => void
         }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
-    const [received, setReceived] = useState<Record<string, number>>({
-            rice: 20,
-            "milk-powder": 28,
-            flour: 10,
-            "cooking-oil": 20,
-          });
-    const [issueTypes, setIssueTypes] = useState<Record<string, ReceiptIssueType>>({
-              rice: "good",
-              "milk-powder": "missing",
-              flour: "good",
-              "cooking-oil": "damaged",
-            });
-    const [damaged, setDamaged] = useState<Record<string, number>>({
-            "cooking-oil": 1,
-          });
+    const [loaded, setLoaded] = useState<LoadedDelivery | null>(null);
+    const [loadError, setLoadError] = useState("");
+    const [submitError, setSubmitError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [received, setReceived] = useState<Record<string, number>>({});
+    const [issueTypes, setIssueTypes] = useState<Record<string, ReceiptIssueType>>({});
+    const [damaged, setDamaged] = useState<Record<string, number>>({});
     const [issueSearch, setIssueSearch] = useState("");
     const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null);
-    const [remark, setRemark] = useState(
-            "One bottle was damaged during unloading.",
-          );
+    const [remark, setRemark] = useState("");
     const [photoAdded, setPhotoAdded] = useState(false);
+    const [recordedAt, setRecordedAt] = useState<string | null>(null);
+
+    useEffect(() => {
+      if (!deliveryId) { setLoadError("No delivery selected."); return }
+      let cancelled = false
+      void (async () => {
+        const { delivery } = await storeDeliveryApi.get(deliveryId)
+        const orderIds = [...new Set(delivery.items.flatMap((item) => item.orderIds.map(String)))]
+        const orders = await Promise.all(orderIds.map((id) => getOrder(id)))
+        const meta = new Map(orders.flatMap((order) => order.items.map((item) => [item.sku, { name: item.name, unit: item.unit }] as const)))
+        const lines: ReceiptLine[] = delivery.items.map((item) => ({
+          id: item.sku, name: meta.get(item.sku)?.name ?? item.sku, unit: meta.get(item.sku)?.unit ?? "unit",
+          quantity: item.expected, delivered: item.delivered ?? item.expected,
+        }))
+        if (cancelled) return
+        setLoaded({ delivery: { _id: delivery._id, version: delivery.version, status: delivery.status, ...(delivery.completedAt ? { completedAt: delivery.completedAt } : {}) }, orderNumbers: orders.map((o) => o.orderNumber), orderId: orderIds[0] ?? null, lines })
+        setReceived(Object.fromEntries(lines.map((line) => [line.id, line.delivered])))
+        setIssueTypes(Object.fromEntries(lines.map((line) => [line.id, "good" as ReceiptIssueType])))
+        setDamaged({})
+      })().catch((err) => { if (!cancelled) setLoadError(err instanceof Error ? err.message : "Unable to load the delivery.") })
+      return () => { cancelled = true }
+    }, [deliveryId]);
+
+    const lines = loaded?.lines ?? [];
+    const alreadyReceipted = loaded ? !["delivered", "failed"].includes(loaded.delivery.status) : false;
     const success = state === "confirmed" || state === "confirmed-issue";
+    const issueLines = lines.filter((line) => (issueTypes[line.id] ?? "good") !== "good");
+
+    async function submit(result: "full" | "issue") {
+      if (!loaded) return
+      setSubmitting(true); setSubmitError("")
+      try {
+        const itemOutcomes = lines.map((line) => ({
+          sku: line.id,
+          received: result === "full" ? line.delivered : (received[line.id] ?? line.delivered),
+          ...(result === "issue" && (issueTypes[line.id] ?? "good") !== "good" ? { issueType: issueTypes[line.id] as string } : {}),
+        }))
+        const damagedNotes = lines.filter((line) => (damaged[line.id] ?? 0) > 0).map((line) => `${line.name}: ${damaged[line.id]} damaged`)
+        const text = [remark.trim(), ...damagedNotes].filter(Boolean).join(" · ")
+        const saved = await storeDeliveryApi.submitReceipt(loaded.delivery, { result, itemOutcomes, ...(text ? { remark: text } : {}) })
+        setRecordedAt((saved as { receipt?: { confirmedAt?: string } }).receipt?.confirmedAt ?? new Date().toISOString())
+        onStateChange(result === "full" ? "confirmed" : "confirmed-issue")
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : "The receipt could not be saved.")
+      } finally {
+        setSubmitting(false)
+      }
+    }
+
+    const orderLabel = loaded?.orderNumbers.join(", ") ?? "";
     return (
     <div className="receipt-flow-page">
       <div className="order-detail-utility-row">
@@ -66,10 +114,15 @@ export function ReceiptFlowPage({
         </button>
       </div>
 
-      {!success && (
+      {loadError && <p role="alert" style={{ padding: "0 24px", color: "var(--critical-500)" }}>{loadError}</p>}
+      {!loaded && !loadError && <p style={{ padding: "0 24px", color: "var(--text-secondary)" }}>Loading delivery…</p>}
+      {alreadyReceipted && !success && <p role="status" style={{ padding: "0 24px", color: "var(--text-secondary)" }}>A receipt has already been recorded for this delivery.</p>}
+      {submitError && <p role="alert" style={{ padding: "0 24px", color: "var(--critical-500)" }}>{submitError}</p>}
+
+      {loaded && !success && !alreadyReceipted && (
         <div className="receipt-page-header">
           <div>
-            <span className="page-kicker">{orderId} · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
+            <span className="page-kicker">{orderLabel} · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
             <div className="page-title">
               {state === "verify"
                 ? "Verify delivery"
@@ -79,12 +132,13 @@ export function ReceiptFlowPage({
                     ? "Review delivery issues"
                     : "Verify delivery issues"}
             </div>
-            <p>Driver completed delivery at 06:52.</p>
+            <p>{loaded.delivery.completedAt ? `Driver completed delivery at ${clockTime(loaded.delivery.completedAt)}.` : "Confirm what arrived at the store."}</p>
           </div>
           <StatusPill kind="awaiting" />
         </div>
       )}
 
+      {loaded && !alreadyReceipted && (
       <AnimatePresence mode="wait" initial={false}>
         {state === "verify" && (
           <motion.div
@@ -122,7 +176,7 @@ export function ReceiptFlowPage({
                 </Button>
               </div>
             </section>
-            <ReceiptReadOnlySummary business={business} />
+            <ReceiptReadOnlySummary lines={lines} />
           </motion.div>
         )}
 
@@ -139,17 +193,17 @@ export function ReceiptFlowPage({
               <div className="receipt-panel-heading">
                 <div>
                   <span>Full receipt</span>
-                  <small>All ordered quantities will be confirmed.</small>
+                  <small>All delivered quantities will be confirmed.</small>
                 </div>
               </div>
-              <ReceiptGoodRows business={business} />
+              <ReceiptGoodRows lines={lines} />
             </section>
             <aside className="receipt-commit-panel">
               <CheckCircle2 />
               <strong>Everything matches the order</strong>
               <p>No remark or photo is required.</p>
-              <Button onClick={() => onStateChange("confirmed")}>
-                Confirm full receipt
+              <Button disabled={submitting} onClick={() => void submit("full")}>
+                {submitting ? "Saving…" : "Confirm full receipt"}
               </Button>
               <Button tone="secondary" onClick={() => onStateChange("verify")}>
                 Back
@@ -167,7 +221,7 @@ export function ReceiptFlowPage({
             exit={{ opacity: 0, x: -8 }}
             transition={calmSpring}
           >
-                        <div style={{ padding: "16px 24px 0", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ padding: "16px 24px 0", borderBottom: "1px solid var(--border)" }}>
                <label className="field">
                  <span className="input-wrap input-wrap--icon">
                    <Search />
@@ -180,12 +234,12 @@ export function ReceiptFlowPage({
                </label>
             </div>
             <div className="receipt-issue-list">
-              {receiptProducts.filter(p => p.name.toLowerCase().includes(issueSearch.toLowerCase())).map((product) => (
+              {lines.filter(p => p.name.toLowerCase().includes(issueSearch.toLowerCase())).map((product) => (
                 <ReceiptIssueRow
                   key={product.id}
                   business={business}
                   product={product}
-                  received={received[product.id] ?? product.quantity}
+                  received={received[product.id] ?? product.delivered}
                   issueType={issueTypes[product.id] ?? "good"}
                   damaged={damaged[product.id] ?? 0}
                   isExpanded={expandedIssueId === product.id}
@@ -247,7 +301,7 @@ export function ReceiptFlowPage({
                 </AnimatePresence>
               </div>
               <div className="receipt-editor-actions">
-                <Button onClick={() => onStateChange("issue-review")}>
+                <Button disabled={!issueLines.length && !remark.trim()} onClick={() => onStateChange("issue-review")}>
                   Review issues
                   <ArrowRight />
                 </Button>
@@ -279,18 +333,22 @@ export function ReceiptFlowPage({
                 </div>
               </div>
               <div className="issue-review-items">
-                <div>
-                  <strong>Milk powder</strong>
-                  <span>Ordered: 30 cartons</span>
-                  <span>Received: {received["milk-powder"]} cartons</span>
-                  <b>{30 - received["milk-powder"]} cartons missing</b>
-                </div>
-                <div>
-                  <strong>Cooking oil</strong>
-                  <span>Ordered: 20 bottles</span>
-                  <span>Received: {received["cooking-oil"]} bottles</span>
-                  <b>{damaged["cooking-oil"]} bottle damaged</b>
-                </div>
+                {issueLines.map((line) => {
+                  const got = received[line.id] ?? line.delivered
+                  const type = issueTypes[line.id] ?? "good"
+                  return (
+                    <div key={line.id}>
+                      <strong>{line.name}</strong>
+                      <span>Expected: {line.quantity} {pluralizeUnit(line.unit, line.quantity)}</span>
+                      <span>Received: {got} {pluralizeUnit(line.unit, got)}</span>
+                      <b>
+                        {type === "missing" ? `${Math.max(0, line.quantity - got)} ${pluralizeUnit(line.unit, Math.max(0, line.quantity - got))} missing`
+                          : type === "damaged" ? `${damaged[line.id] ?? 0} damaged`
+                          : type.charAt(0).toUpperCase() + type.slice(1).replace("-", " ")}
+                      </b>
+                    </div>
+                  )
+                })}
               </div>
               {remark && (
                 <div className="issue-review-remark">
@@ -303,8 +361,8 @@ export function ReceiptFlowPage({
               <AlertTriangle />
               <strong>Confirm receipt with issue</strong>
               <p>The issue record will be sent to the dispatcher for review.</p>
-              <Button onClick={() => onStateChange("confirmed-issue")}>
-                Confirm receipt with issue
+              <Button disabled={submitting} onClick={() => void submit("issue")}>
+                {submitting ? "Saving…" : "Confirm receipt with issue"}
               </Button>
               <Button
                 tone="secondary"
@@ -315,42 +373,38 @@ export function ReceiptFlowPage({
             </aside>
           </motion.div>
         )}
-
-        {state === "confirmed" && (
-          <ReceiptConfirmationState
-            key="confirmed"
-            withIssue={false}
-            onViewOrder={() => onViewOrder(false)}
-            onHome={onHome}
-          />
-        )}
-
-        {state === "confirmed-issue" && (
-          <ReceiptConfirmationState
-            key="confirmed-issue"
-            withIssue
-            onViewOrder={() => onViewOrder(true)}
-            onHome={onHome}
-          />
-        )}
       </AnimatePresence>
+      )}
+
+      {success && (
+        <ReceiptConfirmationState
+          key={state}
+          orderId={orderLabel}
+          withIssue={state === "confirmed-issue"}
+          issueSummary={issueLines.map((line) => `${line.name}: ${issueTypes[line.id]}`).join(" · ")}
+          products={lines.length}
+          units={lines.reduce((sum, line) => sum + line.delivered, 0)}
+          recordedAt={recordedAt}
+          onViewOrder={() => onViewOrder(state === "confirmed-issue", loaded?.orderId ?? null)}
+          onHome={onHome}
+        />
+      )}
     </div>
     )
 }
 
-export function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
+export function ReceiptReadOnlySummary({ lines }: { lines: ReceiptLine[] }) {
     return (
     <div className="receipt-order-summary">
       <div className="receipt-panel-heading">
         <div>
-          <span>Ordered products</span>
+          <span>Delivered products</span>
           <small>What the driver was expected to deliver.</small>
         </div>
-        <span>4 products · 80 units</span>
+        <span>{lines.length} product{lines.length === 1 ? "" : "s"} · {lines.reduce((sum, line) => sum + line.quantity, 0)} units</span>
       </div>
       <div className="receipt-summary-rows">
-        {receiptProducts.map((product) => (
+        {lines.map((product) => (
           <div className="receipt-summary-row" key={product.id}>
             <span className="catalog-product-icon">
               <PackageOpen />
@@ -366,11 +420,10 @@ export function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fre
     )
 }
 
-export function ReceiptGoodRows({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
+export function ReceiptGoodRows({ lines }: { lines: ReceiptLine[] }) {
     return (
     <div className="receipt-good-list">
-      {receiptProducts.map((product) => (
+      {lines.map((product) => (
         <motion.div
           className="receipt-good-row"
           key={product.id}
@@ -383,7 +436,7 @@ export function ReceiptGoodRows({ business = "fresh" }: { business?: "fresh" | "
           <div>
             <strong>{product.name}</strong>
             <small>
-              {product.quantity} / {product.quantity}{" "}
+              {product.delivered} / {product.quantity}{" "}
               {pluralizeUnit(product.unit, product.quantity)}
             </small>
           </div>
@@ -599,11 +652,19 @@ export function ReceiptIssueRow({
 export function ReceiptConfirmationState({
       orderId,
       withIssue,
+      issueSummary,
+      products,
+      units,
+      recordedAt,
       onViewOrder,
       onHome,
     }: {
           orderId?: string
           withIssue: boolean
+          issueSummary: string
+          products: number
+          units: number
+          recordedAt: string | null
           onViewOrder: () => void
           onHome: () => void
         }) {
@@ -636,41 +697,22 @@ export function ReceiptConfirmationState({
           <StatusPill kind={withIssue ? "issue" : "received"} />
         </div>
         <div className="receipt-confirmation-facts">
-          {withIssue ? (
-            <>
-              <span>
-                <strong>2 cartons</strong>
-                <small>missing</small>
-              </span>
-              <span>
-                <strong>1 bottle</strong>
-                <small>damaged</small>
-              </span>
-              <span>
-                <strong>06:59</strong>
-                <small>recorded</small>
-              </span>
-            </>
-          ) : (
-            <>
-              <span>
-                <strong>4 products</strong>
-                <small>received</small>
-              </span>
-              <span>
-                <strong>80 units</strong>
-                <small>confirmed</small>
-              </span>
-              <span>
-                <strong>06:57</strong>
-                <small>confirmed</small>
-              </span>
-            </>
-          )}
+          <span>
+            <strong>{products} product{products === 1 ? "" : "s"}</strong>
+            <small>{withIssue ? "delivered" : "received"}</small>
+          </span>
+          <span>
+            <strong>{units} units</strong>
+            <small>{withIssue ? "driver recorded" : "confirmed"}</small>
+          </span>
+          <span>
+            <strong>{clockTime(recordedAt)}</strong>
+            <small>{withIssue ? "recorded" : "confirmed"}</small>
+          </span>
         </div>
         <div className="receipt-confirmation-message">
           {withIssue
-            ? "The issue has been sent to the dispatcher for review."
+            ? `The issue has been sent to the dispatcher for review.${issueSummary ? ` (${issueSummary})` : ""}`
             : "No issues reported."}
         </div>
       </div>

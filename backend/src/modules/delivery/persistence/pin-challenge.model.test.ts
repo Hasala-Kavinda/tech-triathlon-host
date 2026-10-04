@@ -37,7 +37,7 @@ describe("PinChallenge Model", () => {
     
     expect(doc.status).toBe("issued")
     expect(doc.attempts).toBe(0)
-    expect(doc.maxAttempts).toBe(5)
+    expect(doc.maxAttempts).toBe(3)
     
     // Check that select: false prevents pinHash from being returned by default
     const reloaded = await PinChallenge.findById(doc._id)

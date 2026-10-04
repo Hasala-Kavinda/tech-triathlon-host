@@ -7,6 +7,7 @@ import { loadingModule } from "../modules/loading/loading.module.js"
 import { deliveryModule } from "../modules/delivery/delivery.module.js"
 import { operationsModule } from "../modules/operations/operations.module.js"
 import { filesModule } from "../modules/files/files.module.js"
+import { devModule } from "../modules/dev/dev.module.js"
 
 export async function registerModules(api: FastifyInstance) {
   await api.register(authModule)
@@ -17,4 +18,6 @@ export async function registerModules(api: FastifyInstance) {
   await api.register(deliveryModule)
   await api.register(operationsModule)
   await api.register(filesModule)
+  // Development-only scenario tool: not registered at all (plain 404) unless NODE_ENV=development.
+  if (api.config.nodeEnv === "development") await api.register(devModule)
 }

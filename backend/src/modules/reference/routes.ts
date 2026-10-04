@@ -77,6 +77,7 @@ export async function referenceRoutes(app: FastifyInstance) {
     parseServiceDate(parsed.data.date)
     const day = await CalendarDayReadPort.findByDate(parsed.data.date)
     if (!day) throw notFound("The requested date is outside the imported operating calendar.")
-    return ok(request, { ...day, ...cutoffContext(parsed.data.date) })
+    // `devMode` is read-only information so clients can offer the same dates the server will accept; it changes no rule.
+    return ok(request, { ...day, ...cutoffContext(parsed.data.date), devMode: app.config.devMode })
   })
 }

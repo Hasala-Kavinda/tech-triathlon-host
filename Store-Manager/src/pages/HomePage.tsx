@@ -85,7 +85,7 @@ export function HomePage({
 
           <motion.section className="home-section" layout transition={calmSpring}>
             <HomeSectionHeader title="Next delivery" />
-            <NextDeliveryHero delivery={nextDelivery} onOpen={() => nextDelivery && onOpenOrder(nextDelivery._id, "order-detail", "scheduled")} />
+            <NextDeliveryHero delivery={nextDelivery} onOpen={() => nextDelivery && onOpenOrder(nextDelivery.orders[0]?._id ?? nextDelivery._id, "order-detail", "")} />
           </motion.section>
 
     <AnimatePresence initial={false}>
@@ -160,7 +160,7 @@ export function HomePage({
                           status: delivery.status === "arrived" ? "confirmed" : "scheduled",
                           eta: delivery.status === "arrived" ? "Arrived" : deliveryEta(delivery),
                         }}
-                        onOpen={() => onOpenOrder(delivery._id, "order-detail", "scheduled")}
+                        onOpen={() => onOpenOrder(delivery.orders[0]?._id ?? delivery._id, "order-detail", "")}
                       />
                     ))}
                     {!loading && !error && (dashboard?.upcomingDeliveries ?? []).length === 0 && <UpcomingEmptyState />}

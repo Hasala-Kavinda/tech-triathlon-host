@@ -2,19 +2,25 @@ import { AlertTriangle, CalendarDays } from "lucide-react";
 import {  motion  } from 'motion/react';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { calmSpring } from "../../lib/constants";
+import { dayNote } from "../../lib/deliveryDates";
 
 export function OrderPlanningContext({ 
     afterCutoff,
     timeRemaining,
     futureOperatingDays,
     requestedDate,
-    onRequestedDateChange
+    onRequestedDateChange,
+    devMode = false,
+    today = ""
   }: { 
     afterCutoff: boolean;
     timeRemaining: string;
     futureOperatingDays?: { date: string, isOperating: boolean }[];
     requestedDate?: string;
     onRequestedDateChange?: (date: string) => void;
+    /** Server development mode: any upcoming day (including today) can be ordered. */
+    devMode?: boolean;
+    today?: string;
   }) {
     return (
     <motion.div
@@ -48,7 +54,7 @@ export function OrderPlanningContext({
               }}
             >
               {futureOperatingDays.map(d => (
-                <option key={d.date} value={d.date}>{d.date}</option>
+                <option key={d.date} value={d.date}>{d.date}{dayNote(d, today, devMode) ? ` · ${dayNote(d, today, devMode)}` : ""}</option>
               ))}
             </select>
           ) : (
@@ -56,7 +62,7 @@ export function OrderPlanningContext({
           )}
         </strong>
         <small>
-          {afterCutoff
+          {devMode ? "Development mode: any day can be ordered. " : ""}{afterCutoff
             ? "Next-day ordering closed · Orders now enter the following planning run."
             : timeRemaining ? `Next-day cutoff · ${timeRemaining} remaining` : "Next-day cutoff approaching"}
         </small>

@@ -1,4 +1,5 @@
 import { DateTime } from "luxon"
+import { clock } from "./clock.js"
 import { badRequest } from "./errors.js"
 
 export const OPERATING_ZONE = "Asia/Colombo"
@@ -20,7 +21,7 @@ export function cutoffFor(serviceDate: string) {
  * The cutoff is 16:00 Asia/Colombo on the day the order is SUBMITTED (not the delivery day):
  * before it, the order enters the next planning run; at or after it, the following run.
  */
-export function submissionContext(now: DateTime = DateTime.utc()) {
+export function submissionContext(now: DateTime = clock.nowDateTime()) {
   const localNow = now.setZone(OPERATING_ZONE)
   const cutoff = localNow.startOf("day").set({ hour: 16 })
   return {
@@ -32,7 +33,7 @@ export function submissionContext(now: DateTime = DateTime.utc()) {
   }
 }
 
-export function cutoffContext(serviceDate: string, now: DateTime = DateTime.utc()) {
+export function cutoffContext(serviceDate: string, now: DateTime = clock.nowDateTime()) {
   const localNow = now.setZone(OPERATING_ZONE)
   const cutoff = cutoffFor(serviceDate)
   return {

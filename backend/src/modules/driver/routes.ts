@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
 import { audit } from "../../common/audit.js"
+import { clock } from "../../common/clock.js"
 import { AppError, badRequest, conflict, notFound, unprocessable } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
@@ -21,7 +22,7 @@ import { isUndeliveredOutcome, STOP_OUTCOMES, timingResult, windowDeadlineAt, ty
 import { UserReadPort } from "../auth/user.read-port.js"
 import { DateTime } from "luxon"
 
-function today() { return DateTime.now().setZone(OPERATING_ZONE).toFormat("yyyy-MM-dd") }
+function today() { return clock.nowDateTime().setZone(OPERATING_ZONE).toFormat("yyyy-MM-dd") }
 
 // A device clock may run slightly ahead of the server; anything beyond this is rejected.
 const MAX_CLIENT_CLOCK_SKEW_MS = 2 * 60_000
@@ -258,7 +259,7 @@ export async function driverRoutes(app: FastifyInstance) {
     const activeTrip = await Trip.exists({ _id: record.tripId, status: "in_transit" })
     if (!activeTrip) throw conflict("PIN_NOT_AVAILABLE", "A PIN can be issued only while the delivery trip is on the road.")
     const pin = String(randomInt(0, 10_000)).padStart(4, "0")
-    const expiresAt = new Date(Date.now() + 10 * 60_000)
+    const expiresAt = new Date(clock.now().getTime() + 10 * 60_000)
     await DeliveryCommandPort.issueChallenge(deliveryId, pin, expiresAt)
     await audit(request, "delivery.pin_issued", "delivery", record.id)
     return ok(request, { pin, expiresAt })

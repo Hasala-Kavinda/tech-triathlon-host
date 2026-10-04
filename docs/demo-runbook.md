@@ -11,6 +11,10 @@ The seeded non-production users are:
 
 These credentials are for local/demo data only and must not be reused in production.
 
+## Development testing
+
+To put an order/trip in a given lifecycle stage without editing MongoDB, use the dev scenario tool: see [dev-testing.md](dev-testing.md).
+
 ## Photo upload setup (required)
 
 Driver meter photos and receipt evidence are stored in Cloudinary. Put your three values from the Cloudinary dashboard (Settings -> API Keys) in git-ignored `.env` files - never in `.env.example`:

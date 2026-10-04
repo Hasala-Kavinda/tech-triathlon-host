@@ -7,22 +7,32 @@ import type { StatusKind } from "../types/store";
 import { calmSpring } from "../lib/constants";
 import { getOrderHistory, type StoreOrder } from "../api/store";
 
-const statusPresentation: Record<StoreOrder["status"], { label: string; kind: StatusKind; state: string }> = {
-  submitted: { label: "Submitted", kind: "awaiting", state: "confirmed" },
-  deferred: { label: "Deferred", kind: "deferred", state: "deferred" },
-  allocated: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
-  loading: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
-  load_confirmed: { label: "Scheduled", kind: "scheduled", state: "confirmed" },
-  in_transit: { label: "On the way", kind: "transit", state: "confirmed" },
-  delivered: { label: "Delivered", kind: "received", state: "receipt-confirmed" },
-  delivery_failed: { label: "Delivery failed", kind: "issue", state: "confirmed" },
-  cancelled: { label: "Cancelled", kind: "issue", state: "confirmed" },
+const orderStatusPresentation: Record<StoreOrder["status"], { label: string; kind: StatusKind }> = {
+  submitted: { label: "Submitted", kind: "awaiting" },
+  deferred: { label: "Deferred", kind: "deferred" },
+  allocated: { label: "Scheduled", kind: "scheduled" },
+  loading: { label: "Scheduled", kind: "scheduled" },
+  load_confirmed: { label: "Scheduled", kind: "scheduled" },
+  in_transit: { label: "On the way", kind: "transit" },
+  delivered: { label: "Delivered", kind: "received" },
+  delivery_failed: { label: "Delivery failed", kind: "issue" },
+  cancelled: { label: "Cancelled", kind: "issue" },
 };
+
+// The delivery record is where "arrived" and the receipt live, so it takes precedence over orders.status.
+function statusPresentation(order: StoreOrder): { label: string; kind: StatusKind } {
+  const delivery = order.delivery?.status
+  if (delivery === "arrived") return { label: "Arrived", kind: "arrived" }
+  if (delivery === "delivered" || delivery === "failed") return { label: "Awaiting confirmation", kind: "awaiting" }
+  if (delivery === "receipt_confirmed") return { label: "Receipt confirmed", kind: "received" }
+  if (delivery === "receipt_issue") return { label: "Receipt issue", kind: "issue" }
+  return orderStatusPresentation[order.status]
+}
 
 export function OrdersPage({ onNewOrder, onOpenOrder }: { business: "fresh" | "style" | "tech", onNewOrder: () => void, onOpenOrder: (id: string, view: string, state: string) => void }) {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("All");
-    const statuses = ["All", "Submitted", "Scheduled", "On the way", "Deferred", "Delivered", "Delivery failed", "Cancelled"];
+    const statuses = ["All", "Submitted", "Scheduled", "On the way", "Arrived", "Awaiting confirmation", "Receipt confirmed", "Receipt issue", "Deferred", "Delivered", "Delivery failed", "Cancelled"];
     const [orders, setOrders] = useState<StoreOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -37,7 +47,7 @@ export function OrdersPage({ onNewOrder, onOpenOrder }: { business: "fresh" | "s
     }, []);
     const filtered = orders.filter(o =>
             o.orderNumber.toLowerCase().includes(search.toLowerCase()) &&
-            (statusFilter === "All" || statusPresentation[o.status].label === statusFilter)
+            (statusFilter === "All" || statusPresentation(o).label === statusFilter)
           );
     return (
     <div className="list-container">
@@ -88,14 +98,14 @@ export function OrdersPage({ onNewOrder, onOpenOrder }: { business: "fresh" | "s
         {loading && <p style={{ color: "var(--text-secondary)" }}>Loading orders…</p>}
         {error && <p style={{ color: "var(--text-secondary)" }}>{error}</p>}
         {!loading && !error && filtered.length > 0 ? filtered.map(order => {
-          const presentation = statusPresentation[order.status];
+          const presentation = statusPresentation(order);
           return (
           <motion.button
             key={order._id}
             className="upcoming-row"
             type="button"
             layout
-            onClick={() => onOpenOrder(order._id, "order-detail", presentation.state)}
+            onClick={() => onOpenOrder(order._id, "order-detail", "")}
             whileTap={{ scale: 0.99 }}
             transition={calmSpring}
           >

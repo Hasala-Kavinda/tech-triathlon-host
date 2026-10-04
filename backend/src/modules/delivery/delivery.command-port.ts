@@ -1,6 +1,7 @@
+import { clock } from "../../common/clock.js"
 import mongoose from "mongoose"
 import { DeliveryRecord } from "./persistence/delivery-record.model.js"
-import { PinChallenge } from "./persistence/pin-challenge.model.js"
+import { PIN_MAX_ATTEMPTS, PinChallenge } from "./persistence/pin-challenge.model.js"
 import { hmacSha256 } from "../../common/crypto.js"
 import { loadConfig } from "../../config/env.js"
 
@@ -83,7 +84,7 @@ export const DeliveryCommandPort = {
       pinHash,
       expiresAt,
       attempts: 0,
-      maxAttempts: 5,
+      maxAttempts: PIN_MAX_ATTEMPTS,
       status: "issued"
     })
   },
@@ -102,7 +103,7 @@ export const DeliveryCommandPort = {
       return { verified: false, error: "PIN_ATTEMPTS_EXCEEDED", attemptsLeft: 0 }
     }
     
-    if (challenge.status === "expired" || challenge.expiresAt <= new Date()) {
+    if (challenge.status === "expired" || challenge.expiresAt <= clock.now()) {
       if (challenge.status !== "expired") {
         challenge.status = "expired"
         await challenge.save()

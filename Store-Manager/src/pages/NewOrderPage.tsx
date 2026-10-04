@@ -33,7 +33,7 @@ export function NewOrderPage({ business,
           onRequestedDateChange: (date: string) => void
           onReview: () => void
         }) {
-    const { isClosed: afterCutoffValue, timeRemaining, futureOperatingDays, targetDeliveryDate } = useCutoff();
+    const { isClosed: afterCutoffValue, timeRemaining, futureOperatingDays, targetDeliveryDate, devMode, today } = useCutoff();
     const actualAfterCutoff = afterCutoff || afterCutoffValue;
     const [searchQuery, setSearchQuery] = useState(initialSearch);
     const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen);
@@ -106,6 +106,8 @@ export function NewOrderPage({ business,
           futureOperatingDays={futureOperatingDays}
           requestedDate={requestedDate || targetDeliveryDate || ""}
           onRequestedDateChange={onRequestedDateChange}
+          devMode={devMode}
+          today={today}
         />
       </div>
 

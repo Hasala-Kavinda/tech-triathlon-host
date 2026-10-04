@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { calendarApi } from "../api/store";
+import { offeredDeliveryDates } from "../lib/deliveryDates";
 
 export function useCutoff() {
   const [cutoffDeadlineAt, setCutoffDeadlineAt] = useState<string | null>(null);
@@ -8,6 +9,8 @@ export function useCutoff() {
   const [targetDeliveryStr, setTargetDeliveryStr] = useState<string>("Tomorrow");
   const [targetDeliveryDate, setTargetDeliveryDate] = useState<string | null>(null);
   const [futureOperatingDays, setFutureOperatingDays] = useState<{ date: string; isOperating: boolean }[]>([]);
+  const [devMode, setDevMode] = useState(false);
+  const [today, setToday] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -30,22 +33,19 @@ export function useCutoff() {
       const cutoff = new Date(dayData.cutoffDeadlineAt).getTime();
       const pastCutoff = now >= cutoff;
       
-      // Filter future operating days
-      const futureOperatingDays = rangeData.filter(d => d.date > localISOTime && d.isOperating);
-      
-      let targetDate = "";
-      if (futureOperatingDays.length > 0) {
-        if (pastCutoff && futureOperatingDays.length > 1) {
-          targetDate = futureOperatingDays[1].date;
-        } else {
-          targetDate = futureOperatingDays[0].date;
-        }
-      }
-      
-      setFutureOperatingDays(futureOperatingDays);
+      // Production: upcoming operating days only. Development (server DEV_MODE): today and every day are offered.
+      const isDev = Boolean(dayData.devMode);
+      const { days, defaultDate } = offeredDeliveryDates({ range: rangeData, today: localISOTime, pastCutoff, devMode: isDev });
+      const targetDate = defaultDate ?? "";
+
+      setDevMode(isDev);
+      setToday(localISOTime);
+      setFutureOperatingDays(days);
       setTargetDeliveryDate(targetDate || null);
 
-      if (pastCutoff) {
+      if (isDev) {
+        setTargetDeliveryStr(`Today (${targetDate}) · development mode`);
+      } else if (pastCutoff) {
         setTargetDeliveryStr(targetDate ? `Following planning run (${targetDate})` : "Following planning run"); 
       } else {
         setTargetDeliveryStr(targetDate ? `Tomorrow (${targetDate})` : "Tomorrow");
@@ -78,5 +78,5 @@ export function useCutoff() {
     return () => clearInterval(timer);
   }, [cutoffDeadlineAt]);
 
-  return { isClosed, timeRemaining, targetDeliveryStr, targetDeliveryDate, cutoffDeadlineAt, futureOperatingDays };
+  return { isClosed, timeRemaining, targetDeliveryStr, targetDeliveryDate, cutoffDeadlineAt, futureOperatingDays, devMode, today };
 }

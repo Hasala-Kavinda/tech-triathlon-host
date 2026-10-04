@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "scenario": "tsx src/dev/scenario-cli.ts",
     "seed": "tsx src/database/seed/index.ts",
     "seed:preflight": "tsx src/database/seed/preflight-cli.ts ../CSC/products.demo.csv",
     "seed:reference": "tsx src/database/seed/index.ts reference",

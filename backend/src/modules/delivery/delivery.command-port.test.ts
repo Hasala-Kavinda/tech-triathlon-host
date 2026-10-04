@@ -57,7 +57,7 @@ describe("DeliveryCommandPort PIN Challenges", () => {
     
     expect(result.verified).toBe(false)
     expect(result.error).toBe("PIN_INCORRECT")
-    expect(result.attemptsLeft).toBe(4) // 5 - 1
+    expect(result.attemptsLeft).toBe(2) // 3 - 1 (spec: at most three attempts)
     
     const challenge = await PinChallenge.findOne({ deliveryRecordId: deliveryId })
     expect(challenge!.status).toBe("issued")
@@ -68,23 +68,23 @@ describe("DeliveryCommandPort PIN Challenges", () => {
     const deliveryId = new mongoose.Types.ObjectId()
     await DeliveryCommandPort.issueChallenge(deliveryId, "1234", new Date(Date.now() + 10000))
     
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       await DeliveryCommandPort.verifyChallenge(deliveryId, "9999", new Date())
     }
     
-    const result5 = await DeliveryCommandPort.verifyChallenge(deliveryId, "9999", new Date())
-    expect(result5.verified).toBe(false)
-    expect(result5.error).toBe("PIN_INCORRECT")
-    expect(result5.attemptsLeft).toBe(0)
+    const result3 = await DeliveryCommandPort.verifyChallenge(deliveryId, "9999", new Date())
+    expect(result3.verified).toBe(false)
+    expect(result3.error).toBe("PIN_INCORRECT")
+    expect(result3.attemptsLeft).toBe(0)
     
     // Now it should be locked
-    const result6 = await DeliveryCommandPort.verifyChallenge(deliveryId, "9999", new Date())
-    expect(result6.verified).toBe(false)
-    expect(result6.error).toBe("PIN_ATTEMPTS_EXCEEDED")
+    const result4 = await DeliveryCommandPort.verifyChallenge(deliveryId, "9999", new Date())
+    expect(result4.verified).toBe(false)
+    expect(result4.error).toBe("PIN_ATTEMPTS_EXCEEDED")
     
     const challenge = await PinChallenge.findOne({ deliveryRecordId: deliveryId })
     expect(challenge!.status).toBe("locked")
-    expect(challenge!.attempts).toBe(5)
+    expect(challenge!.attempts).toBe(3)
   })
 
   it("rejects expired challenge", async () => {

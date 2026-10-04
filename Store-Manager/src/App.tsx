@@ -111,9 +111,12 @@ export default function App() {
   const [receiptFlowState, setReceiptFlowState] = useState<ReceiptFlowState>(initialReceiptState)
   
   const [selectedOrderId, setSelectedOrderId] = useState<string>("")
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>("")
   const [requestedDate, setRequestedDate] = useState<string>("")
     function handleOpenOrder(id: string, nextView: string, state: string) {
-    setSelectedOrderId(id)
+    // The receipt screen is about a DELIVERY record; every other screen is about an ORDER.
+    if (nextView === "verify-delivery") setSelectedDeliveryId(id)
+    else setSelectedOrderId(id)
     if (state) {
       if (nextView === "order-detail") setOrderDetailState(state as OrderDetailState)
       if (nextView === "verify-delivery") setReceiptFlowState(state as ReceiptFlowState)
@@ -266,10 +269,10 @@ export default function App() {
                 onNavigateDeferred={() => {
                     setOrderDetailState("deferred"); goToView("order-detail")
                   }}
-                  onReviewDelivery={() => {
+                  onReviewDelivery={(deliveryId) => {
                   setReceiptFlowState("verify")
+                  setSelectedDeliveryId(deliveryId)
                   goToView("verify-delivery")
-
                 }}
               />
             </motion.div>
@@ -286,22 +289,18 @@ export default function App() {
               transition={{ duration: 0.22, ease: "easeOut" }}
             >
               <ReceiptFlowPage
+                deliveryId={selectedDeliveryId}
                 orderId={selectedOrderId}
                 business={business}
                 onBusinessChange={handleBusinessChange}
                 state={receiptFlowState}
                 onStateChange={setReceiptFlowState}
-                onBack={() => {
-                  setOrderDetailState("awaiting-confirmation")
-                  goToView("order-detail")
-                }}
+                onBack={() => goToView(selectedOrderId ? "order-detail" : "home")}
                 onHome={() => goToView("home")}
                 onOpenOrder={handleOpenOrder}
-                onViewOrder={(withIssue) => {
-                  setOrderDetailState(
-                    withIssue ? "receipt-issue" : "receipt-confirmed",
-                  )
-                  goToView("order-detail")
+                onViewOrder={(_withIssue, orderId) => {
+                  if (orderId) setSelectedOrderId(orderId)
+                  goToView(orderId || selectedOrderId ? "order-detail" : "home")
                 }}
               />
             </motion.div>

@@ -3,12 +3,15 @@ import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import { requireRole } from "../../common/auth.js"
 import { audit } from "../../common/audit.js"
+import { clock } from "../../common/clock.js"
 import { badRequest, forbidden, notFound, unprocessable } from "../../common/errors.js"
 import { findIdempotentResult, saveIdempotentResult } from "../../common/idempotency.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { parseServiceDate, submissionContext } from "../../common/time.js"
 import { Order } from "./persistence/order.model.js"
+import { DeliveryRecord, Trip } from "../../database/models/index.js"
+import { deriveOrderLifecycle } from "./order-lifecycle.js"
 import { UserReadPort } from "../auth/user.read-port.js"
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { ProductReadPort } from "../reference/product.read-port.js"
@@ -87,7 +90,7 @@ export async function orderRoutes(app: FastifyInstance) {
         fragile: product.fragile,
       }
     })
-    const now = new Date()
+    const now = clock.now()
     let order!: InstanceType<typeof Order>
     const session = await mongoose.startSession()
     try {
@@ -138,7 +141,32 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!query.success) throw badRequest("Invalid history pagination.")
     const { skip, limit } = pagination(query.data.page, query.data.pageSize)
     const [rows, total] = await Promise.all([Order.find({ outletId: outlet.outletId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Order.countDocuments({ outletId: outlet.outletId })])
-    return page(request, rows, query.data.page, query.data.pageSize, total)
+    // The delivery record is where "arrived" lives; attach a read-only summary so the list can show it.
+    const deliveries = await DeliveryRecord.find({ outletId: outlet.outletId, "items.orderIds": { $in: rows.map((row) => row._id) } }).select("status arrivedAt items.orderIds createdAt").sort({ createdAt: 1 }).lean()
+    const byOrder = new Map<string, { _id: string; status: string; arrivedAt: Date | null }>()
+    for (const delivery of deliveries) for (const item of delivery.items) for (const orderId of item.orderIds) byOrder.set(String(orderId), { _id: String(delivery._id), status: delivery.status, arrivedAt: delivery.arrivedAt ?? null })
+    return page(request, rows.map((row) => ({ ...row, delivery: byOrder.get(String(row._id)) ?? null })), query.data.page, query.data.pageSize, total)
+  })
+
+  // One call that joins the order, its trip and its delivery record, and places the order on the 5-step timeline.
+  app.get("/store/orders/:orderId/lifecycle", { preHandler: app.authenticate }, async (request) => {
+    const auth = requireRole(request, "store_manager")
+    const { outlet } = await managerContext(auth.userId)
+    const params = z.object({ orderId: z.string() }).safeParse(request.params)
+    if (!params.success || !mongoose.isValidObjectId(params.data.orderId)) throw notFound()
+    const order = await Order.findOne({ _id: params.data.orderId, outletId: outlet.outletId }).lean()
+    if (!order) throw notFound()
+    const delivery = await DeliveryRecord.findOne({ outletId: outlet.outletId, "items.orderIds": order._id }).sort({ createdAt: -1 }).lean()
+    const tripId = order.allocatedTripId ?? delivery?.tripId
+    const trip = tripId ? await Trip.findById(tripId).lean() : null
+    const lifecycle = deriveOrderLifecycle({ order, trip, delivery })
+    return ok(request, {
+      order: { _id: order._id, orderNumber: order.orderNumber, status: order.status, brand: order.brand, orderType: order.orderType, requestedDate: order.requestedDate, cutoffBucket: order.cutoffBucket, createdAt: order.createdAt, deferredTo: order.deferredTo ?? null, deferralReason: order.deferralReason ?? null, items: order.items },
+      trip: trip && { tripNumber: trip.tripNumber, status: trip.status, vehicleId: trip.vehicleId, serviceDate: trip.serviceDate, departureAt: trip.departureAt, startedAt: trip.startedAt ?? null },
+      // Never includes PIN challenge data; the PIN is only ever returned once, by the issue call.
+      delivery: delivery && { _id: delivery._id, status: delivery.status, arrivedAt: delivery.arrivedAt ?? null, completedAt: delivery.completedAt ?? null, outcome: delivery.outcome ?? null, receipt: delivery.receipt ?? null, version: (delivery as { version?: number }).version ?? 0, proofStatus: delivery.proof?.status ?? "none", items: delivery.items.map((item) => ({ sku: item.sku, expected: item.expected, delivered: item.delivered ?? null })) },
+      lifecycle,
+    })
   })
 
   app.get("/orders/:orderId", { preHandler: app.authenticate }, async (request) => {
