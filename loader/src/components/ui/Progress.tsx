@@ -49,7 +49,7 @@ export function Progress({
             {accounted} / {total} items accounted for
           </Text>
         </div>
-        <Text variant="data">{Math.round((accounted / total) * 100)}%</Text>
+        <Text variant="data">{total > 0 ? Math.round((accounted / total) * 100) : 0}%</Text>
       </div>
       <div
         aria-label={`${accounted} of ${total} items accounted for`}

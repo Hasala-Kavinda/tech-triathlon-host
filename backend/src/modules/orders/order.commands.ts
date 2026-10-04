@@ -61,6 +61,32 @@ export async function deferOrder(
 }
 
 /**
+ * Defer a single order from a published trip (Planning dispatcher).
+ * Removes the allocatedTripId and defers the order atomically.
+ * Returns the updated order as a plain object, or null if not deferrable.
+ */
+export async function deferOrderFromPublishedTrip(
+  orderId: string,
+  tripId: mongoose.Types.ObjectId,
+  nextDate: string,
+  reasonCode: string,
+  note: string | undefined,
+  actorId: string,
+  session: mongoose.ClientSession,
+) {
+  const order = await Order.findOneAndUpdate(
+    { _id: orderId, status: { $in: ["allocated"] }, allocatedTripId: tripId },
+    {
+      $set: { status: "deferred", deferredTo: nextDate, deferralReason: reasonCode },
+      $unset: { allocatedTripId: 1 },
+      $push: { statusHistory: { status: "deferred", at: new Date(), actorId, note: note ?? reasonCode } },
+    },
+    { new: true, session },
+  )
+  return order ? order.toObject() : null
+}
+
+/**
  * Defer a batch of orders to a future date (Planning dispatcher).
  * Returns per-order results.
  */
