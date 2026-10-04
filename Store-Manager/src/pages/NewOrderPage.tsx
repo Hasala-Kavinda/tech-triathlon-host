@@ -7,8 +7,9 @@ import { OrderPlanningContext } from "../components/orders/OrderPlanningContext"
 import { OrderTypeSelector } from "../components/orders/OrderTypeSelector";
 import { ProductSelectionRow } from "../components/orders/ProductSelectionRow";
 import { getCatalog, selectedProducts, getDraft, formatOrderType, getDefaultOrderType, pluralizeUnit } from "../lib/utils";
-import {  OrderType, OrderDrafts, CatalogProduct  } from '../types/store';
-import { productCatalog, calmSpring, overlaySpring } from "../lib/constants";
+import { OrderType, OrderDrafts, CatalogProduct } from '../types/store';
+import { calmSpring, overlaySpring } from "../lib/constants";
+import { useCutoff } from "../hooks/useCutoff";
 
 export function NewOrderPage({ business, 
       afterCutoff = false,
@@ -18,54 +19,65 @@ export function NewOrderPage({ business,
       onQuantitiesChange,
       initialSearch = "",
       initialSummaryOpen = false,
+      requestedDate,
+      onRequestedDateChange,
       onReview,
     }: { business: "fresh" | "style" | "tech", afterCutoff?: boolean
           type: OrderType
           onTypeChange: (type: OrderType) => void
           quantities: OrderDrafts
-          onQuantitiesChange: (drafts: OrderDrafts) => void
+          onQuantitiesChange: React.Dispatch<React.SetStateAction<OrderDrafts>>
           initialSearch?: string
           initialSummaryOpen?: boolean
+          requestedDate: string
+          onRequestedDateChange: (date: string) => void
           onReview: () => void
         }) {
+    const { isClosed: afterCutoffValue, timeRemaining, futureOperatingDays, targetDeliveryDate } = useCutoff();
+    const actualAfterCutoff = afterCutoff || afterCutoffValue;
     const [searchQuery, setSearchQuery] = useState(initialSearch);
     const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen);
-    const [, setCatalogueVersion] = useState(0);
+    const [products, setProducts] = useState<CatalogProduct[]>([]);
+    
     useEffect(() => {
     let active = true
     void getCatalogue(business, type)
       .then((rows) => {
         if (!active) return
-        productCatalog[business][type] = rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit }))
-        setCatalogueVersion((version) => version + 1)
+        setProducts(rows.map((row) => ({ id: row._id, name: row.name, unit: row.unit })))
       })
       .catch((error) => {
-        if (import.meta.env.VITE_ALLOW_UNAUTHENTICATED_PROTOTYPE !== "true") {
-          productCatalog[business][type] = []
-          setCatalogueVersion((version) => version + 1)
-        }
         console.error("Catalogue request failed", error)
+        if (active) setProducts([])
       })
     return () => { active = false }
     }, [business, type])
-    const products = getCatalog(business, type);
+
+    useEffect(() => {
+      if (!requestedDate && targetDeliveryDate) {
+        onRequestedDateChange(targetDeliveryDate);
+      }
+    }, [targetDeliveryDate, requestedDate, onRequestedDateChange]);
+
     const filteredProducts = products.filter((product) =>
             product.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
           );
-    const currentItems = selectedProducts(business, type, getDraft(quantities, type));
+    const currentItems = products
+      .map((product) => ({ ...product, quantity: (quantities && quantities[type] && quantities[type][product.id]) ?? 0 }))
+      .filter((product) => product.quantity > 0);
     const totalUnits = currentItems.reduce(
             (total, product) => total + product.quantity,
             0,
           );
 
     function updateQuantity(productId: string, quantity: number) {
-        onQuantitiesChange({
-          ...quantities,
+        onQuantitiesChange((prev) => ({
+          ...prev,
           [type]: {
-            ...getDraft(quantities, type),
+            ...getDraft(prev, type),
             [productId]: Math.max(0, quantity),
           },
-        })
+        }))
     }
 
     function changeOrderType(nextType: OrderType) {
@@ -74,7 +86,7 @@ export function NewOrderPage({ business,
     }
 
     function clearCurrentOrder() {
-        onQuantitiesChange({ ...quantities, [type]: {} })
+        onQuantitiesChange((prev) => ({ ...prev, [type]: {} }))
     }
 
     return (
@@ -88,7 +100,13 @@ export function NewOrderPage({ business,
             quantities.
           </p>
         </div>
-        <OrderPlanningContext afterCutoff={afterCutoff} />
+        <OrderPlanningContext 
+          afterCutoff={actualAfterCutoff} 
+          timeRemaining={timeRemaining}
+          futureOperatingDays={futureOperatingDays}
+          requestedDate={requestedDate || targetDeliveryDate || ""}
+          onRequestedDateChange={onRequestedDateChange}
+        />
       </div>
 
       <div className="new-order-layout">

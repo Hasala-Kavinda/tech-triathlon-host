@@ -43,31 +43,24 @@ import { OrdersPage } from "./pages/OrdersPage"
 import { ReceiptFlowPage } from "./pages/ReceiptFlowPage"
 import { ReviewOrderPage } from "./pages/ReviewOrderPage"
 import {  OrderType, OrderDrafts, OrderDetailState, ReceiptFlowState, CatalogProduct, StatusKind  } from './types/store'
-import { mockDrafts, calmSpring } from './lib/constants';
+import { calmSpring } from './lib/constants';
 
 export default function App() {
   const params = new URLSearchParams(window.location.search)
-  const prototypeState = params.get("state")
   const prototypeView = params.get("view")
   const initialBusiness = (params.get("business") as "fresh" | "style" | "tech") || "fresh"
   const [business, setBusiness] = useState<"fresh" | "style" | "tech">(initialBusiness)
-  const showAttention = prototypeState !== "no-attention"
-  const afterCutoff = prototypeState === "after-cutoff"
-  const showUpcoming = prototypeState !== "no-upcoming"
-  const initialOrderType: OrderType =
-    prototypeState === "chilled" ? "chilled" : "dry"
+  const initialOrderType: OrderType = "dry"
   const [orderType, setOrderType] = useState<OrderType>(initialOrderType)
 
   function handleBusinessChange(newBusiness: "fresh" | "style" | "tech") {
     setBusiness(newBusiness)
     setOrderType(getDefaultOrderType(newBusiness))
   }
-  const [drafts, setDrafts] = useState<OrderDrafts>(prototypeState === "empty" ? { dry: {}, chilled: {}, products: {} } as unknown as OrderDrafts : mockDrafts[business])
+  const [drafts, setDrafts] = useState<OrderDrafts>({ dry: {}, chilled: {}, products: {} } as unknown as OrderDrafts)
 
   useEffect(() => {
-    if (prototypeState !== "empty") {
-      setDrafts(mockDrafts[business])
-    }
+    // business changed logic if needed
   }, [business])
   const [view, setView] =
     useState<"home" | "orders" | "deliveries" | "new-order" | "review" | "confirmation" | "order-detail" | "deferred-detail" | "verify-delivery">(
@@ -88,43 +81,44 @@ export default function App() {
     return "Home"
   }
   const currentNav = getBottomNavTab(view)
-  const initialOrderDetailState: OrderDetailState =
-    prototypeState === "scheduled" ||
-    prototypeState === "on-way" ||
-    prototypeState === "arrived" ||
-    prototypeState === "awaiting-confirmation" ||
-    prototypeState === "receipt-confirmed" ||
-    prototypeState === "receipt-issue"
-      ? prototypeState
-      : "confirmed"
-  const [orderDetailState, setOrderDetailState] = useState<OrderDetailState>(
-    initialOrderDetailState,
-  )
 
-  const initialReceiptState: ReceiptFlowState =
-    prototypeState === "full"
-      ? "full"
-      : prototypeState === "issue-edit"
-        ? "issue-edit"
-        : prototypeState === "issue-review"
-          ? "issue-review"
-          : prototypeState === "receipt-confirmed"
-            ? "confirmed"
-            : prototypeState === "receipt-confirmed-issue"
-              ? "confirmed-issue"
-              : "verify"
-  const [receiptFlowState, setReceiptFlowState] =
-    useState<ReceiptFlowState>(initialReceiptState)
-  const [selectedOrderId, setSelectedOrderId] = useState<string>("ORD-1082")
+  useEffect(() => {
+    const handlePopState = () => {
+      const viewParams = new URLSearchParams(window.location.search);
+      const nextView = viewParams.get("view") || "home";
+      setView((prevView) => {
+        const currentIndex = (viewIndex as any)[prevView] ?? 0;
+        const nextIndex = (viewIndex as any)[nextView] ?? 0;
+        if (nextIndex !== currentIndex) {
+          directionRef.current = nextIndex > currentIndex ? 1 : -1;
+        }
+        return nextView as any;
+      });
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
+  const goToView = (nextView: any) => {
+    setView(nextView);
+    window.history.pushState(null, "", `?view=${nextView}`);
+  };
+
+  const initialOrderDetailState: OrderDetailState = "confirmed"
+  const [orderDetailState, setOrderDetailState] = useState<OrderDetailState>(initialOrderDetailState)
+
+  const initialReceiptState: ReceiptFlowState = "verify"
+  const [receiptFlowState, setReceiptFlowState] = useState<ReceiptFlowState>(initialReceiptState)
   
+  const [selectedOrderId, setSelectedOrderId] = useState<string>("")
+  const [requestedDate, setRequestedDate] = useState<string>("")
     function handleOpenOrder(id: string, nextView: string, state: string) {
     setSelectedOrderId(id)
     if (state) {
       if (nextView === "order-detail") setOrderDetailState(state as OrderDetailState)
       if (nextView === "verify-delivery") setReceiptFlowState(state as ReceiptFlowState)
     }
-    setView(nextView as any)
+    goToView(nextView as any)
   }
 
   
@@ -143,7 +137,7 @@ export default function App() {
     if (nextIndex !== currentIndex) {
       directionRef.current = nextIndex > currentIndex ? 1 : -1
     }
-    setView(nextView)
+    goToView(nextView)
   }
 
   const mainContentRef = useRef<HTMLElement>(null)
@@ -159,7 +153,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="app-area">
-        <TopBar business={business} current={currentNav} onNavigate={navigate} afterCutoff={prototypeState === "after-cutoff" || prototypeState === "full"} />
+        <TopBar business={business} current={currentNav} onNavigate={navigate} />
         <main className="main-content" ref={mainContentRef}>
           <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
           {view === "home" && (
@@ -167,13 +161,10 @@ export default function App() {
               <HomePage
                 business={business}
                 onBusinessChange={handleBusinessChange}
-                showAttention={showAttention}
-                afterCutoff={afterCutoff}
-                showUpcoming={showUpcoming}
-                onNewOrder={() => setView("new-order")}
+                onNewOrder={() => goToView("new-order")}
                 onOpenDeferred={() => {
                   setOrderDetailState("deferred")
-                  setView("order-detail")
+                  goToView("order-detail")
                 }}
                 onOpenOrder={handleOpenOrder}
                 onNavigate={navigate}
@@ -183,7 +174,7 @@ export default function App() {
           {view === "orders" && (
             <motion.div key="orders" custom={directionRef.current} variants={pageVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.22, ease: "easeOut" }}>
               <OrdersPage business={business}
-                  onNewOrder={() => setView("new-order")}
+                  onNewOrder={() => goToView("new-order")}
                   onOpenOrder={handleOpenOrder}
                 />
             </motion.div>
@@ -206,14 +197,13 @@ export default function App() {
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
               <NewOrderPage business={business}
-                afterCutoff={afterCutoff}
                 type={orderType}
                 onTypeChange={setOrderType}
                 quantities={drafts}
                 onQuantitiesChange={setDrafts}
-                initialSearch={prototypeState === "search" ? "Rice" : ""}
-                initialSummaryOpen={prototypeState === "summary"}
-                onReview={() => setView("review")}
+                requestedDate={requestedDate}
+                onRequestedDateChange={setRequestedDate}
+                onReview={() => goToView("review")}
               />
             </motion.div>
           )}
@@ -229,10 +219,10 @@ export default function App() {
               <ReviewOrderPage business={business}
                 type={orderType}
                 quantities={drafts}
-                afterCutoff={afterCutoff}
-                forceError={prototypeState === "submit-error"}
-                onBack={() => setView("new-order")}
-                onConfirmed={() => setView("confirmation")}
+                requestedDate={requestedDate}
+                forceError={false}
+                onBack={() => goToView("new-order")}
+                onConfirmed={(orderId) => { setSelectedOrderId(orderId); goToView("confirmation"); }}
               />
             </motion.div>
           )}
@@ -248,11 +238,10 @@ export default function App() {
               <OrderConfirmationPage business={business}
                 type={orderType}
                 quantities={drafts}
-                afterCutoff={afterCutoff}
-                onHome={() => setView("home")}
+                onHome={() => goToView("home")}
                 onViewOrder={() => {
                   setOrderDetailState("confirmed")
-                  setView("order-detail")
+                  goToView("order-detail")
                 }}
               />
             </motion.div>
@@ -271,15 +260,15 @@ export default function App() {
                 business={business}
                 onBusinessChange={handleBusinessChange}
                 state={orderDetailState}
-                onBack={() => setView("home")}
+                onBack={() => goToView("home")}
                 onStateChange={setOrderDetailState}
                 onOpenOrder={handleOpenOrder}
                 onNavigateDeferred={() => {
-                    setOrderDetailState("deferred"); setView("order-detail")
+                    setOrderDetailState("deferred"); goToView("order-detail")
                   }}
                   onReviewDelivery={() => {
                   setReceiptFlowState("verify")
-                  setView("verify-delivery")
+                  goToView("verify-delivery")
 
                 }}
               />
@@ -304,15 +293,15 @@ export default function App() {
                 onStateChange={setReceiptFlowState}
                 onBack={() => {
                   setOrderDetailState("awaiting-confirmation")
-                  setView("order-detail")
+                  goToView("order-detail")
                 }}
-                onHome={() => setView("home")}
+                onHome={() => goToView("home")}
                 onOpenOrder={handleOpenOrder}
                 onViewOrder={(withIssue) => {
                   setOrderDetailState(
                     withIssue ? "receipt-issue" : "receipt-confirmed",
                   )
-                  setView("order-detail")
+                  goToView("order-detail")
                 }}
               />
             </motion.div>

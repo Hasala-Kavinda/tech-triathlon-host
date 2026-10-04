@@ -5,21 +5,21 @@ import {  Button  } from '../components/common/Button';
 import { ConfirmationCard } from "../components/orders/ConfirmationCard";
 import { selectedProducts, getDraft } from "../lib/utils";
 import type { OrderType, OrderDrafts } from "../types/store";
+import { useCutoff } from "../hooks/useCutoff";
 import { calmSpring, overlaySpring } from "../lib/constants";
 
 export function OrderConfirmationPage({ business, 
       type,
       quantities,
-      afterCutoff,
       onHome,
       onViewOrder,
     }: { business: "fresh" | "style" | "tech"
           type: OrderType
           quantities: OrderDrafts
-          afterCutoff: boolean
           onHome: () => void
           onViewOrder: () => void
         }) {
+    const { isClosed: afterCutoff } = useCutoff();
     const items = selectedProducts(business, type, getDraft(quantities, type));
     return (
     <div className="confirmation-page">
@@ -42,7 +42,7 @@ export function OrderConfirmationPage({ business,
       </motion.div>
 
       <div className="confirmation-layout">
-        <ConfirmationCard business={business} type={type} afterCutoff={afterCutoff} items={items} />
+        <ConfirmationCard business={business} type={type} items={items} />
         <div className="confirmation-side">
           <div className="next-steps-card">
             <span className="next-steps-icon">

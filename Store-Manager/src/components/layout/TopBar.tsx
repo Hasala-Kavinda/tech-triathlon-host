@@ -4,18 +4,35 @@ import {  AnimatePresence, motion, useMotionValue, useTransform, animate  } from
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {  IconButton, Button  } from '../common/Button';
 import { calmSpring, navigation } from '../../lib/constants';
+import { readSession } from '../../auth/session';
+import { useCutoff } from '../../hooks/useCutoff';
+
+function getInitials(name?: string) {
+  if (!name) return "";
+  const parts = name.split(" ").filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getShortName(name?: string) {
+  if (!name) return "";
+  const parts = name.split(" ").filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
 
 export function TopBar({
       current,
       onNavigate,
       business,
-      afterCutoff = false,
     }: {
           current: string
           onNavigate: (label: string) => void
           business: "fresh" | "style" | "tech"
-          afterCutoff?: boolean
         }) {
+    const { isClosed, timeRemaining, cutoffDeadlineAt } = useCutoff();
     const [showNotifs, setShowNotifs] = useState(false);
     const [showCutoff, setShowCutoff] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
@@ -46,6 +63,12 @@ export function TopBar({
     setShowNotifs(false)
     setShowProfile(false)
     }, [current])
+    const session = readSession();
+    const outletLocation = session?.user?.outletId || "Store";
+    const userName = session?.user?.name || "";
+    const initials = getInitials(userName);
+    const shortName = getShortName(userName);
+
     return (
         <header className="topbar">
       <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
@@ -53,14 +76,14 @@ export function TopBar({
           <img alt="" src={wayTrackLogo} className="store-brand__logo" />
           <span className="store-brand__wordmark">WayTrack</span>
           <span className="store-brand__context">
-            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; Kandy
+            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; {outletLocation}
           </span>
         </div>
         <div className="topbar-desktop-nav">
           <nav className="top-nav" aria-label="Primary navigation">
             {["Home", "Orders", "Deliveries"].map((label) => (
               <button
-                className={"top-nav-item " + (current === label ? "active" : "")}
+                className={"top-nav-item " + (current === label ? "top-nav-item--selected" : "")}
                 key={label}
                 onClick={() => onNavigate(label)}
                 type="button"
@@ -74,7 +97,7 @@ export function TopBar({
 
       <div className="topbar-right">
         <div className="topbar-cutoff-wrapper" ref={cutoffRef}>
-          <GlobalCutoff closed={afterCutoff} open={showCutoff} setOpen={(val) => {
+          <GlobalCutoff closed={isClosed} timeRemaining={timeRemaining} cutoffDeadlineAt={cutoffDeadlineAt} open={showCutoff} setOpen={(val) => {
             setShowCutoff(val)
             if (val) {
               setShowNotifs(false)
@@ -101,7 +124,7 @@ export function TopBar({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 4, scale: 0.95 }}
               transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              style={{ position: "absolute", top: 48, right: 0, width: 320, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 16 }}>
+              style={{ position: "absolute", top: 48, right: 0, width: 320, maxHeight: 400, overflowY: "auto", background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-dropdown)", zIndex: 100, padding: 16 }}>
               <div style={{ fontWeight: 600, marginBottom: 12 }}>Notifications</div>
               <div onClick={() => { setShowNotifs(false); onNavigate("Deliveries"); }} style={{ padding: 12, background: "var(--navy-50)", borderRadius: 6, marginBottom: 8, cursor: "pointer", fontSize: 13, color: "var(--text-primary)" }}>
                 <strong>ORD-1045</strong> awaits receipt confirmation
@@ -127,8 +150,8 @@ export function TopBar({
               }
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>DF</span>
-            <span style={{ fontWeight: 500, fontSize: '14px' }}>Dilini F.</span>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>{initials}</span>
+            <span style={{ fontWeight: 500, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>{shortName}</span>
             <ChevronDown size={16} />
           </button>
 
@@ -173,6 +196,10 @@ export function Sidebar({
           current: string
           onNavigate: (label: string) => void
         }) {
+    const session = readSession();
+    const userName = session?.user?.name || "";
+    const initials = getInitials(userName);
+
     return (
     <aside className="sidebar">
       <BrandMark onClick={() => onNavigate("Home")} />
@@ -201,9 +228,9 @@ export function Sidebar({
         ))}
       </nav>
       <div className="sidebar-profile">
-        <span className="avatar avatar--dark">DF</span>
+        <span className="avatar avatar--dark">{initials}</span>
         <span className="profile-copy">
-          <strong>Dilini Fernando</strong>
+          <strong>{userName}</strong>
           <small>Store Manager</small>
         </span>
       </div>
@@ -225,6 +252,8 @@ export function BrandMark({ compact = false, onClick }: { compact?: boolean, onC
 }
 
 export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
+    const session = readSession();
+    const outletLocation = session?.user?.outletId || "Store";
     return (
     <div className="outlet-identity">
       <span className="outlet-icon">
@@ -233,13 +262,16 @@ export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "s
       <span>
         <small className="outlet-label">Your outlet</small>
         <strong>{business === "style" ? "Waypoint Style" : business === "tech" ? "Waypoint Tech" : "Waypoint Fresh"}</strong>
-        <small className="outlet-location">Kandy City</small>
+        <small className="outlet-location">{outletLocation}</small>
       </span>
     </div>
     )
 }
 
-export function GlobalCutoff({ closed = false, open, setOpen }: { closed?: boolean, open: boolean, setOpen: (v: boolean) => void }) {
+export function GlobalCutoff({ closed = false, timeRemaining, cutoffDeadlineAt, open, setOpen }: { closed?: boolean, timeRemaining: string, cutoffDeadlineAt?: string | null, open: boolean, setOpen: (v: boolean) => void }) {
+    const cutoffTimeString = cutoffDeadlineAt 
+      ? new Date(cutoffDeadlineAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : "4:00 PM";
     return (
     <div className="global-cutoff-container" style={{ position: "relative" }}>
       <button 
@@ -248,10 +280,10 @@ export function GlobalCutoff({ closed = false, open, setOpen }: { closed?: boole
       >
         <Clock3 className="cutoff-icon" style={{ width: 14, height: 14 }} />
         <span className="cutoff-pill-text desktop-only">
-          {closed ? "Next-day cutoff passed" : "Next-day cutoff · 2h 14m"}
+          {closed ? "Next-day cutoff passed" : `Next-day cutoff · ${timeRemaining}`}
         </span>
         <span className="cutoff-pill-text mobile-only">
-          {closed ? "Cutoff passed" : "Cutoff · 2h 14m"}
+          {closed ? "Cutoff passed" : `Cutoff · ${timeRemaining}`}
         </span>
       </button>
 
@@ -265,7 +297,7 @@ export function GlobalCutoff({ closed = false, open, setOpen }: { closed?: boole
             transition={calmSpring}
           >
             <strong>{closed ? "Next-day order cutoff passed" : "Next-day order cutoff"}</strong>
-            <p>{closed ? "Orders submitted now enter the following planning run." : "Submit before 4:00 PM for tomorrow's planning run."}</p>
+            <p>{closed ? "Orders submitted now enter the following planning run." : `Submit before ${cutoffTimeString} for tomorrow's planning run.`}</p>
           </motion.div>
         )}
       </AnimatePresence>
