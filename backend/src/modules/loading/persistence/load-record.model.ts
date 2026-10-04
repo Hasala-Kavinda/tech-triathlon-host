@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 const loadExceptionSchema = new Schema(
   {
@@ -40,9 +41,7 @@ const loadItemSchema = new Schema(
   { _id: false },
 )
 
-const baseSchemaOptions = { timestamps: true, versionKey: "version", optimisticConcurrency: true } as const
-
-const loadRecordSchema = new Schema(
+const loadRecordSchema = createBaseSchema(
   {
     tripId: { type: Schema.Types.ObjectId, required: true, unique: true },
     depot: { type: String, required: true },
@@ -54,7 +53,6 @@ const loadRecordSchema = new Schema(
     items: { type: [loadItemSchema], default: [] },
     planChanges: { type: [planChangeSchema], default: [] },
   },
-  baseSchemaOptions,
 )
 
 loadRecordSchema.index({ depot: 1, status: 1, createdAt: -1 })

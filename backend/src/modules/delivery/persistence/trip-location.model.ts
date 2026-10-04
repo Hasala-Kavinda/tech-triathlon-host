@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema, Types } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 export interface ITripLocation {
   pointId: string
@@ -45,7 +46,7 @@ const pointSchema = new Schema({
   }
 }, { _id: false })
 
-const tripLocationSchema = new Schema<ITripLocationDocument>({
+const tripLocationSchema = createBaseSchema<ITripLocationDocument>({
   pointId: { type: String, required: true, unique: true },
   tripId: { type: Schema.Types.ObjectId, ref: "Trip", required: true },
   driverId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -57,10 +58,6 @@ const tripLocationSchema = new Schema<ITripLocationDocument>({
   recordedAt: { type: Date, required: true },
   receivedAt: { type: Date, required: true, default: Date.now },
   source: { type: String }
-}, {
-  timestamps: true,
-  optimisticConcurrency: true,
-  versionKey: "version"
 })
 
 tripLocationSchema.index({ tripId: 1, recordedAt: 1 })

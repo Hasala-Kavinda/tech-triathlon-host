@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 export interface IEventScope {
   outletIds?: string[]
@@ -34,7 +35,7 @@ const scopeSchema = new Schema(
   { _id: false },
 )
 
-const eventSchema = new Schema(
+const eventSchema = createBaseSchema(
   {
     eventType: { type: String, required: true },
     entityType: { type: String, required: true },
@@ -45,7 +46,7 @@ const eventSchema = new Schema(
     scope: scopeSchema,
     data: Schema.Types.Mixed,
   },
-  { timestamps: true, versionKey: false },
+  { versionKey: false },
 )
 
 eventSchema.index({ entityType: 1, entityId: 1, createdAt: -1 })

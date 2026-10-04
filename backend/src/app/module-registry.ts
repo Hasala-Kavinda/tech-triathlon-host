@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify"
+import { adminModule } from "../modules/admin/admin.module.js"
 import { authModule } from "../modules/auth/auth.module.js"
 import { referenceModule } from "../modules/reference/reference.module.js"
 import { storeModule } from "../modules/store/store.module.js"
@@ -9,6 +10,7 @@ import { operationsModule } from "../modules/operations/operations.module.js"
 import { filesModule } from "../modules/files/files.module.js"
 
 export async function registerModules(api: FastifyInstance) {
+  await api.register(adminModule)
   await api.register(authModule)
   await api.register(referenceModule)
   await api.register(storeModule)

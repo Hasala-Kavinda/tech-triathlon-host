@@ -6,9 +6,10 @@ import swagger from "@fastify/swagger"
 import { ZodError } from "zod"
 import type { AppConfig } from "../config/env.js"
 import { authenticateRequest } from "../common/auth.js"
-import { AppError } from "../common/errors.js"
+import { AppError, forbidden } from "../common/errors.js"
 import { healthRoutes } from "./health.routes.js"
 import { registerModules } from "./module-registry.js"
+import { User } from "../modules/auth/persistence/user.model.js"
 
 export async function createApp(config: AppConfig): Promise<FastifyInstance> {
   const app = Fastify({
@@ -34,6 +35,14 @@ export async function createApp(config: AppConfig): Promise<FastifyInstance> {
   app.decorateRequest("auth", null)
   app.decorate("authenticate", async function authenticate(request) {
     await authenticateRequest(app, request)
+    if (!request.auth) return
+    const user = await User.findById(request.auth.userId)
+    if (!user || !user.mustChangePassword) return
+    const pathname = new URL(request.raw.url ?? "/", "http://localhost").pathname
+    const allowed = pathname.endsWith("/auth/me") || pathname.endsWith("/auth/change-password")
+    if (!allowed) {
+      throw forbidden("PASSWORD_CHANGE_REQUIRED")
+    }
   })
 
   await app.register(helmet, { contentSecurityPolicy: false })

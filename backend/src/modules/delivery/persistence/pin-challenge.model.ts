@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema, Types } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 export interface IPinChallenge {
   deliveryRecordId: Types.ObjectId
@@ -17,7 +18,7 @@ export interface IPinChallengeDocument extends IPinChallenge, Document {
   version: number
 }
 
-const pinChallengeSchema = new Schema<IPinChallengeDocument>({
+const pinChallengeSchema = createBaseSchema<IPinChallengeDocument>({
   deliveryRecordId: { type: Schema.Types.ObjectId, required: true },
   pinHash: { type: String, required: true, select: false },
   issuedAt: { type: Date, required: true, default: Date.now },
@@ -27,10 +28,6 @@ const pinChallengeSchema = new Schema<IPinChallengeDocument>({
   status: { type: String, required: true, enum: ["issued", "verified", "locked", "expired", "revoked"], default: "issued" },
   verifiedAt: { type: Date },
   revokedAt: { type: Date }
-}, {
-  timestamps: true,
-  optimisticConcurrency: true,
-  versionKey: "version"
 })
 
 // Enforce one active challenge per delivery

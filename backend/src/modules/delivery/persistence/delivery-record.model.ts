@@ -1,4 +1,5 @@
 import mongoose, { Schema, model } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 const deliveryItemSchema = new Schema(
   {
@@ -22,7 +23,7 @@ const proofSchema = new Schema(
   { _id: false },
 )
 
-const deliveryRecordSchema = new Schema(
+const deliveryRecordSchema = createBaseSchema(
   {
     tripId: { type: Schema.Types.ObjectId, ref: "Trip", required: true },
     tripStopId: { type: Schema.Types.ObjectId, required: true },
@@ -45,7 +46,6 @@ const deliveryRecordSchema = new Schema(
     receipt: Schema.Types.Mixed,
     items: [deliveryItemSchema],
   },
-  { timestamps: true, versionKey: "version", optimisticConcurrency: true },
 )
 
 deliveryRecordSchema.index({ tripId: 1, tripStopId: 1 }, { unique: true })

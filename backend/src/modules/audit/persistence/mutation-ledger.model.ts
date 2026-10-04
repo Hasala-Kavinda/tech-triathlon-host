@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from "mongoose"
+import { createBaseSchema } from "../../../db/model-conventions.js"
 
 export interface IMutationLedger {
   mutationId: string
@@ -17,7 +18,7 @@ export interface IMutationLedger {
 
 export interface IMutationLedgerDocument extends IMutationLedger, Document {}
 
-const ledgerSchema = new Schema(
+const ledgerSchema = createBaseSchema(
   {
     mutationId: { type: String, required: true },
     namespace: { type: String, enum: ["api", "sync"], required: true },
@@ -30,7 +31,7 @@ const ledgerSchema = new Schema(
     response: Schema.Types.Mixed,
     expiresAt: Date,
   },
-  { timestamps: true, versionKey: false },
+  { versionKey: false },
 )
 
 ledgerSchema.index({ mutationId: 1, actorId: 1, operation: 1 }, { unique: true, partialFilterExpression: { namespace: "api" } })

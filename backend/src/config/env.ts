@@ -18,6 +18,8 @@ const schema = z.object({
   CSC_PRODUCTS_FILE: z.string().optional(),
   ALLOW_DEMO_PRODUCTS: z.enum(["true", "false"]).default("false"),
   SEED_DEMO_SCENARIO: z.enum(["true", "false"]).default("false"),
+  ALLOW_ADMIN_BOOTSTRAP: z.enum(["true", "false"]).default("false"),
+  ADMIN_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
   // Development phase switch. When "true" the order-date and Fresh-deadline rules are relaxed so
   // the scheduling flow can be tested at any time of day. Never allowed in production.
   DEV_MODE: z.enum(["true", "false"]).default("false"),
@@ -47,8 +49,8 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
   if (data.NODE_ENV === "production" && data.DEV_MODE === "true") {
     throw new Error("DEV_MODE must be false in production")
   }
-
   const roleOrigins = {
+    admin: data.LOGIN_ORIGIN,
     dispatcher: data.DISPATCHER_ORIGIN,
     loader: data.LOADER_ORIGIN,
     driver: data.DRIVER_ORIGIN,
@@ -65,11 +67,13 @@ export function loadConfig(input: NodeJS.ProcessEnv = process.env) {
     accessTokenTtl: data.ACCESS_TOKEN_TTL,
     loginOrigin: data.LOGIN_ORIGIN,
     roleOrigins,
-    allowedOrigins: [data.LOGIN_ORIGIN, ...Object.values(roleOrigins)],
+    allowedOrigins: Array.from(new Set([data.LOGIN_ORIGIN, ...Object.values(roleOrigins)])),
     referenceDataDir: data.REFERENCE_DATA_DIR,
     cscProductsFile: data.CSC_PRODUCTS_FILE || undefined,
     allowDemoProducts: data.ALLOW_DEMO_PRODUCTS === "true",
     seedDemoScenario: data.SEED_DEMO_SCENARIO === "true",
+    allowAdminBootstrap: data.ALLOW_ADMIN_BOOTSTRAP === "true",
+    adminBootstrapPassword: data.ADMIN_BOOTSTRAP_PASSWORD,
     devMode: data.DEV_MODE === "true",
     logLevel: data.LOG_LEVEL,
     cloudinary: data.CLOUDINARY_CLOUD_NAME && data.CLOUDINARY_API_KEY && data.CLOUDINARY_API_SECRET

@@ -18,6 +18,7 @@
     "seed:reference": "tsx src/database/seed/index.ts reference",
     "seed:users": "tsx src/database/seed/index.ts users",
     "seed:demo": "tsx src/database/seed/index.ts demo",
+    "admin:create": "tsx src/admin/create-admin.ts",
     "db:migrate": "tsx src/db/migrations/cli.ts",
     "db:migrate:test": "vitest run runner.test"
   },
