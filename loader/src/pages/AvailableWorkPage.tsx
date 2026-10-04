@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Truck,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { LoaderShell } from "../components/layout/LoaderShell";
@@ -18,11 +18,6 @@ import { WorkCard } from "../components/load/WorkCard"
 import type { LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 import type { JobsStatus } from "../App"
-
-// Prototype URL overrides
-const requestedView = new URLSearchParams(window.location.search).get("view")
-const forceOffline = requestedView === "offline"
-const forceEmpty = requestedView === "empty"
 
 type RefreshStatus = "idle" | "refreshing" | "updated"
 
@@ -41,12 +36,21 @@ interface AvailableWorkPageProps {
 }
 
 export default function AvailableWorkPage({ loadCases, status, error, actionError, opening, onRefresh, onClaim, onOpenLoad }: AvailableWorkPageProps) {
-  const [connectivity] = useConnectivity(forceOffline ? "offline" : null)
+  const [connectivity] = useConnectivity()
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>("idle")
+  const refreshTimerRef = useRef<number | null>(null)
+
+  // Clear the refresh-status reset timer on unmount to prevent setState on an
+  // unmounted component if the user opens a load during the 2.2s badge window.
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
+  }, [])
 
   const isOnline = connectivity === "online"
 
-  const visibleCases = forceEmpty ? [] : loadCases
+  const visibleCases = loadCases
   const availableCount = visibleCases.filter(
     (loadCase) => loadCase.state === "available",
   ).length
@@ -60,7 +64,11 @@ export default function AvailableWorkPage({ loadCases, status, error, actionErro
     setRefreshStatus("refreshing")
     await onRefresh()
     setRefreshStatus("updated")
-    window.setTimeout(() => setRefreshStatus("idle"), 2200)
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = window.setTimeout(() => {
+      setRefreshStatus("idle")
+      refreshTimerRef.current = null
+    }, 2200)
   }
 
   function handleClaim(loadCase: LoadCase) {
@@ -101,7 +109,7 @@ export default function AvailableWorkPage({ loadCases, status, error, actionErro
             </div>
             <div>
               <Text variant="body-strong">
-                Offline · Changes saved on device
+                Offline
               </Text>
               <Text variant="body">
                 Work list may be out of date. Reconnect before claiming a load.
@@ -169,18 +177,14 @@ export default function AvailableWorkPage({ loadCases, status, error, actionErro
           </div>
           <div className="work-summary__copy">
             <Text variant="label">
-              {isOnline ? "Available load cases" : "Cached load cases"}
+              Available load cases
             </Text>
             <div className="work-summary__count">
               <Text variant="data">{availableCount}</Text>
               <Text variant="body">
-                {!isOnline
-                  ? availableCount === 1
-                    ? "cached case shown"
-                    : "cached cases shown"
-                  : availableCount === 1
-                    ? "case ready to claim"
-                    : "cases ready to claim"}
+                {availableCount === 1
+                  ? "case ready to claim"
+                  : "cases ready to claim"}
               </Text>
             </div>
           </div>

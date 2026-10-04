@@ -11,7 +11,7 @@ export function StopCard({
   items,
   onFlagItem,
   onMarkLoaded,
-  orderId,
+  orderIds,
   outlet,
   stopNumber,
 }: {
@@ -21,7 +21,7 @@ export function StopCard({
   items: LoadItemData[]
   onFlagItem: (itemId: string) => void
   onMarkLoaded: (itemId: string) => void
-  orderId: string
+  orderIds: string[]
   outlet: string
   stopNumber: number
 }) {
@@ -83,7 +83,7 @@ export function StopCard({
           <Store aria-hidden="true" />
           <div>
             <Text variant="caption">Order</Text>
-            <Text variant="data">#{orderId}</Text>
+            <Text variant="data">{orderIds.map(id => `#${id}`).join(", ")}</Text>
           </div>
         </div>
         <Text variant="caption">
