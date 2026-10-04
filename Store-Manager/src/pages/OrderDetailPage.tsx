@@ -6,10 +6,11 @@ import { StatusPill } from "../components/common/StatusPill";
 import { selectedProducts, getDefaultOrderType, getDraft, formatOrderType, formatOutlet } from "../lib/utils";
 import { OrderDetailState, type StatusKind } from "../types/store";
 import { ReviewProductList } from "./ReviewOrderPage";
-import { mockDrafts, orderDetailStep, orderActivity, calmSpring, PrototypeStateControl } from "../lib/constants";
+import { getOrder, type StoreOrder } from "../api/store";
+import { orderDetailStep, orderActivity, calmSpring } from "../lib/constants";
 
 export function OrderDetailPage({
-      orderId = "ORD-1082",
+      orderId,
       business,
       state,
       onBack,
@@ -46,27 +47,43 @@ export function OrderDetailPage({
             "receipt-confirmed": "received",
             "receipt-issue": "issue",
           };
-    const items = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")));
+    
+    const [order, setOrder] = useState<StoreOrder | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      if (!orderId) {
+        setLoading(false);
+        setError("Invalid order");
+        return;
+      }
+      getOrder(orderId)
+        .then((data) => {
+          if (!cancelled) {
+            setOrder(data);
+            setError(null);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load order.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => { cancelled = true; };
+    }, [orderId]);
+
+    const items = order?.items.map(i => ({
+      id: i.sku,
+      name: i.name,
+      quantity: i.quantity,
+      unit: i.unit,
+    })) ?? [];
+
     const showAction = state === "awaiting-confirmation";
-    const stateOptions: Array<{
-          value: string
-          label: string
-        }> = [
-              { value: "confirmed", label: "Order confirmed" },
-              { value: "deferred", label: "Deferred" },
-              { value: "scheduled", label: "Scheduled" },
-              { value: "on-way", label: "On the way" },
-              { value: "on-way-issue", label: "On the way (Warehouse issue)" },
-              { value: "arrived", label: "Arrived" },
-              { value: "awaiting-confirmation", label: "Awaiting confirmation" },
-              { value: "receipt-confirmed", label: "Receipt confirmed" },
-              { value: "receipt-issue", label: "Receipt confirmed with issue" },
-            ];
-    const activeOptions = stateOptions.filter(o => {
-            if (o.value === "on-way-issue") return false;
-            if (o.value === "deferred" && state !== "confirmed" && state !== "deferred") return false;
-            return true;
-          });
     return (
         <div className="order-detail-page">
           <div className="order-detail-utility-row">
@@ -75,36 +92,15 @@ export function OrderDetailPage({
               Back to Home
             </button>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-                <PrototypeStateControl
-                  value={state}
-                  options={activeOptions}
-                  onChange={(val) => {
-                    onStateChange(val as OrderDetailState)
-                  }}
-                  onSimulatePin={onSimulatePin}
-                />
-
-                {state === "on-way" && (
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", background: "var(--slate-50)", padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border)" }}>
-                    <input 
-                      type="checkbox" 
-                      checked={warehouseIssue} 
-                      onChange={(e) => setWarehouseIssue(e.target.checked)} 
-                    />
-                    Simulate warehouse issue
-                  </label>
-                )}
-              </div>
           </div>
 
           <div className="order-detail-header">
             <div>
               <div className="order-detail-title-row">
-                <div className="page-title data-title">{orderId}</div>
+                <div className="page-title data-title">{order?.orderNumber || orderId}</div>
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div
-                    key={state}
+                    key={order?.status || state}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
@@ -114,20 +110,25 @@ export function OrderDetailPage({
                   </motion.div>
                 </AnimatePresence>
               </div>
-              <p>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {formatOutlet(business)}</p>
+              <p>{order ? formatOrderType(order.brand as any, order.orderType as any) : formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {order ? formatOutlet(order.brand as any) : formatOutlet(business)}</p>
             </div>
           </div>
 
-          <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} />
+          {loading && <p style={{ padding: "0 24px", color: "var(--text-secondary)" }}>Loading order details...</p>}
+          {error && <p style={{ padding: "0 24px", color: "var(--text-secondary)" }}>{error}</p>}
+          
+          {!loading && !error && order && (
+            <>
+              <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} order={order} />
 
-          <div className="order-detail-layout">
-            <div className="order-detail-primary">
+              <div className="order-detail-layout">
+                <div className="order-detail-primary">
               
               
               
 
 
-              <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} />
+              <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} orderId={orderId} order={order || undefined} />
 
     {state === "deferred" && (
                 <motion.div className="delivery-update-card" style={{ marginTop: -16, marginBottom: 24 }} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={calmSpring}>
@@ -201,7 +202,7 @@ export function OrderDetailPage({
                     <span>Ordered products</span>
                     <small>The quantities originally requested.</small>
                   </div>
-                  <span>4 products · 80 units</span>
+                  <span>{order.items.length} product{order.items.length === 1 ? "" : "s"} · {order.items.reduce((acc, i) => acc + i.quantity, 0)} units</span>
                 </div>
                 <ReviewProductList items={items} />
               </section>
@@ -219,19 +220,21 @@ export function OrderDetailPage({
               <div className="order-record-meta">
                 <span>
                   <small>Order type</small>
-                  <strong>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
+                  <strong>{formatOrderType(order.brand as any, order.orderType as any)}</strong>
                 </span>
                 <span>
                   <small>Target date</small>
-                  <strong>Thursday, 1 October</strong>
+                  <strong>{new Date(order.requestedDate).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</strong>
                 </span>
                 <span>
                   <small>Outlet</small>
-                  <strong>{formatOutlet(business)}</strong>
+                  <strong>{formatOutlet(order.brand as any)}</strong>
                 </span>
               </div>
             </aside>
           </div>
+          </>
+          )}
 
           <AnimatePresence>
             {showAction && (
@@ -252,7 +255,7 @@ export function OrderDetailPage({
       )
 }
 
-export function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState, wasDeferred: boolean }) {
+export function OrderDetailLifecycle({ state, wasDeferred, order }: { state: OrderDetailState, wasDeferred: boolean, order?: StoreOrder }) {
     const stages = wasDeferred ? [
             "Order confirmed",
             "Deferred",
@@ -277,7 +280,7 @@ export function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetai
     const receiptComplete = state === "receipt-confirmed" || state === "receipt-issue";
     const timestamps = stages.map((s, i) => {
             if (i > currentStep && !receiptComplete) return "-";
-            if (s === "Order confirmed") return "Wed · 13:46";
+            if (s === "Order confirmed") return order ? new Date(order.createdAt).toLocaleDateString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "Wed · 13:46";
             if (s === "Deferred") return "Wed · 16:42";
             if (s === "Scheduled") return "Wed · 16:35";
             if (s === "On the way") return "Thu · 05:48";
@@ -324,10 +327,14 @@ export function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetai
 export function OrderDetailHero({ onConfirmArrived, 
       state,
       onReviewDelivery,
+      orderId,
+      order,
     }: {
           state: OrderDetailState
           onReviewDelivery: () => void
           onConfirmArrived: () => void
+          orderId?: string
+          order?: StoreOrder
         }) {
     const showDeliveryMeta = state !== "confirmed" && state !== "arrived";
     return (
@@ -415,11 +422,9 @@ export function OrderDetailHero({ onConfirmArrived,
               ))}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13, color: "var(--text-primary)", fontWeight: 500, marginBottom: 8, flexWrap: "wrap" }}>
-              <span>ORD-1082</span>
+              <span>{order?.orderNumber || orderId}</span>
               <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>WP-014</span>
-              <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>PLG-03</span>
+              <span>Pending</span>
               <span style={{ color: "var(--text-tertiary)" }}>•</span>
               <span>Arrived 06:43</span>
             </div>
@@ -483,11 +488,11 @@ export function OrderDetailHero({ onConfirmArrived,
         <div className="tracking-meta">
           <span>
             <small>Trip</small>
-            <strong className="data-id">PLG-03</strong>
+            <strong className="data-id">Pending</strong>
           </span>
           <span>
             <small>Vehicle</small>
-            <strong className="data-id">WP-014</strong>
+            <strong className="data-id">Pending</strong>
           </span>
         </div>
       )}

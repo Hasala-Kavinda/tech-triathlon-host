@@ -6,7 +6,13 @@ import {  DirectQuantityControl  } from '../components/common/QuantityControl';
 import {  StatusPill  } from '../components/common/StatusPill';
 import { selectedProducts, getDefaultOrderType, getDraft, formatOrderType, pluralizeUnit } from "../lib/utils";
 import {  ReceiptFlowState, ReceiptIssueType, OrderType, CatalogProduct  } from '../types/store';
-import { mockDrafts, calmSpring, overlaySpring, PrototypeStateControl } from "../lib/constants";
+import { calmSpring, overlaySpring } from "../lib/constants";
+
+const dummyDrafts: any = {
+  fresh: { dry: { rice: 20, "milk-powder": 30, flour: 10, "cooking-oil": 20 } },
+  style: { dry: {} },
+  tech: { dry: {} }
+};
 
 export function ReceiptFlowPage({ 
       business,
@@ -16,6 +22,7 @@ export function ReceiptFlowPage({
       onHome,
       onViewOrder,
       onBusinessChange,
+      orderId = "Pending",
     }: {
           orderId?: string
           business: "fresh" | "style" | "tech"
@@ -27,7 +34,7 @@ export function ReceiptFlowPage({
             onOpenOrder: (id: string, view: string, state: string) => void
             onBusinessChange?: (b: "fresh" | "style" | "tech") => void
         }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")));
+    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
     const [received, setReceived] = useState<Record<string, number>>({
             rice: 20,
             "milk-powder": 28,
@@ -49,17 +56,6 @@ export function ReceiptFlowPage({
             "One bottle was damaged during unloading.",
           );
     const [photoAdded, setPhotoAdded] = useState(false);
-    const stateOptions: Array<{
-        value: ReceiptFlowState
-        label: string
-        }> = [
-            { value: "verify", label: "Verify" },
-            { value: "full", label: "Full receipt" },
-            { value: "issue-edit", label: "Issue editing" },
-            { value: "issue-review", label: "Issue review" },
-            { value: "confirmed", label: "Receipt confirmed" },
-            { value: "confirmed-issue", label: "Receipt confirmed with issue" },
-          ];
     const success = state === "confirmed" || state === "confirmed-issue";
     return (
     <div className="receipt-flow-page">
@@ -68,17 +64,12 @@ export function ReceiptFlowPage({
           <ArrowLeft />
           Back to order
         </button>
-        <PrototypeStateControl
-          value={state}
-          options={stateOptions}
-          onChange={onStateChange}
-        />
       </div>
 
       {!success && (
         <div className="receipt-page-header">
           <div>
-            <span className="page-kicker">ORD-1082 · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
+            <span className="page-kicker">{orderId} · {formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</span>
             <div className="page-title">
               {state === "verify"
                 ? "Verify delivery"
@@ -348,7 +339,7 @@ export function ReceiptFlowPage({
 }
 
 export function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")));
+    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
     return (
     <div className="receipt-order-summary">
       <div className="receipt-panel-heading">
@@ -376,7 +367,7 @@ export function ReceiptReadOnlySummary({ business = "fresh" }: { business?: "fre
 }
 
 export function ReceiptGoodRows({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
-    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")));
+    const receiptProducts = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(dummyDrafts[business], getDefaultOrderType(business || "fresh")));
     return (
     <div className="receipt-good-list">
       {receiptProducts.map((product) => (
@@ -606,7 +597,7 @@ export function ReceiptIssueRow({
 }
 
 export function ReceiptConfirmationState({
-      orderId = "ORD-1082",
+      orderId,
       withIssue,
       onViewOrder,
       onHome,
