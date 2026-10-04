@@ -6,6 +6,7 @@ import { StatusPill } from "../components/common/StatusPill";
 import { selectedProducts, getDefaultOrderType, getDraft, formatOrderType, formatOutlet } from "../lib/utils";
 import { OrderDetailState, type StatusKind } from "../types/store";
 import { ReviewProductList } from "./ReviewOrderPage";
+import { getOrder, type StoreOrder } from "../api/store";
 import { mockDrafts, orderDetailStep, orderActivity, calmSpring, PrototypeStateControl } from "../lib/constants";
 
 export function OrderDetailPage({
@@ -46,7 +47,37 @@ export function OrderDetailPage({
             "receipt-confirmed": "received",
             "receipt-issue": "issue",
           };
-    const items = selectedProducts(business, getDefaultOrderType(business || "fresh"), getDraft(mockDrafts[business], getDefaultOrderType(business || "fresh")));
+    
+    const [order, setOrder] = useState<StoreOrder | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      getOrder(orderId)
+        .then((data) => {
+          if (!cancelled) {
+            setOrder(data);
+            setError(null);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load order.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => { cancelled = true; };
+    }, [orderId]);
+
+    const items = order?.items.map(i => ({
+      id: i.sku,
+      name: i.name,
+      quantity: i.quantity,
+      unit: i.unit,
+    })) ?? [];
+
     const showAction = state === "awaiting-confirmation";
     const stateOptions: Array<{
           value: string
@@ -101,10 +132,10 @@ export function OrderDetailPage({
           <div className="order-detail-header">
             <div>
               <div className="order-detail-title-row">
-                <div className="page-title data-title">{orderId}</div>
+                <div className="page-title data-title">{order?.orderNumber || orderId}</div>
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div
-                    key={state}
+                    key={order?.status || state}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
@@ -114,14 +145,19 @@ export function OrderDetailPage({
                   </motion.div>
                 </AnimatePresence>
               </div>
-              <p>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {formatOutlet(business)}</p>
+              <p>{order ? formatOrderType(order.brand as any, order.orderType as any) : formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))} · {order ? formatOutlet(order.brand as any) : formatOutlet(business)}</p>
             </div>
           </div>
 
-          <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} />
+          {loading && <p style={{ padding: "0 24px", color: "var(--text-secondary)" }}>Loading order details...</p>}
+          {error && <p style={{ padding: "0 24px", color: "var(--text-secondary)" }}>{error}</p>}
+          
+          {!loading && !error && order && (
+            <>
+              <OrderDetailLifecycle state={state} wasDeferred={wasDeferred} order={order} />
 
-          <div className="order-detail-layout">
-            <div className="order-detail-primary">
+              <div className="order-detail-layout">
+                <div className="order-detail-primary">
               
               
               
@@ -201,7 +237,7 @@ export function OrderDetailPage({
                     <span>Ordered products</span>
                     <small>The quantities originally requested.</small>
                   </div>
-                  <span>4 products · 80 units</span>
+                  <span>{order.items.length} product{order.items.length === 1 ? "" : "s"} · {order.items.reduce((acc, i) => acc + i.quantity, 0)} units</span>
                 </div>
                 <ReviewProductList items={items} />
               </section>
@@ -219,19 +255,21 @@ export function OrderDetailPage({
               <div className="order-record-meta">
                 <span>
                   <small>Order type</small>
-                  <strong>{formatOrderType(business || "fresh", getDefaultOrderType(business || "fresh"))}</strong>
+                  <strong>{formatOrderType(order.brand as any, order.orderType as any)}</strong>
                 </span>
                 <span>
                   <small>Target date</small>
-                  <strong>Thursday, 1 October</strong>
+                  <strong>{new Date(order.requestedDate).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</strong>
                 </span>
                 <span>
                   <small>Outlet</small>
-                  <strong>{formatOutlet(business)}</strong>
+                  <strong>{formatOutlet(order.brand as any)}</strong>
                 </span>
               </div>
             </aside>
           </div>
+          </>
+          )}
 
           <AnimatePresence>
             {showAction && (
@@ -252,7 +290,7 @@ export function OrderDetailPage({
       )
 }
 
-export function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetailState, wasDeferred: boolean }) {
+export function OrderDetailLifecycle({ state, wasDeferred, order }: { state: OrderDetailState, wasDeferred: boolean, order?: StoreOrder }) {
     const stages = wasDeferred ? [
             "Order confirmed",
             "Deferred",
@@ -277,7 +315,7 @@ export function OrderDetailLifecycle({ state, wasDeferred }: { state: OrderDetai
     const receiptComplete = state === "receipt-confirmed" || state === "receipt-issue";
     const timestamps = stages.map((s, i) => {
             if (i > currentStep && !receiptComplete) return "-";
-            if (s === "Order confirmed") return "Wed · 13:46";
+            if (s === "Order confirmed") return order ? new Date(order.createdAt).toLocaleDateString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "Wed · 13:46";
             if (s === "Deferred") return "Wed · 16:42";
             if (s === "Scheduled") return "Wed · 16:35";
             if (s === "On the way") return "Thu · 05:48";

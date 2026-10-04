@@ -29,6 +29,10 @@ export function getOrderHistory(page = 1, pageSize = 50) {
   return apiRequest<StoreOrder[]>(`/store/order-history?${query}`)
 }
 
+export function getOrder(orderId: string) {
+  return apiRequest<StoreOrder>(`/orders/${orderId}`)
+}
+
 export type DashboardPayload = {
   recentOrders: Array<{ _id: string; orderNumber: string; status: string; orderType: string; createdAt: string; requestedDate: string }>
   upcomingDeliveries: Array<{
