@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { loadApi } from "./api/loads"
 import { ApiError } from "./api/client"
 import { readSession } from "./auth/session"
@@ -47,15 +47,20 @@ export default function App() {
   const [activeTripId, setActiveTripId] = useState<string | null>(null)
   const activeLoad = loadCases.find((loadCase) => loadCase.tripId === activeTripId)
 
-  const refresh = useCallback(async () => {
+  const internalFetchCases = useCallback(async () => {
+    const today = colomboDate(new Date())
+    const lists = await Promise.all([today, addDays(today, 1)].map((day) => loadApi.list(day)))
+    const myUserId = readSession()?.user.id
+    const records = lists.flat()
+    records.sort((a, b) => Date.parse(a.trip?.departureAt ?? a.createdAt) - Date.parse(b.trip?.departureAt ?? b.createdAt))
+    return records.map((record) => toLoadCase(record, myUserId))
+  }, [])
+
+  const refresh = useCallback(async (): Promise<void> => {
     setJobsStatus((current) => (current === "ready" ? current : "loading"))
     try {
-      const today = colomboDate(new Date())
-      const lists = await Promise.all([today, addDays(today, 1)].map((day) => loadApi.list(day)))
-      const myUserId = readSession()?.user.id
-      const records = lists.flat()
-      records.sort((a, b) => Date.parse(a.trip?.departureAt ?? a.createdAt) - Date.parse(b.trip?.departureAt ?? b.createdAt))
-      setLoadCases(records.map((record) => toLoadCase(record, myUserId)))
+      const cases = await internalFetchCases()
+      setLoadCases(cases)
       setJobsError("")
       setJobsStatus("ready")
     } catch (error) {
@@ -63,9 +68,63 @@ export default function App() {
       setJobsError(messageOf(error, "The load jobs could not be loaded."))
       setJobsStatus("error")
     }
-  }, [])
+  }, [internalFetchCases])
 
-  useEffect(() => { void refresh() }, [refresh])
+  const initialRestoreDone = useRef(false)
+  useEffect(() => {
+    let mounted = true
+    async function init() {
+      if (initialRestoreDone.current) {
+        void refresh()
+        return
+      }
+      initialRestoreDone.current = true
+
+      setJobsStatus((current) => (current === "ready" ? current : "loading"))
+      let cases: LoadCase[] = []
+      try {
+        cases = await internalFetchCases()
+        if (!mounted) return
+        setLoadCases(cases)
+        setJobsError("")
+        setJobsStatus("ready")
+      } catch (error) {
+        console.error("Load jobs request failed", error)
+        if (mounted) {
+          setJobsError(messageOf(error, "The load jobs could not be loaded."))
+          setJobsStatus("error")
+        }
+        return
+      }
+      
+      const ownedCases = cases.filter((c) => c.state === "claimed" || c.state === "completed")
+      // Prioritize active tasks over confirmed tasks. If multiple, take the first one (most urgent by departure).
+      const active = ownedCases.find((c) => ["claimed", "loading", "reconciled"].includes(c.recordStatus)) 
+        ?? ownedCases.find((c) => c.recordStatus === "confirmed")
+        
+      if (active) {
+        try {
+          const detail = await loadApi.detail(active.tripId)
+          if (!mounted) return
+          setStops(toActiveStops(detail))
+          setLoadCases((current) => current.map((item) => item.tripId === active.tripId ? { ...item, version: detail.version, recordStatus: detail.status, planChanges: detail.planChanges ?? [] } : item))
+          setActiveTripId(active.tripId)
+          
+          if (detail.status === "confirmed") {
+            setView("confirmed")
+          } else if (detail.status === "reconciled") {
+            setView("reconciliation")
+          } else if (detail.status === "claimed" || detail.status === "loading") {
+            setView("active-load")
+          }
+        } catch (error) {
+          console.error("Failed to restore active load", error)
+        }
+      }
+    }
+    void init()
+    return () => { mounted = false }
+  }, [internalFetchCases, refresh])
 
   async function claimLoad(loadCase: LoadCase) {
     setActionError("")
