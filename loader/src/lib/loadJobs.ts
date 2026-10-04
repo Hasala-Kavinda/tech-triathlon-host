@@ -33,7 +33,7 @@ export function toLoadCase(record: LoadRecord, myUserId: string | undefined): Lo
     recordStatus: record.status,
     departure: trip ? clock(trip.departureAt) : "—",
     items: record.items.length,
-    route: trip?.tripNumber ?? record.tripId,
+    tripNumber: trip?.tripNumber ?? record.tripId,
     state,
     stops: trip?.stops.length ?? 0,
     vehicle: trip?.vehicleId ?? "Unassigned",
@@ -62,7 +62,7 @@ export function toActiveStops(record: LoadRecord): ActiveStop[] {
         stopNumber: stop?.sequence ?? 0,
         outlet: stop?.outletId ?? "Unknown stop",
         deliveryWindow: stop?.plannedArrivalAt ? clock(stop.plannedArrivalAt) : "—",
-        orderId: String(items[0]?.orderIds[0] ?? ""),
+        orderIds: Array.from(new Set(items.flatMap(item => item.orderIds ?? []))),
         items: items.map(toLoadItem),
       }
     })
@@ -74,6 +74,10 @@ function toLoadItem(item: LoadRecord["items"][number]): LoadItemData {
   return {
     id: item.itemId,
     name: item.name,
+    sku: item.sku,
+    expectedQuantity: item.expectedQuantity,
+    loadedQuantity: item.loadedQuantity,
+    varianceQuantity: item.varianceQuantity,
     quantity: String(item.expectedQuantity),
     status,
     ...(item.exception

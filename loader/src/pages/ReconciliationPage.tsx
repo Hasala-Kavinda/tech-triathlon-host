@@ -147,7 +147,7 @@ export default function ReconciliationPage({
           title={
             <>
               <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
-              <span className="active-load-title__route"> · {activeLoad?.route ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
             </>
           }
           subtitle="Review the loading record before confirming."
@@ -359,7 +359,7 @@ export default function ReconciliationPage({
                         label={isDamaged ? "Damaged" : "Missing"}
                       />
                       <Text variant="caption">
-                        Stop {String(stop.stopNumber).padStart(2, "0")} · {stop.outlet} · {stop.orderId}
+                        Stop {String(stop.stopNumber).padStart(2, "0")} · {stop.outlet} · {stop.orderIds.join(', ')}
                       </Text>
                     </div>
 

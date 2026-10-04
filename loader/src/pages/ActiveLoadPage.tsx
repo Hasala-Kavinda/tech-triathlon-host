@@ -367,7 +367,7 @@ export default function ActiveLoadPage({
           title={
             <>
               <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
-              <span className="active-load-title__route"> · {activeLoad?.route ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
             </>
           }
           subtitle="Claimed by you · Loading in progress"

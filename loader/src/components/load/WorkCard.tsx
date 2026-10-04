@@ -15,7 +15,7 @@ export interface WorkCardProps {
   items: number
   onClaim?: () => void
   onOpen?: () => void
-  route: string
+  tripNumber: string
   state?: WorkCardState
   stops: number
   unavailableReason?: string
@@ -30,7 +30,7 @@ export function WorkCard({
   items,
   onClaim,
   onOpen,
-  route,
+  tripNumber,
   state = "available",
   stops,
   unavailableReason = "This load has already been claimed by another loader.",
@@ -60,9 +60,9 @@ export function WorkCard({
       <div className="work-card__route">
         <MapPin aria-hidden="true" />
         <div>
-          <Text variant="caption">Route</Text>
+          <Text variant="caption">Trip</Text>
           <Text as="h3" variant="h3">
-            {route}
+            {tripNumber}
           </Text>
         </div>
       </div>

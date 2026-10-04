@@ -109,7 +109,7 @@ export default function LoadConfirmedPage({
     doc.text("Loading Record — Confirmed", 20, 30)
 
     const vehicleStr = activeLoad?.vehicle ?? "—"
-    const routeStr = activeLoad?.route ?? "—"
+    const routeStr = activeLoad?.tripNumber ?? "—"
     const departureStr = activeLoad?.departure ?? "—"
     const stopsStr = activeLoad?.stops != null ? String(activeLoad.stops) : "—"
     const weightStr = activeLoad?.weight ?? "—"
@@ -242,7 +242,7 @@ export default function LoadConfirmedPage({
           title={
             <>
               <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
-              <span className="active-load-title__route"> · {activeLoad?.route ?? "—"}</span>
+              <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
             </>
           }
           subtitle="The loading record has been confirmed."
@@ -344,7 +344,7 @@ export default function LoadConfirmedPage({
               </div>
               <div className="confirmed-summary-row">
                 <Text variant="caption">Route</Text>
-                <Text variant="body-strong">{activeLoad?.route ?? "—"}</Text>
+                <Text variant="body-strong">{activeLoad?.tripNumber ?? "—"}</Text>
               </div>
               <div className="confirmed-summary-row">
                 <Text variant="caption">Departure</Text>

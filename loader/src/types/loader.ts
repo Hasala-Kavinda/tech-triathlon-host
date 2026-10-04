@@ -15,6 +15,10 @@ export type LoadItemData = {
   exception?: LoadItemException
   id: string
   name: string
+  sku: string
+  expectedQuantity: number
+  loadedQuantity: number
+  varianceQuantity: number
   quantity: string
   status: LoadItemStatus
 }
@@ -45,7 +49,7 @@ export type LoadCase = {
   recordStatus: LoadRecordStatus
   departure: string
   items: number
-  route: string
+  tripNumber: string
   state: WorkCardState
   stops: number
   vehicle: string
@@ -58,7 +62,7 @@ export type LoadCase = {
 export type ActiveStop = {
   deliveryWindow: string
   items: LoadItemData[]
-  orderId: string
+  orderIds: string[]
   outlet: string
   stopNumber: number
 }
