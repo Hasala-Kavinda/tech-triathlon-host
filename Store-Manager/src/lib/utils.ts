@@ -1,10 +1,14 @@
 import { OrderType, CatalogProduct, type OrderDrafts } from "../types/store"
 import { productCatalog } from "../lib/constants";
+import { readSession } from "../auth/session";
 
 export function formatOutlet(business: "fresh" | "style" | "tech" = "fresh") {
-    if (business === "style") return "Waypoint Style · Kandy City"
-    if (business === "tech") return "Waypoint Tech · Kandy City"
-    return "Waypoint Fresh · Kandy City"
+    const session = readSession();
+    const outletLocation = session?.user?.outletId || "";
+    const suffix = outletLocation ? ` · ${outletLocation}` : "";
+    if (business === "style") return `Waypoint Style${suffix}`
+    if (business === "tech") return `Waypoint Tech${suffix}`
+    return `Waypoint Fresh${suffix}`
 }
 
 export function formatOrderType(business: "fresh" | "style" | "tech" = "fresh", type: OrderType = "dry") {

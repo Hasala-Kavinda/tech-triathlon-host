@@ -3,7 +3,19 @@ import {  motion  } from 'motion/react';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { calmSpring } from "../../lib/constants";
 
-export function OrderPlanningContext({ afterCutoff }: { afterCutoff: boolean }) {
+export function OrderPlanningContext({ 
+    afterCutoff,
+    timeRemaining,
+    futureOperatingDays,
+    requestedDate,
+    onRequestedDateChange
+  }: { 
+    afterCutoff: boolean;
+    timeRemaining: string;
+    futureOperatingDays?: { date: string, isOperating: boolean }[];
+    requestedDate?: string;
+    onRequestedDateChange?: (date: string) => void;
+  }) {
     return (
     <motion.div
       className={`order-planning-context ${
@@ -18,12 +30,35 @@ export function OrderPlanningContext({ afterCutoff }: { afterCutoff: boolean }) 
       <div>
         <span>{afterCutoff ? "Target planning run" : "Target delivery"}</span>
         <strong>
-          {afterCutoff ? "Friday, 2 October" : "Tomorrow · Thursday, 1 October"}
+          {futureOperatingDays && futureOperatingDays.length > 0 && onRequestedDateChange ? (
+            <select 
+              value={requestedDate} 
+              onChange={(e) => onRequestedDateChange(e.target.value)}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontWeight: "inherit",
+                fontSize: "inherit",
+                color: "inherit",
+                fontFamily: "inherit",
+                outline: "none",
+                cursor: "pointer",
+                padding: 0,
+                margin: 0
+              }}
+            >
+              {futureOperatingDays.map(d => (
+                <option key={d.date} value={d.date}>{d.date}</option>
+              ))}
+            </select>
+          ) : (
+            requestedDate || "Loading dates..."
+          )}
         </strong>
         <small>
           {afterCutoff
             ? "Next-day ordering closed · Orders now enter the following planning run."
-            : "Next-day cutoff · 2h 14m remaining"}
+            : timeRemaining ? `Next-day cutoff · ${timeRemaining} remaining` : "Next-day cutoff approaching"}
         </small>
       </div>
     </motion.div>
