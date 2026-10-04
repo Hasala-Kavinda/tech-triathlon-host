@@ -7,10 +7,10 @@ import { selectedProducts, getDefaultOrderType, getDraft, formatOrderType, forma
 import { OrderDetailState, type StatusKind } from "../types/store";
 import { ReviewProductList } from "./ReviewOrderPage";
 import { getOrder, type StoreOrder } from "../api/store";
-import { mockDrafts, orderDetailStep, orderActivity, calmSpring, PrototypeStateControl } from "../lib/constants";
+import { orderDetailStep, orderActivity, calmSpring } from "../lib/constants";
 
 export function OrderDetailPage({
-      orderId = "ORD-1082",
+      orderId,
       business,
       state,
       onBack,
@@ -55,6 +55,11 @@ export function OrderDetailPage({
     useEffect(() => {
       let cancelled = false;
       setLoading(true);
+      if (!orderId) {
+        setLoading(false);
+        setError("Invalid order");
+        return;
+      }
       getOrder(orderId)
         .then((data) => {
           if (!cancelled) {
@@ -79,25 +84,6 @@ export function OrderDetailPage({
     })) ?? [];
 
     const showAction = state === "awaiting-confirmation";
-    const stateOptions: Array<{
-          value: string
-          label: string
-        }> = [
-              { value: "confirmed", label: "Order confirmed" },
-              { value: "deferred", label: "Deferred" },
-              { value: "scheduled", label: "Scheduled" },
-              { value: "on-way", label: "On the way" },
-              { value: "on-way-issue", label: "On the way (Warehouse issue)" },
-              { value: "arrived", label: "Arrived" },
-              { value: "awaiting-confirmation", label: "Awaiting confirmation" },
-              { value: "receipt-confirmed", label: "Receipt confirmed" },
-              { value: "receipt-issue", label: "Receipt confirmed with issue" },
-            ];
-    const activeOptions = stateOptions.filter(o => {
-            if (o.value === "on-way-issue") return false;
-            if (o.value === "deferred" && state !== "confirmed" && state !== "deferred") return false;
-            return true;
-          });
     return (
         <div className="order-detail-page">
           <div className="order-detail-utility-row">
@@ -106,27 +92,6 @@ export function OrderDetailPage({
               Back to Home
             </button>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-                <PrototypeStateControl
-                  value={state}
-                  options={activeOptions}
-                  onChange={(val) => {
-                    onStateChange(val as OrderDetailState)
-                  }}
-                  onSimulatePin={onSimulatePin}
-                />
-
-                {state === "on-way" && (
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", background: "var(--slate-50)", padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border)" }}>
-                    <input 
-                      type="checkbox" 
-                      checked={warehouseIssue} 
-                      onChange={(e) => setWarehouseIssue(e.target.checked)} 
-                    />
-                    Simulate warehouse issue
-                  </label>
-                )}
-              </div>
           </div>
 
           <div className="order-detail-header">
@@ -163,7 +128,7 @@ export function OrderDetailPage({
               
 
 
-              <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} />
+              <OrderDetailHero state={state} onReviewDelivery={onReviewDelivery} onConfirmArrived={() => onStateChange("awaiting-confirmation")} orderId={orderId} order={order || undefined} />
 
     {state === "deferred" && (
                 <motion.div className="delivery-update-card" style={{ marginTop: -16, marginBottom: 24 }} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={calmSpring}>
@@ -362,10 +327,14 @@ export function OrderDetailLifecycle({ state, wasDeferred, order }: { state: Ord
 export function OrderDetailHero({ onConfirmArrived, 
       state,
       onReviewDelivery,
+      orderId,
+      order,
     }: {
           state: OrderDetailState
           onReviewDelivery: () => void
           onConfirmArrived: () => void
+          orderId?: string
+          order?: StoreOrder
         }) {
     const showDeliveryMeta = state !== "confirmed" && state !== "arrived";
     return (
@@ -453,11 +422,9 @@ export function OrderDetailHero({ onConfirmArrived,
               ))}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13, color: "var(--text-primary)", fontWeight: 500, marginBottom: 8, flexWrap: "wrap" }}>
-              <span>ORD-1082</span>
+              <span>{order?.orderNumber || orderId}</span>
               <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>WP-014</span>
-              <span style={{ color: "var(--text-tertiary)" }}>•</span>
-              <span>PLG-03</span>
+              <span>Pending</span>
               <span style={{ color: "var(--text-tertiary)" }}>•</span>
               <span>Arrived 06:43</span>
             </div>
@@ -521,11 +488,11 @@ export function OrderDetailHero({ onConfirmArrived,
         <div className="tracking-meta">
           <span>
             <small>Trip</small>
-            <strong className="data-id">PLG-03</strong>
+            <strong className="data-id">Pending</strong>
           </span>
           <span>
             <small>Vehicle</small>
-            <strong className="data-id">WP-014</strong>
+            <strong className="data-id">Pending</strong>
           </span>
         </div>
       )}

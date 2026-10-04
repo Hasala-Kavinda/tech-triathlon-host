@@ -16,7 +16,7 @@ export function ConfirmationCard({ business,
         }) {
     const totalUnits = items.reduce((total, item) => total + item.quantity, 0);
     const details = [
-            { label: "Order number", value: "ORD-1082", data: true },
+            { label: "Order number", value: "Pending assignment", data: true },
             { label: "Status", value: <StatusPill kind="confirmed" /> },
             {
               label: "Submitted",

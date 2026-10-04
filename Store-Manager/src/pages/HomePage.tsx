@@ -2,10 +2,9 @@ import { ChevronDown, ArrowRight, CalendarDays, AlertTriangle } from "lucide-rea
 import {  motion, AnimatePresence  } from 'motion/react';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {  Button  } from '../components/common/Button';
-import { AttentionCard } from "../components/common/PrototypeMisc";
-import {  StatusPill  } from '../components/common/StatusPill';
 import { FloatingNewOrder } from "../components/layout/TopBar";
-import { getDashboard, type DashboardPayload } from "../api/store";
+import {  StatusPill  } from '../components/common/StatusPill';
+import { getDashboard, storeDeliveryApi, type DashboardPayload, type StoreDelivery } from "../api/store";
 import { type UpcomingDelivery, type StatusKind } from "../types/store";
 import { statusDetails, calmSpring } from "../lib/constants";
 import { readSession } from "../auth/session";
@@ -51,17 +50,26 @@ export function HomePage({
           onNavigate: (label: string) => void
         }) {
     const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+    const [deliveries, setDeliveries] = useState<StoreDelivery[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     useEffect(() => {
       let cancelled = false;
-      getDashboard()
-        .then((payload) => { if (!cancelled) { setDashboard(payload); setError(null); } })
+      Promise.all([getDashboard(), storeDeliveryApi.list()])
+        .then(([payload, delivs]) => {
+          if (!cancelled) {
+            setDashboard(payload);
+            setDeliveries(delivs);
+            setError(null);
+          }
+        })
         .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load dashboard."); })
         .finally(() => { if (!cancelled) setLoading(false); });
       return () => { cancelled = true; };
     }, []);
     const nextDelivery = dashboard?.upcomingDeliveries[0] ?? null;
+    const attentionDelivery = deliveries?.find(d => d.status === "delivered" || d.status === "failed");
+
     const session = readSession();
     const firstName = session?.user?.name ? session.user.name.split(" ")[0] : "";
 
@@ -73,33 +81,7 @@ export function HomePage({
               <div className="page-title">Home</div>
               <p>Here's what's happening at your store today.</p>
             </div>
-            
           </div>
-
-          {business && onBusinessChange && (
-            <div className="prototype-state-control" style={{ marginBottom: 24 }}>
-              <span className="prototype-only-label">Prototype only</span>
-              <label style={{ gridColumn: "1 / -1" }}>
-                <span>Outlet type</span>
-                <span className="prototype-select-wrap">
-                  <select
-                    value={business}
-                    onChange={(event) => onBusinessChange(event.target.value as "fresh" | "style" | "tech")}
-                  >
-                    <option value="fresh">Waypoint Fresh</option>
-                    <option value="style">Waypoint Style</option>
-                    <option value="tech">Waypoint Tech</option>
-                  </select>
-                  <ChevronDown />
-                </span>
-              </label>
-            </div>
-          )}
-          
-
-          
-
-          
 
           <motion.section className="home-section" layout transition={calmSpring}>
             <HomeSectionHeader title="Next delivery" />
@@ -107,7 +89,7 @@ export function HomePage({
           </motion.section>
 
     <AnimatePresence initial={false}>
-            {showAttention && (
+            {attentionDelivery && (
               <motion.section
                 className="home-section attention-section"
                 layout
@@ -117,7 +99,25 @@ export function HomePage({
                 transition={calmSpring}
               >
                 <HomeSectionHeader title="Needs attention" />
-                <AttentionCard onOpen={() => onOpenOrder("ORD-1045", "verify-delivery", "verify")} />
+                <motion.div
+                  className="attention-card"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={calmSpring}
+                >
+                  <span className="attention-icon">
+                    <AlertTriangle />
+                  </span>
+                  <div className="attention-copy">
+                    <strong>Delivery awaiting confirmation</strong>
+                    <p>
+                      <span className="data-id">{attentionDelivery.orderId || attentionDelivery._id.slice(-8).toUpperCase()}</span>
+                      {attentionDelivery.arrivedAt ? ` · Driver completed delivery at ${new Date(attentionDelivery.arrivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : " · Arrived"}
+                    </p>
+                    <small>Confirm the received quantities when ready.</small>
+                  </div>
+                  <Button tone="secondary" onClick={() => onOpenOrder(attentionDelivery._id, "verify-delivery", "verify")}>Review delivery</Button>
+                </motion.div>
               </motion.section>
             )}
           </AnimatePresence>
@@ -142,8 +142,8 @@ export function HomePage({
                         key={delivery._id}
                         delivery={{
                           id: deliveryOrderLabel(delivery),
-                          type: `${delivery.items.length} product${delivery.items.length === 1 ? "" : "s"}${delivery.orders[0] ? ` · ${delivery.orders[0].orderType}` : ""}`,
-                          date: deliveryWhen(delivery).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+                          type: `${delivery.items.length} products`,
+                          date: deliveryWhen(delivery).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
                           status: delivery.status === "arrived" ? "confirmed" : "scheduled",
                           eta: delivery.status === "arrived" ? "Arrived" : deliveryEta(delivery),
                         }}
@@ -255,17 +255,10 @@ export function UpcomingDeliveryRow({ delivery, onOpen }: { delivery: UpcomingDe
         <span>{delivery.type}</span>
       </span>
       <span className="upcoming-date">
-        <CalendarDays />
         {delivery.date}
       </span>
       <span className="upcoming-status">
         <StatusPill kind={delivery.status} />
-        {delivery.reason && (
-          <small>
-            <AlertTriangle />
-            {delivery.reason}
-          </small>
-        )}
       </span>
       <span className="upcoming-eta">{delivery.eta}</span>
       <ArrowRight className="row-arrow" />
