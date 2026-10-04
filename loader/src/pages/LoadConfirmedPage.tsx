@@ -50,8 +50,6 @@ export default function LoadConfirmedPage({
   const connectivityDetail = {
     online: "Online",
     offline: "Offline",
-    syncing: "Connecting…",
-    synced: "Online",
   }[connectivity]
 
   // ── Scroll to top on mount ────────────────────────────────────────────────

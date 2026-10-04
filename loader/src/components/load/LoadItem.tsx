@@ -33,7 +33,7 @@ export function LoadItem({
             <StatusPill
               variant="changed"
               label={
-                item.exception?.pendingSync
+                item.exception?.recordedOffline
                   ? "Flagged · Offline"
                   : "Flagged"
               }

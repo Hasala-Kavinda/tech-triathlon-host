@@ -297,7 +297,6 @@ export default function ActiveLoadPage({
   const connectivityDetail: Record<ConnectivityState, string> = {
     online: "Online",
     offline: "Offline",
-    syncing: "Connecting…",
   }
 
   // ── Derive active-stop info for footer context ────────────────────────────
@@ -548,10 +547,8 @@ export default function ActiveLoadPage({
             <div className="work-alert__icon">
               {connectivity === "offline" ? (
                 <CloudOff aria-hidden="true" />
-              ) : connectivity === "syncing" ? (
-                <LoaderCircle className="icon-spin" aria-hidden="true" />
               ) : (
-                <CheckCircle2 aria-hidden="true" />
+                <LoaderCircle className="icon-spin" aria-hidden="true" />
               )}
             </div>
             <div>

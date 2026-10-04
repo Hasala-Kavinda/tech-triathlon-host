@@ -1,5 +1,5 @@
 
-export type ConnectivityState = "online" | "offline" | "syncing"
+export type ConnectivityState = "online" | "offline"
 export type WorkCardState = "available" | "claiming" | "claimed" | "unavailable" | "completed" | "completed-other"
 export type LoadItemStatus = "pending" | "loaded" | "flagged"
 export type ExceptionType = "missing" | "damaged"
@@ -9,7 +9,7 @@ export type LoadItemException = {
   reason: string
   type: ExceptionType
   unit: string
-  pendingSync?: boolean
+  recordedOffline?: boolean
 }
 export type LoadItemData = {
   exception?: LoadItemException

@@ -113,7 +113,7 @@ export function ExceptionSheet({
     onSave({
       affectedQuantity: parsedQuantity,
       note: note.trim() || undefined,
-      pendingSync: isOffline,
+      recordedOffline: isOffline,
       reason,
       type,
       unit: expected.unit,

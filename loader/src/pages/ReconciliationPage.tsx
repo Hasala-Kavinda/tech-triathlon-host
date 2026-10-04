@@ -102,8 +102,6 @@ export default function ReconciliationPage({
   const connectivityDetail = {
     online: "Online",
     offline: "Offline",
-    syncing: "Connecting…",
-    synced: "Online",
   }[connectivity]
 
   return (
