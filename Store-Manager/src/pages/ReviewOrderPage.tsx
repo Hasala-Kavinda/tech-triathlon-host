@@ -12,19 +12,25 @@ import { getCatalogue } from "../api/store";
 export function ReviewOrderPage({ business, 
       type,
       quantities,
+      requestedDate,
       forceError,
       onBack,
       onConfirmed,
     }: { business: "fresh" | "style" | "tech"
           type: OrderType
           quantities: OrderDrafts
+          requestedDate: string
           forceError: boolean
           onBack: () => void
           onConfirmed: (orderId: string) => void
         }) {
-    const { isClosed: afterCutoff, targetDeliveryDate } = useCutoff();
+    const { isClosed: afterCutoff, targetDeliveryDate, cutoffDeadlineAt, timeRemaining } = useCutoff();
     const [submissionState, setSubmissionState] = useState<SubmissionState>("idle");
     const [products, setProducts] = useState<CatalogProduct[]>([]);
+    
+    const cutoffTimeString = cutoffDeadlineAt 
+      ? new Date(cutoffDeadlineAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : "4:00 PM";
     
     useEffect(() => {
     let active = true
@@ -50,7 +56,7 @@ export function ReviewOrderPage({ business,
         if (forceError) { setSubmissionState("error"); return }
 
         try {
-          const createdOrder = await submitStoreOrder({ business, type, requestedDate: targetDeliveryDate || undefined, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
+          const createdOrder = await submitStoreOrder({ business, type, requestedDate: requestedDate || targetDeliveryDate || undefined, items: items.map((item) => ({ id: item.id, quantity: item.quantity })) })
           onConfirmed(createdOrder._id)
         } catch (error) {
           console.error("Order submission failed", error)
@@ -68,7 +74,7 @@ export function ReviewOrderPage({ business,
         </div>
       </div>
 
-      <ReviewContext business={business} type={type} />
+      <ReviewContext business={business} type={type} requestedDate={requestedDate || targetDeliveryDate || ""} />
 
       <div className="review-layout">
         <section className="review-products-panel">
@@ -102,7 +108,7 @@ export function ReviewOrderPage({ business,
               <strong>
                 {afterCutoff
                   ? "Next-day ordering closed"
-                  : "Submit before 4:00 PM"}
+                  : `Submit before ${cutoffTimeString}`}
               </strong>
               <span>
                 {afterCutoff
@@ -178,7 +184,8 @@ export function ReviewOrderPage({ business,
 
 export function ReviewContext({ business, 
       type,
-        }: { business: "fresh" | "style" | "tech", type: OrderType
+      requestedDate
+        }: { business: "fresh" | "style" | "tech", type: OrderType, requestedDate: string
         }) {
     const { isClosed: afterCutoff, timeRemaining, targetDeliveryStr } = useCutoff();
     return (
@@ -192,11 +199,9 @@ export function ReviewContext({ business,
 
       </div>
       <div>
-        <span>
-          {afterCutoff ? "Following planning run" : "Target delivery"}
-        </span>
+        <span>Target delivery</span>
         <strong>
-          {targetDeliveryStr}
+          {requestedDate || targetDeliveryStr}
         </strong>
       </div>
       <div>

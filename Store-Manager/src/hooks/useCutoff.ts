@@ -7,6 +7,7 @@ export function useCutoff() {
   const [timeRemaining, setTimeRemaining] = useState("");
   const [targetDeliveryStr, setTargetDeliveryStr] = useState<string>("Tomorrow");
   const [targetDeliveryDate, setTargetDeliveryDate] = useState<string | null>(null);
+  const [futureOperatingDays, setFutureOperatingDays] = useState<{ date: string; isOperating: boolean }[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -41,6 +42,7 @@ export function useCutoff() {
         }
       }
       
+      setFutureOperatingDays(futureOperatingDays);
       setTargetDeliveryDate(targetDate || null);
 
       if (pastCutoff) {
@@ -76,5 +78,5 @@ export function useCutoff() {
     return () => clearInterval(timer);
   }, [cutoffDeadlineAt]);
 
-  return { isClosed, timeRemaining, targetDeliveryStr, targetDeliveryDate };
+  return { isClosed, timeRemaining, targetDeliveryStr, targetDeliveryDate, cutoffDeadlineAt, futureOperatingDays };
 }

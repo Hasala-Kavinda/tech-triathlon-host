@@ -9,6 +9,7 @@ import { ProductSelectionRow } from "../components/orders/ProductSelectionRow";
 import { getCatalog, selectedProducts, getDraft, formatOrderType, getDefaultOrderType, pluralizeUnit } from "../lib/utils";
 import { OrderType, OrderDrafts, CatalogProduct } from '../types/store';
 import { calmSpring, overlaySpring } from "../lib/constants";
+import { useCutoff } from "../hooks/useCutoff";
 
 export function NewOrderPage({ business, 
       afterCutoff = false,
@@ -18,6 +19,8 @@ export function NewOrderPage({ business,
       onQuantitiesChange,
       initialSearch = "",
       initialSummaryOpen = false,
+      requestedDate,
+      onRequestedDateChange,
       onReview,
     }: { business: "fresh" | "style" | "tech", afterCutoff?: boolean
           type: OrderType
@@ -26,8 +29,12 @@ export function NewOrderPage({ business,
           onQuantitiesChange: React.Dispatch<React.SetStateAction<OrderDrafts>>
           initialSearch?: string
           initialSummaryOpen?: boolean
+          requestedDate: string
+          onRequestedDateChange: (date: string) => void
           onReview: () => void
         }) {
+    const { isClosed: afterCutoffValue, timeRemaining, futureOperatingDays, targetDeliveryDate } = useCutoff();
+    const actualAfterCutoff = afterCutoff || afterCutoffValue;
     const [searchQuery, setSearchQuery] = useState(initialSearch);
     const [summaryOpen, setSummaryOpen] = useState(initialSummaryOpen);
     const [products, setProducts] = useState<CatalogProduct[]>([]);
@@ -45,6 +52,12 @@ export function NewOrderPage({ business,
       })
     return () => { active = false }
     }, [business, type])
+
+    useEffect(() => {
+      if (!requestedDate && targetDeliveryDate) {
+        onRequestedDateChange(targetDeliveryDate);
+      }
+    }, [targetDeliveryDate, requestedDate, onRequestedDateChange]);
 
     const filteredProducts = products.filter((product) =>
             product.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
@@ -87,7 +100,13 @@ export function NewOrderPage({ business,
             quantities.
           </p>
         </div>
-        <OrderPlanningContext afterCutoff={afterCutoff} />
+        <OrderPlanningContext 
+          afterCutoff={actualAfterCutoff} 
+          timeRemaining={timeRemaining}
+          futureOperatingDays={futureOperatingDays}
+          requestedDate={requestedDate || targetDeliveryDate || ""}
+          onRequestedDateChange={onRequestedDateChange}
+        />
       </div>
 
       <div className="new-order-layout">

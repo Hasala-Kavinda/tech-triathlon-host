@@ -32,7 +32,7 @@ export function TopBar({
           onNavigate: (label: string) => void
           business: "fresh" | "style" | "tech"
         }) {
-    const { isClosed, timeRemaining } = useCutoff();
+    const { isClosed, timeRemaining, cutoffDeadlineAt } = useCutoff();
     const [showNotifs, setShowNotifs] = useState(false);
     const [showCutoff, setShowCutoff] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
@@ -97,7 +97,7 @@ export function TopBar({
 
       <div className="topbar-right">
         <div className="topbar-cutoff-wrapper" ref={cutoffRef}>
-          <GlobalCutoff closed={isClosed} timeRemaining={timeRemaining} open={showCutoff} setOpen={(val) => {
+          <GlobalCutoff closed={isClosed} timeRemaining={timeRemaining} cutoffDeadlineAt={cutoffDeadlineAt} open={showCutoff} setOpen={(val) => {
             setShowCutoff(val)
             if (val) {
               setShowNotifs(false)
@@ -268,7 +268,10 @@ export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "s
     )
 }
 
-export function GlobalCutoff({ closed = false, timeRemaining, open, setOpen }: { closed?: boolean, timeRemaining: string, open: boolean, setOpen: (v: boolean) => void }) {
+export function GlobalCutoff({ closed = false, timeRemaining, cutoffDeadlineAt, open, setOpen }: { closed?: boolean, timeRemaining: string, cutoffDeadlineAt?: string | null, open: boolean, setOpen: (v: boolean) => void }) {
+    const cutoffTimeString = cutoffDeadlineAt 
+      ? new Date(cutoffDeadlineAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : "4:00 PM";
     return (
     <div className="global-cutoff-container" style={{ position: "relative" }}>
       <button 
@@ -294,7 +297,7 @@ export function GlobalCutoff({ closed = false, timeRemaining, open, setOpen }: {
             transition={calmSpring}
           >
             <strong>{closed ? "Next-day order cutoff passed" : "Next-day order cutoff"}</strong>
-            <p>{closed ? "Orders submitted now enter the following planning run." : "Submit before 4:00 PM for tomorrow's planning run."}</p>
+            <p>{closed ? "Orders submitted now enter the following planning run." : `Submit before ${cutoffTimeString} for tomorrow's planning run.`}</p>
           </motion.div>
         )}
       </AnimatePresence>

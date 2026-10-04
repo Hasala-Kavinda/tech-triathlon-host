@@ -111,8 +111,7 @@ export default function App() {
   const [receiptFlowState, setReceiptFlowState] = useState<ReceiptFlowState>(initialReceiptState)
   
   const [selectedOrderId, setSelectedOrderId] = useState<string>("")
-
-  
+  const [requestedDate, setRequestedDate] = useState<string>("")
     function handleOpenOrder(id: string, nextView: string, state: string) {
     setSelectedOrderId(id)
     if (state) {
@@ -202,6 +201,8 @@ export default function App() {
                 onTypeChange={setOrderType}
                 quantities={drafts}
                 onQuantitiesChange={setDrafts}
+                requestedDate={requestedDate}
+                onRequestedDateChange={setRequestedDate}
                 onReview={() => goToView("review")}
               />
             </motion.div>
@@ -218,6 +219,7 @@ export default function App() {
               <ReviewOrderPage business={business}
                 type={orderType}
                 quantities={drafts}
+                requestedDate={requestedDate}
                 forceError={false}
                 onBack={() => goToView("new-order")}
                 onConfirmed={(orderId) => { setSelectedOrderId(orderId); goToView("confirmation"); }}
