@@ -25,7 +25,7 @@ import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
 import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
-// ── Constants (vehicle metadata is prototype-static) ─────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────────
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,13 @@ export default function LoadConfirmedPage({
   activeLoad,
 }: LoadConfirmedPageProps) {
   const [connectivity] = useConnectivity()
+
+  const connectivityDetail = {
+    online: "Online",
+    offline: "Offline",
+    syncing: "Connecting…",
+    synced: "Online",
+  }[connectivity]
 
   // ── Scroll to top on mount ────────────────────────────────────────────────
   useEffect(() => {
@@ -194,7 +201,7 @@ export default function LoadConfirmedPage({
   return (
     <LoaderShell
       connectivity={connectivity}
-      connectivityDetail="Synced 04:12"
+      connectivityDetail={connectivityDetail}
       bottomActions={
         <BottomActionBar
           context={

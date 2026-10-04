@@ -15,7 +15,6 @@ export interface WorkCardProps {
   items: number
   onClaim?: () => void
   onOpen?: () => void
-  priority: "normal" | "urgent"
   route: string
   state?: WorkCardState
   stops: number
@@ -31,7 +30,6 @@ export function WorkCard({
   items,
   onClaim,
   onOpen,
-  priority,
   route,
   state = "available",
   stops,
@@ -57,10 +55,6 @@ export function WorkCard({
               {vehicle}
             </Text>
           </div>
-        </div>
-        <div className="work-card__priority">
-          <Text variant="caption">Priority</Text>
-          <StatusPill variant={priority} />
         </div>
       </div>
       <div className="work-card__route">

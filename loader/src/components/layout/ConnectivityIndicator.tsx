@@ -27,12 +27,6 @@ export const connectivityConfig: Record<ConnectivityState, {
     label: "Syncing",
     tone: "action",
   },
-  synced: {
-    description: "All changes synced",
-    icon: CheckCircle2,
-    label: "Synced",
-    tone: "success",
-  },
 }
 export function ConnectivityIndicator({
   compact = false,

@@ -19,11 +19,6 @@ import type { LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 import type { JobsStatus } from "../App"
 
-// Prototype URL overrides
-const requestedView = new URLSearchParams(window.location.search).get("view")
-const forceOffline = requestedView === "offline"
-const forceEmpty = requestedView === "empty"
-
 type RefreshStatus = "idle" | "refreshing" | "updated"
 
 interface AvailableWorkPageProps {
@@ -41,12 +36,12 @@ interface AvailableWorkPageProps {
 }
 
 export default function AvailableWorkPage({ loadCases, status, error, actionError, opening, onRefresh, onClaim, onOpenLoad }: AvailableWorkPageProps) {
-  const [connectivity] = useConnectivity(forceOffline ? "offline" : null)
+  const [connectivity] = useConnectivity()
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>("idle")
 
   const isOnline = connectivity === "online"
 
-  const visibleCases = forceEmpty ? [] : loadCases
+  const visibleCases = loadCases
   const availableCount = visibleCases.filter(
     (loadCase) => loadCase.state === "available",
   ).length
@@ -169,18 +164,14 @@ export default function AvailableWorkPage({ loadCases, status, error, actionErro
           </div>
           <div className="work-summary__copy">
             <Text variant="label">
-              {isOnline ? "Available load cases" : "Cached load cases"}
+              Available load cases
             </Text>
             <div className="work-summary__count">
               <Text variant="data">{availableCount}</Text>
               <Text variant="body">
-                {!isOnline
-                  ? availableCount === 1
-                    ? "cached case shown"
-                    : "cached cases shown"
-                  : availableCount === 1
-                    ? "case ready to claim"
-                    : "cases ready to claim"}
+                {availableCount === 1
+                  ? "case ready to claim"
+                  : "cases ready to claim"}
               </Text>
             </div>
           </div>

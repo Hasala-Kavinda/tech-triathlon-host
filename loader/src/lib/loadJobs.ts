@@ -33,8 +33,6 @@ export function toLoadCase(record: LoadRecord, myUserId: string | undefined): Lo
     recordStatus: record.status,
     departure: trip ? clock(trip.departureAt) : "—",
     items: record.items.length,
-    // The backend does not rank load jobs, so none is marked urgent here.
-    priority: "normal",
     route: trip?.tripNumber ?? record.tripId,
     state,
     stops: trip?.stops.length ?? 0,
@@ -79,7 +77,7 @@ function toLoadItem(item: LoadRecord["items"][number]): LoadItemData {
     quantity: String(item.expectedQuantity),
     status,
     ...(item.exception
-      ? { exception: { type: item.exception.type, affectedQuantity: item.exception.quantity, reason: item.exception.reasonCode.split("_").join(" "), ...(item.exception.note ? { note: item.exception.note } : {}), pendingSync: false, unit: "units" } }
+      ? { exception: { type: item.exception.type, affectedQuantity: item.exception.quantity, reason: item.exception.reasonCode.split("_").join(" "), unit: "units", ...(item.exception.note ? { note: item.exception.note } : {}) } }
       : {}),
   }
 }

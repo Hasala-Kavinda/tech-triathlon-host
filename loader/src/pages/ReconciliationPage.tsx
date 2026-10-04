@@ -71,7 +71,6 @@ export default function ReconciliationPage({
   const accountedCount = loadedCount + flaggedCount
 
   // Invariant: Loaded + Flagged + Pending = Total
-  // For the current prototype: 19 + 4 + 0 = 23 ✓
   const canConfirm = pendingCount === 0
 
   // ── Exception items (all flagged items across all stops) ──────────────────

@@ -1,15 +1,15 @@
 
-export type ConnectivityState = "online" | "offline" | "syncing" | "synced"
+export type ConnectivityState = "online" | "offline" | "syncing"
 export type WorkCardState = "available" | "claiming" | "claimed" | "unavailable" | "completed" | "completed-other"
 export type LoadItemStatus = "pending" | "loaded" | "flagged"
 export type ExceptionType = "missing" | "damaged"
 export type LoadItemException = {
   affectedQuantity: number
   note?: string
-  pendingSync: boolean
   reason: string
   type: ExceptionType
   unit: string
+  pendingSync?: boolean
 }
 export type LoadItemData = {
   exception?: LoadItemException
@@ -45,7 +45,6 @@ export type LoadCase = {
   recordStatus: LoadRecordStatus
   departure: string
   items: number
-  priority: "normal" | "urgent"
   route: string
   state: WorkCardState
   stops: number

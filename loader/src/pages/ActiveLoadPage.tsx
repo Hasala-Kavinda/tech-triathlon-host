@@ -29,16 +29,7 @@ import { LoadDepartureTimer } from "../components/load/LoadDepartureTimer"
 import type { ActiveStop, LoadCase } from "../types/loader"
 import { useConnectivity } from "../hooks/useConnectivity"
 
-// Prototype URL override for connectivity state
-const connectivityParam = new URLSearchParams(window.location.search).get(
-  "connectivity",
-)
-const forcedConnectivity: ConnectivityState | null =
-  connectivityParam === "offline" ||
-  connectivityParam === "syncing" ||
-  connectivityParam === "synced"
-    ? (connectivityParam as ConnectivityState)
-    : null
+
 
 interface ActiveLoadPageProps {
   /** Called when the user presses "Available work" (back navigation). */
@@ -77,14 +68,13 @@ export default function ActiveLoadPage({
   onAcknowledgePlanChange,
   onStartLoading,
 }: ActiveLoadPageProps) {
-  const [connectivity] = useConnectivity(forcedConnectivity)
+  const [connectivity] = useConnectivity()
   const [visibleStopIndex, setVisibleStopIndex] = useState(0)
   const [exceptionItemId, setExceptionItemId] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [submittingIds, setSubmittingIds] = useState<string[]>([])
   const [savedNotice, setSavedNotice] = useState<{
     detail: string
-    pendingSync: boolean
   } | null>(null)
   const [reconciliationReady, setReconciliationReady] = useState(false)
 
@@ -241,8 +231,7 @@ export default function ActiveLoadPage({
           : exception.unit
 
       setSavedNotice({
-        detail: `${exception.affectedQuantity} ${affectedUnit} ${exception.type} · Dispatcher notified`,
-        pendingSync: exception.pendingSync,
+        detail: `${exception.affectedQuantity} ${affectedUnit} ${exception.type}`,
       })
 
       window.setTimeout(() => setSavedNotice(null), 3600)
@@ -294,7 +283,6 @@ export default function ActiveLoadPage({
     online: "Online",
     offline: "Offline",
     syncing: "Connecting…",
-    synced: "Online",
   }
 
   // ── Derive active-stop info for footer context ────────────────────────────
@@ -566,25 +554,15 @@ export default function ActiveLoadPage({
 
         {savedNotice ? (
           <div
-            className={`work-alert work-alert--${
-              savedNotice.pendingSync ? "offline" : "updated"
-            }`}
+            className="work-alert work-alert--updated"
             role="status"
             aria-live="polite"
           >
             <div className="work-alert__icon">
-              {savedNotice.pendingSync ? (
-                <AlertTriangle aria-hidden="true" />
-              ) : (
-                <CheckCircle2 aria-hidden="true" />
-              )}
+              <CheckCircle2 aria-hidden="true" />
             </div>
             <div>
-              <Text variant="body-strong">
-                {savedNotice.pendingSync
-                  ? "Offline"
-                  : "Exception recorded"}
-              </Text>
+              <Text variant="body-strong">Exception recorded</Text>
               <Text variant="caption">{savedNotice.detail}</Text>
             </div>
           </div>
