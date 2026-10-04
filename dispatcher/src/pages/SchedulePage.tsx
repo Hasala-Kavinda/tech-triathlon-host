@@ -12,6 +12,8 @@ import { Button, Heading, PageTitle, TextInput, UnstyledButton } from "../compon
 import { DAILY_TURN_LIMIT } from "../lib/constants";
 import { addDays, dateLabel } from "../lib/dates";
 import { hhmm, reasonLabel, toEngineOrder, toUiVehicle, topReason, uiVehicleType, useContextWithDeparture, useEngineContext } from "../lib/routeEngine";
+import { activeTags, matchesTags, NO_TAGS, tagCount, toggleTag, type Tag, type TagState } from "../lib/vehicleFilter";
+import type { DriverReference } from "../api/planning";
 import { usePlanningCheck, type PlanningService } from "../lib/usePlanningCheck";
 import type { Order, ShopType } from "../types/dispatcher";
 
@@ -27,6 +29,7 @@ export default function SchedulePage({
   onOpenManageVehicles,
   onOpenDefer,
   planning,
+  drivers,
   today,
   planningDate,
   onPlanningDateChange,
@@ -41,6 +44,8 @@ export default function SchedulePage({
   dueVersion: number
   /** Live planning service (draft + validate + publish). Absent in prototype mode, where there is no backend. */
   planning?: PlanningService
+  /** Active Drivers (names for the assigned Driver shown on the check sheet). */
+  drivers: DriverReference[]
   onOpenManageVehicles: () => void
   onOpenDefer: () => void
 }) {
@@ -56,7 +61,9 @@ export default function SchedulePage({
     const brand = params.get("brand")
     return brand === "Fresh" || brand === "Tech" || brand === "Style" ? brand : "All"
   })
-  const [tags, setTags] = useState<string[]>([])
+  // Van / Lorry / Refrigerated: type and temperature are separate, combined with AND (see lib/vehicleFilter.ts).
+  const [tagState, setTagState] = useState<TagState>(NO_TAGS)
+  const tags = activeTags(tagState)
   const [search, setSearch] = useState("")
   const [overlay, setOverlay] = useState<"review" | "check" | null>(null)
   const [reviewIds, setReviewIds] = useState<string[]>([])
@@ -165,13 +172,15 @@ export default function SchedulePage({
     setOverlay("check")
   }
 
-  const reasonCount = (code: string) => ranking.filter((r) => r.reasons.some((x) => x.code === code && x.scope === "vehicle")).length
-  const availableCount = ranking.filter((r) => r.eligible).length
-  const fleetCount = (type: "Van" | "Lorry" | "Refrigerated") => engine.vehicles.filter((v) => uiVehicleType(v) === type).length
+  // The tag filter chooses WHICH vehicles are listed; the engine's eligibility then fades/disables
+  // ineligible ones inside that list. The two never overwrite each other.
   const matchingRanking = ranking.filter(({ vehicle: v }) =>
-    tags.every((tag) => uiVehicleType(v).toLowerCase().includes(tag.toLowerCase())) &&
+    matchesTags(v, tagState) &&
     (!search || `${v.vehicleId} ${uiVehicleType(v)} ${v.depot}`.toLowerCase().includes(search.toLowerCase())),
   )
+  const reasonCount = (code: string) => matchingRanking.filter((r) => r.reasons.some((x) => x.code === code && x.scope === "vehicle")).length
+  const availableCount = matchingRanking.filter((r) => r.eligible).length
+  const fleetCount = (tag: Tag) => tagCount(engine.vehicles, tag)
 
   const currentStep = !vehicle
     ? tags.length ? "Step 2 · vehicle search" : "Step 1 · all orders, all vehicles"
@@ -368,7 +377,7 @@ export default function SchedulePage({
           <div className="availability-wrap">
             <div className="availability">
               <strong>
-                Vehicles available · {availableCount} of {ranking.length}
+                Vehicles available · {availableCount} of {matchingRanking.length}
                 {reasonCount("FUEL_QUOTA") > 0 ? (
                   <span style={{ color: "var(--critical-500)", marginLeft: "4px" }}>· {reasonCount("FUEL_QUOTA")} over quota</span>
                 ) : ""}
@@ -429,7 +438,7 @@ export default function SchedulePage({
               <div className={`tag-search ${tags.length ? "tag-search--active" : ""}`}>
                 <Search aria-hidden="true" size={22} />
                 {tags.map((tag) => (
-                  <UnstyledButton className="active-tag" key={tag} onClick={() => setTags((current) => current.filter((t) => t !== tag))}>
+                  <UnstyledButton className="active-tag" key={tag} onClick={() => setTagState((current) => toggleTag(current, tag))}>
                     {tag}
                     <X aria-hidden="true" size={15} />
                   </UnstyledButton>
@@ -444,8 +453,14 @@ export default function SchedulePage({
 
               <div className="suggested-tags">
                 <span>Tags:</span>
-                {["Van", "Lorry", "Refrigerated"].filter((t) => !tags.includes(t)).map((t) => (
-                  <UnstyledButton key={t} onClick={() => setTags((prev) => [...prev, t])}>+ {t}</UnstyledButton>
+                {(["Van", "Lorry", "Refrigerated"] as const).filter((t) => !tags.includes(t)).map((t) => (
+                  <UnstyledButton
+                    key={t}
+                    onClick={() => setTagState((current) => toggleTag(current, t))}
+                    title={t === "Van" && tagState.type === "truck" ? "Replaces Lorry (a vehicle is either a van or a lorry)" : t === "Lorry" && tagState.type === "van" ? "Replaces Van (a vehicle is either a van or a lorry)" : undefined}
+                  >
+                    + {t}
+                  </UnstyledButton>
                 ))}
               </div>
 
@@ -500,6 +515,7 @@ export default function SchedulePage({
           onSchedule={() => void check.schedule()}
           pack={packOrders}
           routeName={routeName}
+          {...(check.driverId && drivers.find((d) => d._id === check.driverId) ? { driverName: drivers.find((d) => d._id === check.driverId)!.name } : {})}
           scheduling={check.scheduling}
           setChecked={setChecked}
           vehicle={vehicle}

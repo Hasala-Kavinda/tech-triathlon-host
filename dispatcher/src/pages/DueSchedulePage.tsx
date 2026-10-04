@@ -11,7 +11,9 @@ import { ReviewModal } from "../components/ReviewModal";
 import { Button, Heading, PageTitle, ShopTag, UnstyledButton } from "../components/ui";
 import { DAILY_TURN_LIMIT } from "../lib/constants";
 import { dateLabel } from "../lib/dates";
-import { hhmm, reasonLabel, toEngineOrder, toUiVehicle, uiVehicleType, useContextWithDeparture, useEngineContext } from "../lib/routeEngine";
+import { hhmm, reasonLabel, toEngineOrder, toUiVehicle, useContextWithDeparture, useEngineContext } from "../lib/routeEngine";
+import { tagCount, type Tag } from "../lib/vehicleFilter";
+import type { DriverReference } from "../api/planning";
 import { usePlanningCheck, type PlanningService } from "../lib/usePlanningCheck";
 import type { Order } from "../types/dispatcher";
 
@@ -28,6 +30,7 @@ export default function DueSchedulePage({
   today,
   planningDate,
   planning,
+  drivers,
   onOpenManageVehicles,
   onOpenDefer,
   onOpenNormal,
@@ -40,6 +43,8 @@ export default function DueSchedulePage({
   today: string | null
   planningDate: string | null
   planning?: PlanningService
+  /** Active Drivers (names for the assigned Driver shown on the check sheet). */
+  drivers: DriverReference[]
   onOpenManageVehicles: () => void
   onOpenDefer: () => void
   onOpenNormal: () => void
@@ -134,7 +139,8 @@ export default function DueSchedulePage({
     open: overlay === "check", vehicle, orders: packOrders, route, routeDate, departsTime, onScheduled: () => setOverlay(null),
   })
   const routeName = route?.stops[0] ? `${vehicle?.depot ?? "Depot"} → ${route.stops[0].district}` : "Route"
-  const available = (type: "Van" | "Lorry" | "Refrigerated") => (plan?.ranking ?? []).filter((r) => r.eligible && uiVehicleType(r.vehicle) === type).length
+  // Van = any van, Lorry = any truck, Refrigerated = any reefer (a reefer van counts under both Van and Refrigerated).
+  const available = (tag: Tag) => tagCount((plan?.ranking ?? []).filter((r) => r.eligible).map((r) => r.vehicle), tag)
   const departsLabel = route?.departureMin != null ? hhmm(route.departureMin) : departsTime
 
   if (!planning) {
@@ -400,6 +406,7 @@ export default function DueSchedulePage({
           onSchedule={() => void check.schedule()}
           pack={packOrders}
           routeName={routeName}
+          {...(check.driverId && drivers.find((d) => d._id === check.driverId) ? { driverName: drivers.find((d) => d._id === check.driverId)!.name } : {})}
           scheduling={check.scheduling}
           setChecked={setChecked}
           vehicle={vehicle}

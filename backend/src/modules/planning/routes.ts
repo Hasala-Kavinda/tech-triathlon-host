@@ -17,16 +17,21 @@ import { UserReadPort } from "../auth/user.read-port.js"
 import { VehicleReadPort } from "../reference/vehicle.read-port.js"
 import { validateTrip } from "./constraints.js"
 import { buildEngineContext } from "./engine-context.js"
+import { pickDriver } from "./driver-assignment.js"
 import { CounterCommandPort } from "../../database/persistence/counter.command-port.js"
 
 const tripBody = z.object({
-  serviceDate: z.string(), departureAt: z.coerce.date(), plannedEndAt: z.coerce.date(), vehicleId: z.string().min(1), driverId: z.string().min(1),
+  serviceDate: z.string(), departureAt: z.coerce.date(), plannedEndAt: z.coerce.date(), vehicleId: z.string().min(1),
+  // Optional: when omitted the planning service assigns one (depot match, free, fewest trips that day).
+  driverId: z.string().min(1).optional(),
   distanceKm: z.number().min(0),
   routeIndex: z.number().int().min(1).optional().default(1),
   stops: z.array(z.object({ orderId: z.string().min(1), plannedArrivalAt: z.coerce.date() })).min(1),
 })
 
-async function buildValidation(data: z.infer<typeof tripBody>, devMode: boolean, excludeTripId?: string) {
+type TripData = Omit<z.infer<typeof tripBody>, "driverId"> & { driverId: string }
+
+async function buildValidation(data: TripData, devMode: boolean, excludeTripId?: string) {
   return validateTrip({
     serviceDate: data.serviceDate, departureAt: data.departureAt, plannedEndAt: data.plannedEndAt,
     vehicleId: data.vehicleId, driverId: data.driverId, orderIds: data.stops.map((stop) => stop.orderId),
@@ -35,6 +40,20 @@ async function buildValidation(data: z.infer<typeof tripBody>, devMode: boolean,
     devMode,
     ...(excludeTripId ? { excludeTripId } : {}),
   })
+}
+
+/** Picks the Driver for a new trip: same depot as the vehicle, no overlapping trip, fewest trips that day. */
+async function assignDriver(depot: string, serviceDate: string, start: Date, end: Date, devMode: boolean) {
+  const [drivers, trips] = await Promise.all([
+    UserReadPort.findByFilter({ role: "driver", active: true }),
+    Trip.find({ serviceDate, status: { $in: ["published", "loading", "load_confirmed", "claimed", "in_transit", "completed"] } }).select("driverId departureAt plannedEndAt").lean(),
+  ])
+  const picked = pickDriver(drivers, trips, { start, end }, { depot, allowOtherDepots: devMode })
+  if (!picked) {
+    const atDepot = drivers.some((d) => d.depot === depot)
+    throw unprocessable("DRIVER_UNAVAILABLE", atDepot ? `Every ${depot} Driver already has a trip in this time window.` : `No active Driver is based at the ${depot} depot.`)
+  }
+  return String(picked.driver._id)
 }
 
 export async function planningRoutes(app: FastifyInstance) {
@@ -79,13 +98,16 @@ export async function planningRoutes(app: FastifyInstance) {
     const parsed = tripBody.safeParse(request.body)
     if (!parsed.success) throw badRequest("The trip draft is invalid.", parsed.error.flatten())
     parseServiceDate(parsed.data.serviceDate)
-    const [driver, vehicle] = await Promise.all([
-      UserReadPort.findDriverById(parsed.data.driverId),
-      VehicleReadPort.findByVehicleId(parsed.data.vehicleId),
-    ])
-    if (!driver) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
+    const vehicle = await VehicleReadPort.findByVehicleId(parsed.data.vehicleId)
     if (!vehicle) throw unprocessable("VEHICLE_UNAVAILABLE", "The selected vehicle is unavailable.")
-    const validation = await buildValidation(parsed.data, app.config.devMode)
+    let driverId = parsed.data.driverId
+    if (driverId) {
+      if (!(await UserReadPort.findDriverById(driverId))) throw unprocessable("DRIVER_UNAVAILABLE", "The selected Driver is unavailable.")
+    } else {
+      driverId = await assignDriver(vehicle.depot, parsed.data.serviceDate, parsed.data.departureAt, parsed.data.plannedEndAt, app.config.devMode)
+    }
+    const tripData: TripData = { ...parsed.data, driverId }
+    const validation = await buildValidation(tripData, app.config.devMode)
     const orders = await OrderReadPort.findByIds(parsed.data.stops.map((stop) => stop.orderId))
     const orderMap = new Map(orders.map((order) => [String(order._id), order]))
     let trip!: InstanceType<typeof Trip>
@@ -96,7 +118,7 @@ export async function planningRoutes(app: FastifyInstance) {
         trip = (await Trip.create(
           [{
             tripNumber: `TRP-${parsed.data.serviceDate.replaceAll("-", "")}-${String(seq).padStart(6, "0")}`,
-            ...parsed.data, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
+            ...tripData, depot: vehicle.depot, dispatcherId: auth.userId, status: "draft",
             totals: { distanceKm: parsed.data.distanceKm, weightKg: 0, volumeM3: 0, fuelLitres: 0 },
             stops: parsed.data.stops.map((stop, index) => ({ tripStopId: new mongoose.Types.ObjectId(), stopId: `STOP-${index + 1}`, orderId: stop.orderId, orderIds: [stop.orderId], outletId: orderMap.get(stop.orderId)?.outletId, sequence: index + 1, plannedArrivalAt: stop.plannedArrivalAt })),
             constraintCheck: { checkedAt: new Date(), valid: validation.valid, rules: validation.rules },

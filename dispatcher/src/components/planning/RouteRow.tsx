@@ -26,6 +26,7 @@ export function RouteRow({
           ))}
         </span>
         <span className="route-row__name">{item.route}</span>
+        {item.tripNumber ? <small className="route-row__trip data-text">{item.tripNumber}</small> : null}
       </span>
       <span className="route-row__progress">
         <strong>

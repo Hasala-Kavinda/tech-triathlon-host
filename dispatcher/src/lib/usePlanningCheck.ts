@@ -75,5 +75,5 @@ export function usePlanningCheck(opts: {
 
   // Never show Schedule as ready before the planning service has answered.
   const shown: Validation = open && validation === undefined ? { phase: "loading" } : validation
-  return { validation: shown, scheduling, submitError, schedule, retry: () => setRecheck((n) => n + 1) }
+  return { validation: shown, driverId: prepared?.driverId, scheduling, submitError, schedule, retry: () => setRecheck((n) => n + 1) }
 }

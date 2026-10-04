@@ -11,6 +11,7 @@ import { addDays, colomboDate, isIsoDate } from "./lib/dates"
 import { useServerClock } from "./lib/useServerClock"
 import type { PlanningService } from "./lib/usePlanningCheck"
 import type { RouteResult } from "@route-engine"
+import { routeLabel } from "./lib/routeLabel"
 import DueSchedulePage from "./pages/DueSchedulePage"
 import HomePage from "./pages/HomePage"
 import MonitorPage from "./pages/MonitorPage"
@@ -67,9 +68,12 @@ const toOrder = (order: PlanningOrder): Order => ({
 const clock = (value?: string) =>
   value ? new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : undefined
 
-const toRouteRecord = (trip: TripSummary): RouteRecord => ({
+const toRouteRecord = (trip: TripSummary, title: string): RouteRecord => ({
   id: trip.vehicleId,
-  route: `${trip.tripNumber} · ${trip.stops.length} ${trip.stops.length === 1 ? "stop" : "stops"}`,
+  // "Depot → District · Name NN" (derived, see lib/routeLabel.ts); the trip number stays as a secondary reference.
+  route: title,
+  tripId: trip._id,
+  tripNumber: trip.tripNumber,
   tags: [...new Set(trip.orders.map((order) => order.brand))],
   done: trip.stops.filter((stop) => ["completed", "delivered"].includes(stop.status)).length,
   total: trip.stops.length,
@@ -83,7 +87,7 @@ const toRouteRecord = (trip: TripSummary): RouteRecord => ({
 })
 
 /** A draft trip that the backend has validated and that is ready to be published. */
-export type PreparedTrip = { tripId: string; version: number; valid: boolean; rules: TripRule[] }
+export type PreparedTrip = { tripId: string; version: number; valid: boolean; rules: TripRule[]; driverId: string }
 
 function App() {
   const [path, setPath] = useState(getInitialPath)
@@ -109,6 +113,7 @@ function App() {
   // The planning date the `orders` list was loaded for (null until the first load finishes).
   const [ordersDate, setOrdersDate] = useState<string | null>(null)
   const [routes, setRoutes] = useState<RouteRecord[]>(PROTOTYPE_MODE ? initialRoutes : [])
+  const [completedRoutes, setCompletedRoutes] = useState<RouteRecord[]>([])
   const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
 
   // "Today" and the date being planned. Today comes from the server's clock (Asia/Colombo), the
@@ -132,15 +137,24 @@ function App() {
   // the screen hid it. Orders are listed for the date being planned.
   const refreshQueueAndRoutes = async (date: string | null = planningDate) => {
     if (!date) return
-    const [apiOrders, tripLists] = await Promise.all([
+    const [apiOrders, tripLists, usage] = await Promise.all([
       planningApi.orders(date),
       Promise.all([date, addDays(date, 1)].map((day) => planningApi.trips(day))),
+      planningApi.engineContext(date), // outlet districts for the route labels
     ])
-    const liveTrips = tripLists.flat().filter((trip) => ["published", "loading", "load_confirmed", "claimed", "in_transit"].includes(trip.status))
-    const details = await Promise.all(liveTrips.map((trip) => planningApi.tripDetail(trip._id)))
+    const allTrips = tripLists.flat()
+    const districtOf = (outletId: string) => usage.outlets.find((outlet) => outletId === outlet.outletId)?.district
+    const labelFor = (trip: TripSummary) => routeLabel(trip, districtOf, allTrips.filter((other) => other.serviceDate === trip.serviceDate)).title
+    const liveTrips = allTrips.filter((trip) => ["published", "loading", "load_confirmed", "claimed", "in_transit"].includes(trip.status))
+    const doneTrips = allTrips.filter((trip) => trip.status === "completed")
+    const [details, doneDetails] = await Promise.all([
+      Promise.all(liveTrips.map((trip) => planningApi.tripDetail(trip._id))),
+      Promise.all(doneTrips.map((trip) => planningApi.tripDetail(trip._id))),
+    ])
     setOrders(apiOrders.map(toOrder))
     setOrdersDate(date)
-    setRoutes(details.map(toRouteRecord))
+    setRoutes(details.map((trip) => toRouteRecord(trip, labelFor(trip))))
+    setCompletedRoutes(doneDetails.map((trip) => toRouteRecord(trip, labelFor(trip))))
     setDueVersion((version) => version + 1)
   }
 
@@ -244,19 +258,11 @@ function App() {
       : liveOrders
     const departureAt = route?.departureMin != null ? atMinutes(targetDate, route.departureMin) : new Date(`${targetDate}T${departureTime}:00+05:30`)
     const plannedEndAt = new Date(departureAt.getTime() + (route?.tripMinutes ?? (liveOrders.length + 1) * 30) * 60_000)
-    // A Driver is not a planning constraint for the engine, but a person cannot drive two overlapping trips.
-    const existing = (await planningApi.trips(targetDate)) as unknown as Array<{ driverId?: string; departureAt: string; plannedEndAt?: string; status: string }>
-    const busy = new Set(existing
-      .filter((trip) => trip.driverId && trip.status !== "draft" && trip.status !== "cancelled" && new Date(trip.departureAt) < plannedEndAt && new Date(trip.plannedEndAt ?? trip.departureAt) > departureAt)
-      .map((trip) => String(trip.driverId)))
-    const driver = drivers.find((candidate) => !busy.has(candidate._id))
-    if (!driver) throw new Error(drivers.length ? "Every active Driver already has a trip in this time window." : "No active Driver is available for this route.")
     const input: TripInput = {
       serviceDate: targetDate,
       departureAt: departureAt.toISOString(),
       plannedEndAt: plannedEndAt.toISOString(),
       vehicleId: vehicle.id,
-      driverId: driver._id,
       distanceKm: route?.distanceKm ?? Math.max(10, liveOrders.length * 12),
       stops: sequenced.map((order, index) => {
         const planned = route?.stops.find((stop) => stop.orderId === order.apiId)?.arrivalMin
@@ -268,7 +274,7 @@ function App() {
     }
     const draft = await planningApi.createTrip(input)
     const validation = await planningApi.validateTrip(draft._id)
-    return { tripId: draft._id, version: validation.version, valid: validation.valid, rules: validation.rules }
+    return { tripId: draft._id, version: validation.version, valid: validation.valid, rules: validation.rules, driverId: draft.driverId }
   }
 
   const publishPrepared = async (prepared: PreparedTrip) => {
@@ -381,6 +387,7 @@ function App() {
           ordersDate={ordersDate}
           planningDate={planningDate}
           today={today}
+          drivers={drivers}
           {...(planningService ? { planning: planningService } : {})}
         />
       ) : path === "/schedule" ? (
@@ -394,6 +401,7 @@ function App() {
           ordersDate={ordersDate}
           planningDate={planningDate}
           today={today}
+          drivers={drivers}
           {...(planningService ? { planning: planningService } : {})}
         />
       ) : path === "/orders" ? (
@@ -421,6 +429,7 @@ function App() {
         />
       ) : path.startsWith("/monitor/") ? (
         <MonitorPage
+          drivers={drivers}
           onApprove={completeApproval}
           remarks={remarks}
           setRemarks={setRemarks}
@@ -432,6 +441,7 @@ function App() {
           navigate={navigate}
           orders={orders}
           routes={routes}
+          completedRoutes={completedRoutes}
           openDay={openRouteDay}
           scheduleNow={scheduleNow}
           setFilter={setHomeFilter}

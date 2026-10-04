@@ -26,6 +26,8 @@ export type TripRule = { code: string; passed: boolean; message: string }
 export type TripSummary = {
   _id: string
   tripNumber: string
+  depot: string
+  driverId?: string
   vehicleId: string
   status: string
   serviceDate: string
@@ -46,13 +48,14 @@ export type EngineContextPayload = {
   vehicleState: Record<string, { turnsToday: number; weeklyFuelUsedL: number; usedMinutes: { fresh: number; styleTech: number } }>
 }
 export type DriverReference = { _id: string; employeeId: string; name: string; depot?: string }
-export type TripDraft = { _id: string; version: number; tripNumber: string; status: string }
+export type TripDraft = { _id: string; version: number; tripNumber: string; status: string; driverId: string }
 export type TripInput = {
   serviceDate: string
   departureAt: string
   plannedEndAt: string
   vehicleId: string
-  driverId: string
+  /** Omit to let the planning service assign one (same depot as the vehicle, free, fewest trips that day). */
+  driverId?: string
   distanceKm: number
   stops: Array<{ orderId: string; plannedArrivalAt: string }>
 }

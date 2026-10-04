@@ -15,6 +15,8 @@ type CheckModalProps = {
   lockedIds?: string[]
   /** Route label shown in the title. */
   routeName?: string
+  /** The Driver the planning service assigned to this trip (shown once the draft exists). */
+  driverName?: string
   /** Constraint results from the planning service. When given, Schedule needs them to pass. */
   validation?:
     | { phase: "loading" }
@@ -38,6 +40,7 @@ export function CheckModal({
   onSchedule,
   lockedIds = [],
   routeName = "Route",
+  driverName,
   validation,
   onRetryValidation,
   scheduling = false,
@@ -87,6 +90,7 @@ export function CheckModal({
               <span>
                 {pack.filter((order) => order.emergency).length} emergency
               </span>
+              {driverName ? <span>Driver · {driverName}</span> : null}
             </div>
           </div>
           <IconButton icon={X} label="Close check sheet" onClick={onClose} />

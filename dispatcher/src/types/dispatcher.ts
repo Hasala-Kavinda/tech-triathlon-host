@@ -2,6 +2,9 @@ export type ShopType = "Fresh" | "Tech" | "Style";
 export type RouteRecord = {
       id: string
       route: string
+      /** Real trip identifiers (live mode): the route label above is derived from them. */
+      tripId?: string
+      tripNumber?: string
       tags: ShopType[]
       done: number
       total: number

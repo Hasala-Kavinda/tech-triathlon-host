@@ -382,21 +382,5 @@ export const initialRoutes: RouteRecord[] = [
         estEnd: "11:30",
       },
     ];
-export const completedRouteRecord: RouteRecord = {
-      id: "SP ND-4417",
-      route: "Galle → Matara · Southern 05",
-      tags: ["Fresh"],
-      done: 4,
-      total: 4,
-      remarks: 3,
-      start: "06:32",
-      estEnd: "10:05",
-      stops: [
-        { shop: "Sunrise Mart", address: "Lighthouse St, Galle Fort", arrived: "07:10" },
-        { shop: "Lanka Super Stores", address: "Main St, Unawatuna", arrived: "07:55" },
-        { shop: "Coastal Traders", address: "Galle Rd, Weligama", arrived: "08:40" },
-        { shop: "Matara City Mart", address: "Anagarika Dharmapala Mw, Matara", arrived: "09:50" },
-      ],
-    };
 export const DAILY_TURN_LIMIT = 2;
 export const OPEN_ORDER_EVENT = "waytrack:open-order";

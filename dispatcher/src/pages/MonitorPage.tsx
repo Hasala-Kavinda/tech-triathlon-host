@@ -7,8 +7,10 @@ import { RemarksModal } from "../components/RemarksModal";
 import { RouteSummaryModal } from "../components/RouteSummaryModal";
 import { Button, PageTitle, ProgressBar } from "../components/ui";
 import { people } from "../lib/constants";
+import type { DriverReference } from "../api/planning";
 import type { Remark } from "../types/dispatcher";
-export default function MonitorPage({
+import MonitorLive from "./MonitorLive";
+function MockMonitorPage({
   remarks,
   setRemarks,
   onApprove,
@@ -269,4 +271,20 @@ export default function MonitorPage({
       ) : null}
     </section>
   )
+}
+
+/**
+ * `/monitor/<tripId>` shows the real trip (route label, driver, stops), fetched per route so changing
+ * route never shows the previous route's data. Any other id keeps the old sample view.
+ */
+export default function MonitorPage(props: {
+  remarks: Remark[]
+  setRemarks: React.Dispatch<React.SetStateAction<Remark[]>>
+  onApprove: (message: string) => void
+  drivers: DriverReference[]
+}) {
+  const routeId = window.location.pathname.split("/")[2] ?? ""
+  if (/^[0-9a-f]{24}$/i.test(routeId)) return <MonitorLive drivers={props.drivers} key={routeId} tripId={routeId} />
+  const { drivers: _drivers, ...mock } = props
+  return <MockMonitorPage {...mock} />
 }

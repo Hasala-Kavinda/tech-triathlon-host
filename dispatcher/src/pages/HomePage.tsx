@@ -7,7 +7,6 @@ import { DayPlannerCard } from "../components/planning/DayPlannerCard";
 import { FilterCard } from "../components/planning/FilterCard";
 import { RouteRow } from "../components/planning/RouteRow";
 import { Button, Heading, PageTitle, ProgressBar, ShopTag, UnstyledButton } from "../components/ui";
-import { completedRouteRecord } from "../lib/constants";
 import type { Order, RouteRecord, ShopType } from "../types/dispatcher";
 export default function HomePage({
   navigate,
@@ -22,6 +21,7 @@ export default function HomePage({
   openDay,
   scheduleNow,
   routes,
+  completedRoutes,
   orders,
 }: {
   navigate: (path: string) => void
@@ -39,6 +39,8 @@ export default function HomePage({
   /** Order-first scheduling: the picked orders become mandatory on the chosen date. */
   scheduleNow: (date: string, orderApiIds: string[]) => void
   routes: RouteRecord[]
+  /** Real completed trips for the planning day. */
+  completedRoutes: RouteRecord[]
   orders: Order[]
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -60,7 +62,8 @@ export default function HomePage({
     ? activeToday.filter((item) => item.tags.includes(filter))
     : activeToday
 
-  const completedRoute = completedRouteRecord
+  const shownCompleted = (filter ? completedRoutes.filter((item) => item.tags.includes(filter)) : completedRoutes)
+  const visibleCompleted = showAllCompleted ? shownCompleted : shownCompleted.slice(0, 2)
   const filterCounts = {
     Fresh: todayByBrand("Fresh"),
     Tech: todayByBrand("Tech"),
@@ -162,10 +165,10 @@ export default function HomePage({
                           ? { ...item, remarks: 0 }
                           : item
                       }
-                      key={item.id}
+                      key={item.tripId ?? item.id}
                       onOpen={(remarksOpen) =>
                         navigate(
-                          `/monitor/${item.id.replace(/ /g, "-")}${remarksOpen ? "?remarks=open" : ""
+                          `/monitor/${item.tripId ?? item.id.replace(/ /g, "-")}${remarksOpen ? "?remarks=open" : ""
                           }`,
                         )
                       }
@@ -174,34 +177,37 @@ export default function HomePage({
                 </div>
                 <div className="section-heading completed-heading">
                   <Heading>Completed today</Heading>
-                  <span>{filter && filter !== "Fresh" ? 0 : 2} routes</span>
-                  <UnstyledButton
-                    className="show-all-link"
-                    onClick={() => setShowAllCompleted((current) => !current)}
-                  >
-                    {showAllCompleted ? "Show less" : "Show all"}
-                  </UnstyledButton>
+                  <span>{shownCompleted.length} {shownCompleted.length === 1 ? "route" : "routes"}</span>
+                  {shownCompleted.length > 2 ? (
+                    <UnstyledButton
+                      className="show-all-link"
+                      onClick={() => setShowAllCompleted((current) => !current)}
+                    >
+                      {showAllCompleted ? "Show less" : "Show all"}
+                    </UnstyledButton>
+                  ) : null}
                 </div>
-                {!filter || filter === "Fresh" ? (
+                {!shownCompleted.length ? <span className="mute">No completed routes yet today.</span> : null}
+                {visibleCompleted.map((item) => (
                   <UnstyledButton
                     className="completed-route-row"
-                    onClick={() =>
-                      navigate("/monitor/SP-ND-4417?state=completed")
-                    }
+                    key={item.tripId ?? item.id}
+                    onClick={() => navigate(`/monitor/${item.tripId ?? item.id.replace(/ /g, "-")}`)}
                   >
                     <span>
-                      <span className="data-text">{completedRoute.id}</span>
-                      <ShopTag type="Fresh" />
-                      <small>{completedRoute.route}</small>
+                      <span className="data-text">{item.id}</span>
+                      {item.tags.map((tag) => <ShopTag key={tag} type={tag} />)}
+                      <small>{item.route}</small>
+                      {item.tripNumber ? <small className="data-text">{item.tripNumber}</small> : null}
                     </span>
                     <span>
-                      <strong>4/4 shops</strong>
-                      <ProgressBar value={100} />
+                      <strong>{item.done}/{item.total} shops</strong>
+                      <ProgressBar value={item.total ? (item.done / item.total) * 100 : 0} />
                     </span>
-                    <b>Done 10:05</b>
+                    {item.estEnd ? <b>Done {item.estEnd}</b> : null}
                     <ChevronRight aria-hidden="true" size={21} />
                   </UnstyledButton>
-                ) : null}
+                ))}
             </>
           </section>
         </div>
