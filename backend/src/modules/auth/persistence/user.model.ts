@@ -12,6 +12,7 @@ export interface UserDoc {
   passwordHash: string
   outletId?: string
   depot?: string
+  phoneE164?: string
   active: boolean
   lockedAt?: Date
   lastLoginAt?: Date
@@ -29,6 +30,7 @@ const userSchema = createBaseSchema<UserDoc>(
     passwordHash: { type: String, required: true, select: false },
     outletId: { type: String, trim: true },
     depot: { type: String, trim: true },
+    phoneE164: { type: String, trim: true, match: /^\+[1-9]\d{6,14}$/ },
     active: { type: Boolean, default: true },
     lockedAt: { type: Date },
     lastLoginAt: { type: Date },

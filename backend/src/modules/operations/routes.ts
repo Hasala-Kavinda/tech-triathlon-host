@@ -6,11 +6,14 @@ import { badRequest, conflict, notFound } from "../../common/errors.js"
 import { pagination, paginationSchema } from "../../common/pagination.js"
 import { ok, page } from "../../common/response.js"
 import { expectedVersion } from "../../common/version.js"
-import { DeliveryRecord, OperationalEvent, Trip, TripLocation } from "../../database/models/index.js"
+import { DeliveryRecord, LoadRecord, OperationalEvent, Trip, TripLocation } from "../../database/models/index.js"
 import { RemarkCommandPort } from "../audit/remark.command-port.js"
 import { RemarkReadPort } from "../audit/remark.read-port.js"
 import { OrderReadPort } from "../orders/order.read-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { buildTripMonitor } from "./trip-monitor.js"
+import { raiseTripRemark } from "./trip-remarks.js"
+import { trackingState } from "./tracking.js"
 
 async function storeOutlet(userId: string) {
   const user = await UserReadPort.findById(userId)
@@ -93,6 +96,10 @@ export async function operationRoutes(app: FastifyInstance) {
     const record = await DeliveryRecord.findOneAndUpdate({ _id: params.data.deliveryId, outletId, status: { $in: ["delivered", "failed"] }, version, receipt: { $exists: false } }, { $set: { status: body.data.result === "full" ? "receipt_confirmed" : "receipt_issue", receipt: { ...body.data, confirmedAt: new Date(), confirmedBy: auth.userId } }, $inc: { version: 1 } }, { new: true })
     if (!record) throw conflict("RECEIPT_CONFLICT", "The delivery is not receivable, changed, or already has a receipt.")
     await audit(request, body.data.result === "full" ? "receipt.confirmed" : "receipt.issue_reported", "delivery", record.id, { result: body.data.result })
+    if (body.data.result === "issue") {
+      const issues = body.data.itemOutcomes.filter((item) => item.issueType).map((item) => `${item.sku}: ${item.issueType} (received ${item.received})`)
+      await raiseTripRemark(request, { tripId: record.tripId, tripStopId: record.tripStopId, text: [body.data.remark?.trim() || "Receipt issue reported by the store.", ...issues].join(" | ") })
+    }
     return ok(request, record.toObject())
   })
 
@@ -106,18 +113,50 @@ export async function operationRoutes(app: FastifyInstance) {
       const loc = latest[index]
       const location = loc ? { ...loc, latitude: loc.location.coordinates[1], longitude: loc.location.coordinates[0], location: undefined } : null
       const ageSeconds = location ? Math.floor((Date.now() - location.recordedAt.getTime()) / 1000) : null
-      return { ...trip, lastLocation: location, trackingState: trip.status === "completed" ? "completed" : !location ? "offline_unknown" : ageSeconds! <= 120 ? "live" : ageSeconds! <= 600 ? "delayed" : "gps_gap", lastSeenSecondsAgo: ageSeconds }
+      return { ...trip, lastLocation: location, trackingState: trackingState(trip.status, ageSeconds), lastSeenSecondsAgo: ageSeconds }
     }))
   })
 
+  /** The caller must belong to the trip they raise a remark on: its driver, its claiming loader, or a store manager with a stop on it. */
+  async function remarkTarget(auth: { userId: string; role: string }, entityType: string, id: string, stopId?: string) {
+    let tripId = id
+    let tripStopId = stopId
+    if (entityType === "delivery") {
+      if (!/^[0-9a-f]{24}$/i.test(id)) throw badRequest("The delivery is invalid.")
+      const delivery = await DeliveryRecord.findById(id).select("tripId tripStopId").lean()
+      if (!delivery) throw notFound("The delivery was not found.")
+      tripId = String(delivery.tripId); tripStopId = String(delivery.tripStopId)
+    } else if (entityType !== "trip") throw badRequest("Remarks can be raised on a trip or a delivery.")
+    if (!/^[0-9a-f]{24}$/i.test(tripId)) throw badRequest("The trip is invalid.")
+    const trip = await Trip.findById(tripId).select("driverId claimedByDriverId stops").lean()
+    if (!trip) throw notFound("The trip was not found.")
+    if (tripStopId) {
+      // Accept either the stop's tripStopId, the readable stopId, or the outlet id the driver app uses.
+      const stop = trip.stops.find((candidate) => String(candidate.tripStopId) === tripStopId || candidate.stopId === tripStopId || candidate.outletId === tripStopId)
+      if (!stop) throw badRequest("The stop does not belong to this trip.")
+      tripStopId = String(stop.tripStopId)
+    }
+    if (auth.role === "driver" && ![trip.driverId, trip.claimedByDriverId].some((driver) => driver && String(driver) === auth.userId)) throw notFound()
+    if (auth.role === "loader" && !(await LoadRecord.exists({ tripId: trip._id, claimedBy: auth.userId }))) throw notFound()
+    if (auth.role === "store_manager") {
+      const outletId = await storeOutlet(auth.userId)
+      const mine = trip.stops.filter((stop) => stop.outletId === outletId)
+      if (!mine.length || (tripStopId && !mine.some((stop) => String(stop.tripStopId) === tripStopId))) throw notFound()
+    }
+    return { tripId, tripStopId }
+  }
+
   app.post("/remarks", { preHandler: app.authenticate }, async (request, reply) => {
     const auth = requireRole(request, "dispatcher", "loader", "driver", "store_manager")
-    const body = z.object({ entityType: z.string().min(1), id: z.string().min(1), text: z.string().min(1).max(2000), audienceRoles: z.array(z.enum(["dispatcher", "loader", "driver", "store_manager"])) }).safeParse(request.body)
+    const body = z.object({ entityType: z.string().min(1), id: z.string().min(1), stopId: z.string().optional(), text: z.string().min(1).max(2000), audienceRoles: z.array(z.enum(["dispatcher", "loader", "driver", "store_manager"])).default(["dispatcher"]) }).safeParse(request.body)
     if (!body.success) throw badRequest("The remark is invalid.")
+    const target = await remarkTarget(auth, body.data.entityType, body.data.id, body.data.stopId)
     const remark = await RemarkCommandPort.createRemark({
       text: body.data.text,
-      entityType: body.data.entityType,
-      entityId: body.data.id,
+      entityType: "trip",
+      entityId: target.tripId,
+      tripId: target.tripId,
+      ...(target.tripStopId ? { stopId: target.tripStopId } : {}),
       actorId: auth.userId,
       actorRole: auth.role,
       audienceRoles: body.data.audienceRoles,
@@ -126,14 +165,59 @@ export async function operationRoutes(app: FastifyInstance) {
     return reply.status(201).send(ok(request, remark.toObject()))
   })
 
+  app.get("/remarks", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher")
+    const query = z.object({ tripId: z.string().regex(/^[0-9a-f]{24}$/i) }).safeParse(request.query)
+    if (!query.success) throw badRequest("A tripId is required.")
+    return ok(request, await RemarkReadPort.findByTrip(query.data.tripId))
+  })
+
   app.patch("/remarks/:remarkId/review", { preHandler: app.authenticate }, async (request) => {
     const auth = requireRole(request, "dispatcher")
     const params = z.object({ remarkId: z.string() }).safeParse(request.params)
-    const body = z.object({ response: z.string().min(1).max(2000), notifyRoles: z.array(z.string()).default([]) }).safeParse(request.body)
+    const body = z.object({
+      response: z.string().min(1).max(2000),
+      notifyRoles: z.array(z.string()).default([]),
+      notice: z.object({ text: z.string().min(1).max(2000), recipientIds: z.array(z.string().regex(/^[0-9a-f]{24}$/i)).min(1).max(20) }).optional(),
+    }).safeParse(request.body)
     if (!params.success || !body.success) throw badRequest("The review is invalid.")
-    const remark = await RemarkCommandPort.reviewRemark({ remarkId: params.data.remarkId, reviewedBy: auth.userId, response: body.data.response, notifyRoles: body.data.notifyRoles })
+    if (body.data.notice) {
+      const found = await UserReadPort.findContactsByIds(body.data.notice.recipientIds)
+      if (found.length !== new Set(body.data.notice.recipientIds).size) throw badRequest("A notice recipient does not exist.")
+    }
+    const remark = await RemarkCommandPort.reviewRemark({ remarkId: params.data.remarkId, reviewedBy: auth.userId, response: body.data.response, notifyRoles: body.data.notifyRoles, ...(body.data.notice ? { notice: body.data.notice } : {}) })
     if (!remark) throw notFound()
     return ok(request, remark.toObject())
+  })
+
+  /** Notices a dispatcher sent to the caller when reviewing a remark: the inbox of the driver, loader or store manager. */
+  app.get("/notices", { preHandler: app.authenticate }, async (request) => {
+    const auth = requireRole(request, "dispatcher", "loader", "driver", "store_manager")
+    const rows = await RemarkReadPort.findNoticesFor(auth.userId)
+    return ok(request, rows.map((remark) => ({ id: String(remark._id), tripId: remark.tripId ? String(remark.tripId) : null, stopId: remark.stopId ? String(remark.stopId) : null, remarkText: remark.text, text: remark.notice!.text, sentAt: remark.notice!.sentAt })))
+  })
+
+  app.get("/trips/:tripId/monitor", { preHandler: app.authenticate }, async (request) => {
+    requireRole(request, "dispatcher")
+    const params = z.object({ tripId: z.string().regex(/^[0-9a-f]{24}$/i) }).safeParse(request.params)
+    if (!params.success) throw notFound()
+    return ok(request, await buildTripMonitor(params.data.tripId))
+  })
+
+  app.post("/trips/:tripId/accept", { preHandler: app.authenticate }, async (request) => {
+    const auth = requireRole(request, "dispatcher")
+    const params = z.object({ tripId: z.string().regex(/^[0-9a-f]{24}$/i) }).safeParse(request.params)
+    if (!params.success) throw notFound()
+    const trip = await Trip.findById(params.data.tripId).select("status acceptedAt").lean()
+    if (!trip) throw notFound()
+    if (trip.acceptedAt) return ok(request, { tripId: params.data.tripId, acceptedAt: trip.acceptedAt })
+    if (trip.status === "draft" || trip.status === "cancelled") throw conflict("TRIP_NOT_ACCEPTABLE", "A draft or cancelled route cannot be accepted.")
+    const pending = await RemarkReadPort.countPendingByTrip(params.data.tripId)
+    if (pending) throw conflict("REMARKS_PENDING", "Every remark on this route must be reviewed before it can be accepted.", { pending })
+    const acceptedAt = new Date()
+    await Trip.updateOne({ _id: params.data.tripId, acceptedAt: { $exists: false } }, { $set: { acceptedAt, acceptedBy: auth.userId } })
+    await audit(request, "trip.route_accepted", "trip", params.data.tripId, {})
+    return ok(request, { tripId: params.data.tripId, acceptedAt })
   })
 
   app.get("/audit/orders", { preHandler: app.authenticate }, async (request) => {

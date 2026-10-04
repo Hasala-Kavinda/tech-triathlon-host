@@ -5,6 +5,7 @@ import { useStore } from '@/state/store';
 import { TopBar } from '@/shared/components/ui';
 import { MarketHeader } from './MarketHeader';
 import { ProductChecklist } from './ProductChecklist';
+import { RemarkBox } from './RemarkBox';
 
 export const MarketDetailScreen: React.FC = () => {
   const {
@@ -114,6 +115,8 @@ export const MarketDetailScreen: React.FC = () => {
           isAllChecked={isAllChecked}
           onCallManager={handleCallManager}
         />
+
+        <RemarkBox tripId={selectedRoute.apiId} outletId={activeOutlet.id} onSent={showToast} />
 
         {isArrived ? (
           <ProductChecklist

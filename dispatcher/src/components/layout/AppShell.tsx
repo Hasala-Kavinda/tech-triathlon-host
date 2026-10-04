@@ -54,7 +54,7 @@ export function AppShell({
                 ? "nav-item nav-item--active"
                 : "nav-item"
             }
-            onClick={() => navigate("/monitor/WP-LB-4521")}
+            onClick={() => navigate(path.startsWith("/monitor/") ? path.split("?")[0]! : "/home")}
           >
             <LayoutDashboard aria-hidden="true" size={20} />
             <span>Live</span>
@@ -65,7 +65,7 @@ export function AppShell({
                 ? "nav-item nav-item--active"
                 : "nav-item"
             }
-            onClick={() => navigate("/monitor/WP-LB-4521?remarks=open")}
+            onClick={() => navigate(path.startsWith("/monitor/") ? `${path.split("?")[0]}?remarks=open` : "/home")}
           >
             <MessageSquareText aria-hidden="true" size={20} />
             <span>Remarks</span>

@@ -20,6 +20,9 @@ export interface CreateRemarkInput {
   actorId: string | Types.ObjectId
   actorRole: string
   audienceRoles: string[]
+  tripId?: string | Types.ObjectId
+  stopId?: string | Types.ObjectId
+  itemId?: string
   requestId?: string
 }
 
@@ -28,6 +31,8 @@ export interface ReviewRemarkInput {
   reviewedBy: string | Types.ObjectId
   response: string
   notifyRoles?: string[]
+  /** When present the review also sends a notice to these users. */
+  notice?: { text: string; recipientIds: (string | Types.ObjectId)[] }
 }
 
 export const RemarkCommandPort = {
@@ -48,6 +53,9 @@ export const RemarkCommandPort = {
           actorRole: input.actorRole,
           audienceRoles: input.audienceRoles,
           requestId: input.requestId,
+          ...(input.tripId ? { tripId: input.tripId } : {}),
+          ...(input.stopId ? { stopId: input.stopId } : {}),
+          ...(input.itemId ? { itemId: input.itemId } : {}),
           status: "pending",
         },
       ],
@@ -88,6 +96,7 @@ export const RemarkCommandPort = {
           reviewedBy: input.reviewedBy,
           reviewResponse: input.response,
           notifyRoles: input.notifyRoles ?? [],
+          ...(input.notice ? { notice: { text: input.notice.text, sentAt: reviewedAt, recipientIds: input.notice.recipientIds } } : {}),
         },
       },
       { new: true, ...(session ? { session } : {}) },
@@ -106,6 +115,7 @@ export const RemarkCommandPort = {
         remarkId: String(remark._id),
         response: input.response,
         notifyRoles: input.notifyRoles ?? [],
+        noticeRecipients: input.notice ? input.notice.recipientIds.map(String) : [],
       },
     })
 

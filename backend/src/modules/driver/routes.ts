@@ -20,6 +20,7 @@ import { advanceOrdersForTrip, markOrdersDelivered } from "../orders/order.comma
 import { OutletReadPort } from "../reference/outlet.read-port.js"
 import { isUndeliveredOutcome, STOP_OUTCOMES, timingResult, windowDeadlineAt, type StopOutcome } from "../delivery/timing.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { raiseTripRemark } from "../operations/trip-remarks.js"
 import { DateTime } from "luxon"
 
 function today() { return clock.nowDateTime().setZone(OPERATING_ZONE).toFormat("yyyy-MM-dd") }
@@ -283,6 +284,11 @@ export async function driverRoutes(app: FastifyInstance) {
     const version = expectedVersion(request, body.data.expectedVersion)
     const record = await completeStop(params.data.tripId, params.data.stopId, auth.userId, body.data.outcome, body.data.completedAt, version)
     await audit(request, "delivery.completed", "delivery", record.id, { outcome: body.data.outcome })
+    // A stop that did not complete cleanly goes to the Dispatcher's remark review queue.
+    if (body.data.outcome !== "delivered") {
+      const outlet = await OutletReadPort.findByOutletId(record.outletId)
+      await raiseTripRemark(request, { tripId: record.tripId, tripStopId: record.tripStopId, text: `Stop at ${outlet?.displayName ?? record.outletId} completed as "${body.data.outcome}".` })
+    }
     return ok(request, record.toObject())
   })
 
