@@ -8,6 +8,7 @@ import { FloatingNewOrder } from "../components/layout/TopBar";
 import { getDashboard, type DashboardPayload } from "../api/store";
 import { type UpcomingDelivery, type StatusKind } from "../types/store";
 import { statusDetails, calmSpring } from "../lib/constants";
+import { readSession } from "../auth/session";
 
 const deliveryStatusKind: Record<string, StatusKind> = { pending: "scheduled", arrived: "arrived", delivered: "received", failed: "issue" };
 const orderStatusKind: Record<string, StatusKind> = { submitted: "awaiting", deferred: "deferred", allocated: "scheduled", loading: "scheduled", load_confirmed: "scheduled", in_transit: "transit", delivered: "received", delivery_failed: "issue", cancelled: "issue" };
@@ -61,11 +62,14 @@ export function HomePage({
       return () => { cancelled = true; };
     }, []);
     const nextDelivery = dashboard?.upcomingDeliveries[0] ?? null;
+    const session = readSession();
+    const firstName = session?.user?.name ? session.user.name.split(" ")[0] : "";
+
     return (
         <div className="home-page">
           <div className="home-page-header">
             <div>
-              <span className="home-greeting">Good morning, Dilini</span>
+              <span className="home-greeting">Good morning{firstName ? `, ${firstName}` : ""}</span>
               <div className="page-title">Home</div>
               <p>Here's what's happening at your store today.</p>
             </div>

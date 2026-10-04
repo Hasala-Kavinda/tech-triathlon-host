@@ -4,6 +4,23 @@ import {  AnimatePresence, motion, useMotionValue, useTransform, animate  } from
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {  IconButton, Button  } from '../common/Button';
 import { calmSpring, navigation } from '../../lib/constants';
+import { readSession } from '../../auth/session';
+
+function getInitials(name?: string) {
+  if (!name) return "";
+  const parts = name.split(" ").filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getShortName(name?: string) {
+  if (!name) return "";
+  const parts = name.split(" ").filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
 
 export function TopBar({
       current,
@@ -46,6 +63,12 @@ export function TopBar({
     setShowNotifs(false)
     setShowProfile(false)
     }, [current])
+    const session = readSession();
+    const outletLocation = session?.user?.outletId || "Store";
+    const userName = session?.user?.name || "";
+    const initials = getInitials(userName);
+    const shortName = getShortName(userName);
+
     return (
         <header className="topbar">
       <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
@@ -53,7 +76,7 @@ export function TopBar({
           <img alt="" src={wayTrackLogo} className="store-brand__logo" />
           <span className="store-brand__wordmark">WayTrack</span>
           <span className="store-brand__context">
-            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; Kandy
+            {business === "fresh" ? "Fresh" : business === "style" ? "Style" : "Tech"} &middot; {outletLocation}
           </span>
         </div>
         <div className="topbar-desktop-nav">
@@ -127,8 +150,8 @@ export function TopBar({
               }
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>DF</span>
-            <span style={{ fontWeight: 500, fontSize: '14px' }}>Dilini F.</span>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', background: 'var(--sunburst-500)', color: 'var(--navy-900)', fontWeight: 700, fontSize: '13px' }}>{initials}</span>
+            <span style={{ fontWeight: 500, fontSize: '14px' }}>{shortName}</span>
             <ChevronDown size={16} />
           </button>
 
@@ -173,6 +196,10 @@ export function Sidebar({
           current: string
           onNavigate: (label: string) => void
         }) {
+    const session = readSession();
+    const userName = session?.user?.name || "";
+    const initials = getInitials(userName);
+
     return (
     <aside className="sidebar">
       <BrandMark onClick={() => onNavigate("Home")} />
@@ -201,9 +228,9 @@ export function Sidebar({
         ))}
       </nav>
       <div className="sidebar-profile">
-        <span className="avatar avatar--dark">DF</span>
+        <span className="avatar avatar--dark">{initials}</span>
         <span className="profile-copy">
-          <strong>Dilini Fernando</strong>
+          <strong>{userName}</strong>
           <small>Store Manager</small>
         </span>
       </div>
@@ -225,6 +252,8 @@ export function BrandMark({ compact = false, onClick }: { compact?: boolean, onC
 }
 
 export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "style" | "tech" }) {
+    const session = readSession();
+    const outletLocation = session?.user?.outletId || "Store";
     return (
     <div className="outlet-identity">
       <span className="outlet-icon">
@@ -233,7 +262,7 @@ export function OutletIdentity({ business = "fresh" }: { business?: "fresh" | "s
       <span>
         <small className="outlet-label">Your outlet</small>
         <strong>{business === "style" ? "Waypoint Style" : business === "tech" ? "Waypoint Tech" : "Waypoint Fresh"}</strong>
-        <small className="outlet-location">Kandy City</small>
+        <small className="outlet-location">{outletLocation}</small>
       </span>
     </div>
     )
