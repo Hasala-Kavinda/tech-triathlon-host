@@ -64,14 +64,18 @@ export default function ReconciliationPage({
   // ── Derived accounting totals ─────────────────────────────────────────────
 
   const allItems = stops.flatMap((stop) => stop.items)
-  const total = allItems.length
-  const loadedCount = allItems.filter((i) => i.status === "loaded").length
-  const flaggedCount = allItems.filter((i) => i.status === "flagged").length
-  const pendingCount = allItems.filter((i) => i.status === "pending").length
-  const accountedCount = loadedCount + flaggedCount
+  const totalLines = allItems.length
+  const loadedLinesCount = allItems.filter((i) => i.status === "loaded").length
+  const flaggedLinesCount = allItems.filter((i) => i.status === "flagged").length
+  const pendingLinesCount = allItems.filter((i) => i.status === "pending").length
+  const accountedLinesCount = loadedLinesCount + flaggedLinesCount
+
+  const expectedUnits = allItems.reduce((sum, item) => sum + item.expectedQuantity, 0)
+  const loadedUnits = allItems.reduce((sum, item) => sum + item.loadedQuantity, 0)
+  const varianceUnits = allItems.reduce((sum, item) => sum + item.varianceQuantity, 0)
 
   // Invariant: Loaded + Flagged + Pending = Total
-  const canConfirm = pendingCount === 0
+  const canConfirm = pendingLinesCount === 0
 
   // ── Exception items (all flagged items across all stops) ──────────────────
 
@@ -84,11 +88,13 @@ export default function ReconciliationPage({
   // ── Stop accounting status ────────────────────────────────────────────────
 
   const stopSummaries = stops.map((stop) => {
-    const pending = stop.items.filter((i) => i.status === "pending").length
-    const flagged = stop.items.filter((i) => i.status === "flagged").length
-    const loaded = stop.items.filter((i) => i.status === "loaded").length
-    const isComplete = pending === 0
-    return { stop, isComplete, loaded, flagged, pending }
+    const pendingLines = stop.items.filter((i) => i.status === "pending").length
+    const isComplete = pendingLines === 0
+    const linesTotal = stop.items.length
+    const expectedUnits = stop.items.reduce((sum, i) => sum + i.expectedQuantity, 0)
+    const loadedUnits = stop.items.reduce((sum, i) => sum + i.loadedQuantity, 0)
+    const varianceUnits = stop.items.reduce((sum, i) => sum + i.varianceQuantity, 0)
+    return { stop, isComplete, expectedUnits, loadedUnits, varianceUnits, linesTotal }
   })
 
   // ── Connectivity detail label ─────────────────────────────────────────────
@@ -110,8 +116,8 @@ export default function ReconciliationPage({
             <div className="active-action-context">
               <Text variant="label">
                 {canConfirm
-                  ? "All items accounted · Ready to confirm"
-                  : `${pendingCount} item${pendingCount === 1 ? "" : "s"} still pending`}
+                  ? "All SKUs accounted · Ready to confirm"
+                  : `${pendingLinesCount} SKU${pendingLinesCount === 1 ? "" : "s"} still pending`}
               </Text>
               <Text variant="caption">
                 {canConfirm
@@ -172,6 +178,13 @@ export default function ReconciliationPage({
                   ? `${activeLoad.stops} stop${activeLoad.stops === 1 ? "" : "s"}`
                   : "—"}
               </Text>
+            </div>
+          </div>
+          <div>
+            <Warehouse aria-hidden="true" />
+            <div>
+              <Text variant="caption">Weight</Text>
+              <Text variant="body-strong">{activeLoad?.weight ?? "—"}</Text>
             </div>
           </div>
         </div>
@@ -239,13 +252,13 @@ export default function ReconciliationPage({
                 </Text>
                 <div className="recon-summary-card__count">
                   <Text variant="data" className="recon-summary-card__big-num">
-                    {accountedCount}
+                    {accountedLinesCount}
                   </Text>
                   <Text variant="body-strong" className="recon-summary-card__slash">
-                    / {total}
+                    / {totalLines} SKUs
                   </Text>
                 </div>
-                <Text variant="body">Items accounted for</Text>
+                <Text variant="body">Line items accounted for</Text>
               </div>
               {activeLoad?.timing ? (
                 <div style={{ justifySelf: "end", textAlign: "right" }}>
@@ -254,28 +267,28 @@ export default function ReconciliationPage({
               ) : null}
             </div>
 
-            <Progress flagged={flaggedCount} loaded={loadedCount} total={total} />
+            <Progress flagged={flaggedLinesCount} loaded={loadedLinesCount} total={totalLines} />
 
             <div className="recon-breakdown">
+              <div className="recon-breakdown__item">
+                <PackageCheck aria-hidden="true" />
+                <div>
+                  <Text variant="data">{expectedUnits}</Text>
+                  <Text variant="caption">Expected Units</Text>
+                </div>
+              </div>
               <div className="recon-breakdown__item recon-breakdown__item--loaded">
                 <PackageCheck aria-hidden="true" />
                 <div>
-                  <Text variant="data">{loadedCount}</Text>
-                  <Text variant="caption">Loaded</Text>
+                  <Text variant="data">{loadedUnits}</Text>
+                  <Text variant="caption">Loaded Units</Text>
                 </div>
               </div>
               <div className="recon-breakdown__item recon-breakdown__item--flagged">
-                <Flag aria-hidden="true" />
-                <div>
-                  <Text variant="data">{flaggedCount}</Text>
-                  <Text variant="caption">Flagged</Text>
-                </div>
-              </div>
-              <div className="recon-breakdown__item recon-breakdown__item--pending">
                 <AlertTriangle aria-hidden="true" />
                 <div>
-                  <Text variant="data">{pendingCount}</Text>
-                  <Text variant="caption">Pending</Text>
+                  <Text variant="data">{varianceUnits === 0 ? "0" : (varianceUnits > 0 ? `+${varianceUnits}` : varianceUnits)}</Text>
+                  <Text variant="caption">Variance</Text>
                 </div>
               </div>
             </div>
@@ -294,7 +307,7 @@ export default function ReconciliationPage({
               <StatusPill variant="loaded" label="All accounted" />
             </div>
             <div className="recon-stop-list" role="list">
-              {stopSummaries.map(({ stop, isComplete, loaded, flagged }) => (
+              {stopSummaries.map(({ stop, isComplete, expectedUnits, loadedUnits, varianceUnits, linesTotal }) => (
                 <div
                   className="recon-stop-row"
                   key={stop.stopNumber}
@@ -308,8 +321,9 @@ export default function ReconciliationPage({
                   <div className="recon-stop-row__info">
                     <Text variant="body-strong">{stop.outlet}</Text>
                     <Text variant="caption">
-                      {loaded} loaded
-                      {flagged > 0 ? ` · ${flagged} flagged` : ""}
+                      {loadedUnits} / {expectedUnits} units loaded
+                      {varianceUnits !== 0 ? ` (Variance: ${varianceUnits > 0 ? `+${varianceUnits}` : varianceUnits})` : ""}
+                      {` · ${linesTotal} SKU${linesTotal === 1 ? "" : "s"}`}
                     </Text>
                   </div>
                   <div className="recon-stop-row__status">
@@ -334,10 +348,10 @@ export default function ReconciliationPage({
                   Exceptions
                 </Text>
                 <Text as="h2" variant="h2">
-                  {flaggedCount} flagged item{flaggedCount === 1 ? "" : "s"} to review
+                  {flaggedLinesCount} flagged SKU{flaggedLinesCount === 1 ? "" : "s"} to review
                 </Text>
               </div>
-              <StatusPill variant="changed" label={`${flaggedCount} flagged`} />
+              <StatusPill variant="changed" label={`${flaggedLinesCount} flagged`} />
             </div>
 
             <div className="recon-exception-list" role="list">
