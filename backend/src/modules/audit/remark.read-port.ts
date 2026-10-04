@@ -18,6 +18,21 @@ export const RemarkReadPort = {
     return Remark.find({ entityType, entityId }).sort({ createdAt: -1 }).lean()
   },
 
+  /** All remarks for a trip, newest first. */
+  async findByTrip(tripId: string) {
+    return Remark.find({ tripId }).sort({ createdAt: -1 }).lean()
+  },
+
+  /** Count of remarks still awaiting dispatcher review on a trip. */
+  async countPendingByTrip(tripId: string) {
+    return Remark.countDocuments({ tripId, status: "pending" })
+  },
+
+  /** Notices addressed to a user (reviewed remarks with a notice), newest first. */
+  async findNoticesFor(userId: string, limit = 50) {
+    return Remark.find({ "notice.recipientIds": userId }).sort({ reviewedAt: -1 }).limit(limit).lean()
+  },
+
   /** Find remarks by status, sorted newest-first. */
   async findByStatus(status: "pending" | "reviewed", limit = 100) {
     return Remark.find({ status }).sort({ createdAt: -1 }).limit(limit).lean()

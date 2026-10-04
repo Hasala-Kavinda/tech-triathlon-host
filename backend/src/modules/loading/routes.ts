@@ -10,6 +10,8 @@ import { Trip } from "../../database/models/index.js"
 import { LoadRecord } from "./persistence/load-record.model.js"
 import { DeliveryCommandPort } from "../delivery/delivery.command-port.js"
 import { UserReadPort } from "../auth/user.read-port.js"
+import { RemarkReadPort } from "../audit/remark.read-port.js"
+import { raiseTripRemark } from "../operations/trip-remarks.js"
 import { advanceOrdersForTrip } from "../orders/order.commands.js"
 
 async function loaderScope(request: FastifyRequest) {
@@ -190,6 +192,9 @@ export async function loadingRoutes(app: FastifyInstance) {
     item.exception = { type: body.data.type, quantity: body.data.quantity, reasonCode: body.data.reasonCode, ...(body.data.note ? { note: body.data.note } : {}) }
     await record.save()
     await audit(request, "load.exception_recorded", "load_record", record.id, { itemId: item.itemId, type: body.data.type, quantity: body.data.quantity })
+    // Surface the exception in the Dispatcher's remark review queue (one open remark per load item).
+    const open = (await RemarkReadPort.findByTrip(params.data.tripId)).some((remark) => remark.status === "pending" && remark.itemId === item.itemId)
+    if (!open) await raiseTripRemark(request, { tripId: params.data.tripId, tripStopId: item.tripStopId, itemId: item.itemId, text: `${item.name}: ${body.data.quantity} ${body.data.type} (${body.data.reasonCode})${body.data.note ? ` - ${body.data.note}` : ""}` })
     return ok(request, record.toObject())
   })
 

@@ -10,7 +10,7 @@ const body = z.object({
   stage: z.enum(STAGES),
   outletId: z.string().optional(), orderType: z.string().optional(), productSku: z.string().optional(), quantity: z.number().int().min(1).max(1000).optional(),
   vehicleId: z.string().optional(), driverEmployeeId: z.string().optional(), loaderEmployeeId: z.string().optional(),
-  asOf: iso.optional(), serviceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), departureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  asOf: iso.optional(), serviceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), departureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), loaderException: z.boolean().optional(),
   arrivedAt: iso.optional(), completedAt: iso.optional(),
 })
 

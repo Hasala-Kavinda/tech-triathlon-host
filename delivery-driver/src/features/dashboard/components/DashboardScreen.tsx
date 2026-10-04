@@ -7,6 +7,7 @@ import { Outlet } from '@/shared/types';
 import { RouteHeader } from './RouteHeader';
 import { UpNextCard } from './UpNextCard';
 import { StopTimeline } from './StopTimeline';
+import { NoticesPanel } from '@/features/notices/NoticesPanel';
 
 export const DashboardScreen: React.FC = () => {
   const {
@@ -107,6 +108,8 @@ export const DashboardScreen: React.FC = () => {
             <strong className="font-semibold">Tracking degraded.</strong> {conditions.trackingReason || 'Location tracking is not working.'}
           </div>
         )}
+
+        <NoticesPanel />
 
         <RouteHeader
           route={selectedRoute}

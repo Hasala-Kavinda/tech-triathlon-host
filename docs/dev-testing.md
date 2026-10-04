@@ -37,6 +37,7 @@ Stages: `submitted`, `scheduled`, `load_confirmed`, `in_transit`, `arrived` (dri
 | `--vehicle VEH037` | Force a vehicle (default: the route engine's best eligible vehicle for the order). |
 | `--driver DRV-3001` | Force a seeded Driver (default: the real assignment rule - depot match, free, fewest trips that day). |
 | `--loader LDR-2001` | Seeded Loader (default: a Loader at the trip's depot). |
+| `--loader-exception` | The Loader flags one damaged unit while loading; the real exception route raises a Loader remark for the Dispatcher's Route monitoring review. |
 | `--as-of <ISO>` | Pretend the order is submitted at this instant, e.g. `2026-10-03T14:00:00+05:30`. The real cutoff rule evaluates against it. |
 | `--service-date YYYY-MM-DD` | Delivery day, sent as the order's `requestedDate`. |
 | `--departure HH:mm` | Style/Tech departure (Fresh departs per its own window). |

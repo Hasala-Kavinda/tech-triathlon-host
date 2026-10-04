@@ -82,6 +82,8 @@ export const tripSchema = new Schema(
     endFileAssetId: String,
     startedAt: Date,
     completedAt: Date,
+    acceptedAt: Date,
+    acceptedBy: { type: Schema.Types.ObjectId, ref: "User" },
     lastLocation: lastLocationSchema,
     statusHistory: [statusEventSchema],
   },
