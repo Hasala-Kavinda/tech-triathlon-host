@@ -1,8 +1,10 @@
 import { createApp } from "./app/create-app.js"
-import { loadConfig } from "./config/env.js"
+import { assertFileProviderConfigured, loadConfig } from "./config/env.js"
 import { connectDatabase, disconnectDatabase } from "./db/connection.js"
 
 const config = loadConfig()
+// Fail on boot (before touching the database) if photo uploads cannot work, rather than mid-workflow.
+assertFileProviderConfigured()
 await connectDatabase(config.mongodbUri)
 const app = await createApp(config)
 

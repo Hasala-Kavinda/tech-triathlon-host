@@ -11,12 +11,21 @@ The seeded non-production users are:
 
 These credentials are for local/demo data only and must not be reused in production.
 
+## Photo upload setup (required)
+
+Driver meter photos and receipt evidence are stored in Cloudinary. Put your three values from the Cloudinary dashboard (Settings -> API Keys) in git-ignored `.env` files - never in `.env.example`:
+
+- repo-root `.env` (read by `docker compose`): `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
+- `backend/.env` (read by `npm run dev`): copy `backend/.env.example` and fill in the same three lines
+
+The API refuses to start, and names the missing variables, while any of them is empty or still a placeholder. Restart the API after changing them (`docker compose up -d api`).
+
 ## Pre-demo checks
 
 1. Confirm the API readiness endpoint and all five web health endpoints.
 2. Confirm the intended service date exists in the imported calendar and is operating.
 3. Confirm the CSC catalogue is populated; if a demo fixture is approved, ensure every product is visibly identified by its `DEMO-` SKU.
-4. Sign in once as each role and verify the handoff returns to the correct origin.
+4. Confirm the API started (it will not boot without the Cloudinary values above), then sign in once as each role and verify the handoff returns to the correct origin.
 5. Keep the Driver PWA in the foreground during the GPS demonstration and describe browser suspension limitations honestly.
 
 ## Story
