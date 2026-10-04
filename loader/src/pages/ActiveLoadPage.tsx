@@ -307,10 +307,75 @@ export default function ActiveLoadPage({
   const footerPending =
     footerStop?.items.filter((i) => i.status === "pending").length ?? 0
 
+  // ── L-H-1: Empty-stops guard ─────────────────────────────────────────────
+  // toActiveStops() can return []. Guard here so none of the stop-property
+  // accesses below (visibleStop.stopNumber, footerStop.stopNumber, etc.) can
+  // produce a TypeError when stops is empty.
+  if (stops.length === 0) {
+    return (
+      <LoaderShell
+        connectivity={connectivity}
+        connectivityDetail={connectivityDetail[connectivity]}
+        bottomActions={
+          <BottomActionBar
+            context={
+              <div className="active-action-context">
+                <Text variant="label">No stops available</Text>
+                <Text variant="caption">
+                  This load has no stop data. Use Available work to return and
+                  select a different load.
+                </Text>
+              </div>
+            }
+            secondaryAction={
+              <Button variant="secondary" icon={ArrowLeft} onClick={onBack}>
+                Available work
+              </Button>
+            }
+            primaryAction={null}
+          />
+        }
+      >
+        <div className="active-load-page">
+          <PageHeader
+            eyebrow="Active load"
+            title={
+              <>
+                <span className="active-load-title__vehicle">{activeLoad?.vehicle ?? "—"}</span>
+                <span className="active-load-title__route"> · {activeLoad?.tripNumber ?? "—"}</span>
+              </>
+            }
+            subtitle="Claimed by you · Loading in progress"
+            aside={<StatusPill variant="in-progress" label="Loading in progress" />}
+          />
+          <div
+            className="work-alert work-alert--offline"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="work-alert__icon">
+              <AlertTriangle aria-hidden="true" />
+            </div>
+            <div>
+              <Text variant="body-strong">No stop data for this load</Text>
+              <Text variant="caption">
+                The load record was received without any stops. No items have
+                been accounted for and no backend state has been changed. Return
+                to Available work and re-open the load, or contact your
+                dispatcher.
+              </Text>
+            </div>
+          </div>
+        </div>
+      </LoaderShell>
+    )
+  }
+
   return (
     <LoaderShell
       connectivity={connectivity}
       connectivityDetail={connectivityDetail[connectivity]}
+
       bottomActions={
         <BottomActionBar
           context={

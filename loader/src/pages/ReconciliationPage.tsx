@@ -292,7 +292,9 @@ export default function ReconciliationPage({
             </div>
 
             <Text variant="caption" className="recon-summary-card__note">
-              All items are accounted for. Review exceptions before confirming the load.
+              {canConfirm
+                ? "All items are accounted for. Review exceptions before confirming the load."
+                : `${pendingLinesCount} line item${pendingLinesCount === 1 ? "" : "s"} still pending. Return to Active Load to account for remaining items.`}
             </Text>
           </Card>
 
@@ -302,7 +304,9 @@ export default function ReconciliationPage({
               <Text variant="label" className="recon-section-heading__label">
                 Stop summary
               </Text>
-              <StatusPill variant="loaded" label="All accounted" />
+              {canConfirm
+                ? <StatusPill variant="loaded" label="All accounted" />
+                : <StatusPill variant="in-progress" label={`${pendingLinesCount} pending`} />}
             </div>
             <div className="recon-stop-list" role="list">
               {stopSummaries.map(({ stop, isComplete, expectedUnits, loadedUnits, varianceUnits, linesTotal }) => (
