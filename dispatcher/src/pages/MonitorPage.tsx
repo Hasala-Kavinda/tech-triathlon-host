@@ -1,290 +1,237 @@
-import { Check, CheckCircle2 } from "lucide-react";
-import { useState } from "react";
-import { DriverHoverCard } from "../components/DriverHoverCard";
-import { PersonBadge } from "../components/planning/PersonBadge";
-import { VehicleGraphic } from "../components/planning/VehicleGraphic";
-import { RemarksModal } from "../components/RemarksModal";
-import { RouteSummaryModal } from "../components/RouteSummaryModal";
-import { Button, PageTitle, ProgressBar } from "../components/ui";
-import { people } from "../lib/constants";
-import type { DriverReference } from "../api/planning";
-import type { Remark } from "../types/dispatcher";
-import MonitorLive from "./MonitorLive";
-function MockMonitorPage({
-  remarks,
-  setRemarks,
-  onApprove,
-}: {
-  remarks: Remark[]
-  setRemarks: React.Dispatch<React.SetStateAction<Remark[]>>
-  onApprove: (message: string) => void
-}) {
-  const params = new URLSearchParams(window.location.search)
-  const completed = params.get("state") === "completed"
-  const remarksParam = params.get("remarks") === "open"
+import { Check, CheckCircle2 } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { monitorApi, type MonitorStop, type TripMonitor } from "../api/monitor"
+import { planningApi, type FleetVehicle } from "../api/planning"
+import { DriverHoverCard } from "../components/DriverHoverCard"
+import { PersonBadge } from "../components/planning/PersonBadge"
+import { VehicleGraphic } from "../components/planning/VehicleGraphic"
+import { RemarksModal } from "../components/RemarksModal"
+import { RouteSummaryModal } from "../components/RouteSummaryModal"
+import { Button, PageTitle, ProgressBar } from "../components/ui"
+import { routeLabel, type RouteLabel } from "../lib/routeLabel"
+import type { Person, Vehicle } from "../types/dispatcher"
 
-  const [remarksModalOpen, setRemarksModalOpen] = useState(remarksParam)
-  const [summaryModalOpen, setSummaryModalOpen] = useState(false)
+const POLL_MS = 15_000
+const clock = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Asia/Colombo", hour: "2-digit", minute: "2-digit" }) : "–")
+const STATUS_TEXT: Record<string, string> = { published: "Published · not loaded yet", loading: "Loading at depot", load_confirmed: "Loaded · awaiting driver", claimed: "Claimed by driver", in_transit: "In progress", completed: "Completed", cancelled: "Cancelled" }
 
-  const vehicleId = completed ? "SP ND-4417" : "WP LB-4521"
-  const routeName = completed
-    ? "Galle → Matara · Southern 05"
-    : "Galle → Matara · Southern 03"
+const asPerson = (contact: { id: string; name: string; role: string; phoneE164: string | null }, shop?: string): Person => ({
+  id: contact.id,
+  name: contact.name,
+  role: contact.role === "store_manager" ? "Stock manager" : contact.role === "loader" ? "Loader" : "Driver",
+  phone: contact.phoneE164 ?? "",
+  ...(shop ? { shop } : {}),
+})
 
-  const unreviewedCount = remarks.filter((r) => !r.reviewed).length
-  const allRemarksReviewed = unreviewedCount === 0
+function asVehicle(fleet: FleetVehicle | undefined, vehicleId: string): Vehicle {
+  const refrigerated = Boolean(fleet && /chill|cold|fridge|refrig|frozen/i.test(fleet.temperatureClass))
+  return {
+    id: vehicleId,
+    type: refrigerated ? "Refrigerated" : fleet && /van/i.test(fleet.type) ? "Van" : "Lorry",
+    capacityKg: fleet?.weightCapacityKg ?? 2000,
+    length: "",
+    turns: 0, turnQuota: 0, km: 0, kmQuota: 0, fuel: 0,
+  }
+}
 
-  const stops = completed
-    ? [
-      { shop: "Sunrise Mart", address: "Lighthouse St, Galle Fort", time: "07:10", arrived: true, person: people.sunriseManager },
-      { shop: "Lanka Super Stores", address: "Main St, Unawatuna", time: "07:55", arrived: true, person: people.lankaManager },
-      { shop: "Coastal Traders", address: "Galle Rd, Weligama", time: "08:40", arrived: true, person: people.coastalManager },
-      { shop: "Matara City Mart", address: "Anagarika Dharmapala Mw, Matara", time: "09:50", arrived: true, person: people.lankaManager },
-    ]
-    : [
-      { shop: "Sunrise Mart", address: "Lighthouse St, Galle Fort", time: "08:55", arrived: true, person: people.sunriseManager },
-      { shop: "Lanka Super Stores", address: "Main St, Unawatuna", time: "09:40", arrived: true, person: people.lankaManager },
-      { shop: "Coastal Traders", address: "Galle Rd, Weligama", time: "10:20", arrived: true, person: people.coastalManager },
-      { shop: "Matara City Mart", address: "Anagarika Dharmapala Mw, Matara", time: "11:35", arrived: false, nextStop: true },
-    ]
+function StopRow({ stop, next }: { stop: MonitorStop; next: boolean }) {
+  const visited = stop.state === "arrived" || stop.state === "delivered" || stop.state === "failed"
+  const done = stop.state === "delivered" || stop.state === "failed"
+  const actual = stop.arrivedAt ?? null
+  return (
+    <div className={`stop-row ${visited ? "stop-row--visited" : ""}`}>
+      <span className="stop-row__marker">
+        {visited ? <Check aria-hidden="true" size={22} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid var(--cobalt-500)" }} />}
+      </span>
+      <span className="stop-row__shop">
+        <strong>{stop.outletName}</strong>
+        <span>{stop.district ?? stop.outletId}</span>
+      </span>
+      <span className="stop-row__time">
+        <b style={{ color: visited ? "var(--emerald-700)" : "var(--cobalt-500)" }}>{clock(actual ?? stop.plannedArrivalAt)}</b>
+        <small style={{ display: "block", fontSize: 11, color: "var(--text-secondary)" }}>
+          {actual ? `arrived${stop.timingResult === "late" ? " · late" : ""}` : "est. arrival"}
+          {done && stop.state === "failed" ? " · not delivered" : ""}
+        </small>
+      </span>
+      <span className="stop-row__manager">
+        {stop.manager ? <PersonBadge person={asPerson(stop.manager, stop.outletName)} size="small" /> : <span className="mute">No stock manager on file</span>}
+        {next ? (
+          <span style={{ padding: "3px 10px", borderRadius: 999, background: "var(--cobalt-50)", color: "var(--cobalt-500)", fontWeight: 700, fontSize: 12 }}>Next stop</span>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Route monitoring for one real trip. A single layout serves planned, in-progress and completed routes:
+ * live-only parts (position, next stop, Accept) simply show their "no live data" / finished state.
+ */
+export default function MonitorPage({ onApprove }: { onApprove?: (message: string) => void; drivers?: unknown }) {
+  const tripId = window.location.pathname.split("/")[2] ?? ""
+  const [monitor, setMonitor] = useState<TripMonitor | null>(null)
+  const [label, setLabel] = useState<RouteLabel | null>(null)
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [remarksOpen, setRemarksOpen] = useState(new URLSearchParams(window.location.search).get("remarks") === "open")
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      setMonitor(await monitorApi.trip(tripId))
+      setError(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The route could not be loaded.")
+    }
+  }, [tripId])
+
+  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (!monitor || monitor.trip.status === "completed") return
+    const timer = window.setInterval(() => void load(), POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [monitor?.trip.status, load])
+
+  // Route label and vehicle come from reference data for the trip's service date (fetched once the trip is known).
+  const serviceDate = monitor?.trip.serviceDate
+  const vehicleId = monitor?.trip.vehicleId
+  const stopIds = monitor?.stops.map((stop) => stop.outletId).join(",")
+  useEffect(() => {
+    if (!monitor || !serviceDate) return
+    let cancelled = false
+    void Promise.all([planningApi.engineContext(serviceDate), planningApi.trips(serviceDate), planningApi.vehicles(serviceDate)])
+      .then(([context, sameDay, fleet]) => {
+        if (cancelled) return
+        const districts = new Map(context.outlets.map((outlet) => [outlet.outletId, outlet.district]))
+        setLabel(routeLabel({ tripNumber: monitor.trip.tripNumber, depot: monitor.trip.depot, serviceDate, stops: monitor.stops.map((stop) => ({ outletId: stop.outletId })) }, (id) => districts.get(id), sameDay))
+        setVehicle(asVehicle(fleet.find((candidate) => candidate.vehicleId === vehicleId), vehicleId!))
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [serviceDate, vehicleId, stopIds]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (error && !monitor) return <section className="page page-enter monitor-page"><PageTitle>Route monitoring</PageTitle><p role="alert" style={{ color: "var(--critical-500)" }}>{error}</p></section>
+  if (!monitor) return <section className="page page-enter monitor-page"><PageTitle>Route monitoring</PageTitle><p className="mute">Loading route…</p></section>
+
+  const { trip, stops, progress, crew, tracking, remarks, pendingRemarks } = monitor
+  const completed = trip.status === "completed"
+  const allReviewed = pendingRemarks === 0
+  const accepted = Boolean(trip.acceptedAt)
+  const title = label?.title ?? trip.tripNumber
+  const reviewedCount = remarks.length - pendingRemarks
+  const nextStop = stops.find((stop) => stop.tripStopId === progress.nextTripStopId)
+  const late = stops.some((stop) => stop.timingResult === "late")
+
+  const accept = async () => {
+    setAccepting(true)
+    try {
+      await monitorApi.accept(trip.id)
+      await load()
+      onApprove?.(`Route ${trip.vehicleId} accepted`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The route could not be accepted.")
+      await load()
+    } finally {
+      setAccepting(false)
+    }
+  }
 
   return (
     <section className="page page-enter monitor-page">
       <div className="page-heading">
-        <div>
-          <PageTitle>Route monitoring</PageTitle>
-        </div>
+        <div><PageTitle>Route monitoring</PageTitle></div>
         <div className="page-heading__meta">
-          {completed ? (
-            "Completed route · read only"
-          ) : (
-            <span style={{ color: "var(--navy-900)", fontWeight: 600 }}>
-              Live route · on time
-            </span>
-          )}
+          {completed ? "Completed route" : <span style={{ color: "var(--navy-900)", fontWeight: 600 }}>{STATUS_TEXT[trip.status] ?? trip.status.replaceAll("_", " ")}</span>}
         </div>
       </div>
+      {error ? <p role="alert" style={{ color: "var(--critical-500)" }}>{error}</p> : null}
 
       <div className="workspace-card monitor-workspace">
-        {/* Left Column: Route and Stop Timeline */}
         <section className="monitor-route">
           <div className="monitor-route__heading">
-            <VehicleGraphic
-              large
-              vehicle={{
-                id: vehicleId,
-                type: "Lorry",
-                capacityKg: 2000,
-                length: "6.1 m",
-                turns: 0,
-                turnQuota: 0,
-                km: 0,
-                kmQuota: 0,
-                fuel: 0,
-              }}
-            />
+            {vehicle ? <VehicleGraphic vehicle={vehicle} /> : null}
             <div>
-              <strong className="monitor-route__id">{vehicleId}</strong>
-              <span>Route: {routeName}</span>
+              <strong className="monitor-route__id">{trip.vehicleId}</strong>
+              <span>Route: {title}</span>
+              <small className="data-text" style={{ display: "block" }}>{trip.tripNumber} · {trip.serviceDate}</small>
             </div>
           </div>
 
           <div className={`stop-timeline ${completed ? "stop-timeline--completed" : ""}`}>
-            <div className="stop-timeline__head">
-              <span>Shop</span>
-              <span>Time</span>
-              <span>Stock manager</span>
-            </div>
-
-            {stops.map((stop) => (
-              <div
-                className={`stop-row ${stop.arrived ? "stop-row--visited" : ""}`}
-                key={stop.shop}
-              >
-                <span className="stop-row__marker">
-                  {stop.arrived ? (
-                    <Check aria-hidden="true" size={22} />
-                  ) : (
-                    <span
-                      style={{
-                        width: "14px",
-                        height: "14px",
-                        borderRadius: "50%",
-                        border: "2px solid var(--cobalt-500)",
-                      }}
-                    />
-                  )}
-                </span>
-                <span className="stop-row__shop">
-                  <strong>{stop.shop}</strong>
-                  <span>{stop.address}</span>
-                </span>
-                <span className="stop-row__time">
-                  <b style={{ color: stop.arrived ? "var(--emerald-700)" : "var(--cobalt-500)" }}>
-                    {stop.time}
-                  </b>
-                  <small style={{ display: "block", fontSize: "11px", color: "var(--text-secondary)" }}>
-                    {stop.arrived ? "arrived" : "est. arrival"}
-                  </small>
-                </span>
-                <span className="stop-row__manager">
-                  {stop.person ? (
-                    <PersonBadge person={stop.person} size="small" />
-                  ) : stop.nextStop ? (
-                    <span
-                      style={{
-                        padding: "3px 10px",
-                        borderRadius: "999px",
-                        background: "var(--cobalt-50)",
-                        color: "var(--cobalt-500)",
-                        fontWeight: 700,
-                        fontSize: "12px",
-                      }}
-                    >
-                      Next stop
-                    </span>
-                  ) : (
-                    "Not visited"
-                  )}
-                </span>
-              </div>
-            ))}
+            <div className="stop-timeline__head"><span>Shop</span><span>Time</span><span>Stock manager</span></div>
+            {stops.map((stop) => <StopRow key={stop.tripStopId} next={stop.tripStopId === progress.nextTripStopId} stop={stop} />)}
           </div>
 
-          {/* Route Summary Trigger Button */}
-          <div style={{ marginTop: "28px" }}>
-            <Button
-              disabled={!completed}
-              onClick={() => setSummaryModalOpen(true)}
-              variant={completed ? "primary" : "secondary"}
-            >
+          <div style={{ marginTop: 28 }}>
+            <Button disabled={!completed} onClick={() => setSummaryOpen(true)} variant={completed ? "primary" : "secondary"}>
               📖 Route summary {completed ? "" : "· after the route finishes"}
             </Button>
           </div>
         </section>
 
-        {/* Right Column: Status, Crew, Remarks */}
         <section className="monitor-details">
-          {/* Route Status Card */}
           <div className="route-status">
             <div className="route-status__top">
               <strong>Route status</strong>
-              <span className={completed ? "route-status__done" : ""}>
-                {completed ? "✓ Done" : "In progress"}
-              </span>
+              <span className={completed ? "route-status__done" : ""}>{completed ? "✓ Done" : STATUS_TEXT[trip.status] ?? trip.status}</span>
             </div>
             <div className="route-status__metric">
-              <strong className="data-text">{completed ? "4/4" : "3/4"}</strong>
+              <strong className="data-text">{progress.done}/{progress.total}</strong>
               <b>shops covered</b>
             </div>
             <div style={{ margin: "10px 0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
-                <span>Started {completed ? "06:32" : "08:15"}</span>
-                <span>{completed ? "Ended 10:05" : "Est. end 12:05"}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                <span>{trip.startedAt ? `Started ${clock(trip.startedAt)}` : `Departs ${clock(trip.departureAt)}`}</span>
+                <span>{completed ? `Ended ${clock(trip.completedAt)}` : `Est. end ${clock(trip.plannedEndAt)}`}</span>
               </div>
               <span className={completed ? "completed-progress" : ""}>
-                <ProgressBar value={completed ? 100 : 75} />
+                <ProgressBar value={progress.total ? (progress.done / progress.total) * 100 : 0} />
               </span>
             </div>
             <p>
               {completed ? (
                 <span style={{ color: "var(--emerald-700)", fontWeight: 600 }}>
-                  Finished 5 min after plan · all 4 shops covered
+                  Finished {clock(trip.completedAt)} · {progress.done} of {progress.total} shops covered{late ? " · some arrivals late" : ""}
                 </span>
+              ) : nextStop ? (
+                <span>Next stop {nextStop.outletName} at {clock(nextStop.plannedArrivalAt)}</span>
               ) : (
-                <span>
-                  Now 10:42 · next stop at 11:35 ·{" "}
-                  <strong style={{ color: "var(--emerald-700)" }}>on time</strong>
-                </span>
+                <span>No stop in progress</span>
               )}
             </p>
           </div>
 
-          {/* Crew Panel */}
           <div className="crew-panel">
             <strong>Crew</strong>
             <div className="crew-list">
-              <DriverHoverCard driver={people.driver} vehicleId={vehicleId} />
-              <PersonBadge person={people.loaderOne} showRole size="large" />
-              <PersonBadge person={people.loaderTwo} showRole size="large" />
+              <DriverHoverCard driver={crew.driver} stops={stops} tracking={tracking} vehicleId={trip.vehicleId} />
+              {crew.loaders.map((loader) => <PersonBadge key={loader.id} person={asPerson(loader)} showRole size="large" />)}
+              {crew.loaders.length === 0 ? <span className="mute" style={{ fontSize: 12 }}>No loader has claimed this load yet</span> : null}
             </div>
           </div>
 
-          {/* Remarks Block */}
-          <div
-            className="remarks-bar"
-            onClick={() => setRemarksModalOpen(true)}
-            style={{ cursor: "pointer", marginTop: "14px" }}
-          >
-            <strong>
-              Remarks <span>{remarks.length}</span>
-            </strong>
+          <div className="remarks-bar" onClick={() => setRemarksOpen(true)} style={{ cursor: "pointer", marginTop: 14 }}>
+            <strong>Remarks <span>{remarks.length}</span></strong>
             <span>
-              {completed ? (
-                <span style={{ color: "var(--emerald-700)" }}>3 of 3 reviewed</span>
-              ) : (
-                `${remarks.filter((r) => r.reviewed).length} of ${remarks.length} reviewed`
-              )}
+              {remarks.length === 0 ? "none raised" : pendingRemarks === 0 ? <span style={{ color: "var(--emerald-700)" }}>{reviewedCount} of {remarks.length} reviewed</span> : `${reviewedCount} of ${remarks.length} reviewed · ${pendingRemarks} new`}
             </span>
-            <span style={{ color: "var(--cobalt-500)", fontWeight: 700, marginLeft: "12px" }}>
-              {completed ? "View →" : "Review →"}
-            </span>
+            <span style={{ color: "var(--cobalt-500)", fontWeight: 700, marginLeft: 12 }}>{remarks.length === 0 ? "" : pendingRemarks === 0 ? "View →" : "Review →"}</span>
           </div>
 
-          {/* Accept route button or Accepted stamp */}
-          {completed ? (
-            <div className="approved-stamp">
-              <CheckCircle2 aria-hidden="true" size={22} />
-              <span>Accepted · 10:20</span>
-            </div>
+          {accepted ? (
+            <div className="approved-stamp"><CheckCircle2 aria-hidden="true" size={22} /><span>Accepted · {clock(trip.acceptedAt)}</span></div>
           ) : (
-            <Button
-              className="approve-button"
-              disabled={!allRemarksReviewed}
-              onClick={() => onApprove(`Route ${vehicleId} accepted`)}
-              variant={allRemarksReviewed ? "confirm" : "secondary"}
-            >
-              {allRemarksReviewed ? "✓ Accept route" : "Accept route"}
+            <Button className="approve-button" disabled={!allReviewed || accepting} onClick={() => void accept()} variant={allReviewed ? "confirm" : "secondary"}>
+              {allReviewed ? "✓ Accept route" : `Accept route · ${pendingRemarks} remark${pendingRemarks === 1 ? "" : "s"} to review`}
             </Button>
           )}
         </section>
       </div>
 
-      {/* Remarks Review Modal */}
-      {remarksModalOpen ? (
-        <RemarksModal
-          onClose={() => setRemarksModalOpen(false)}
-          onUpdateRemarks={setRemarks}
-          remarks={remarks}
-          vehicleId={vehicleId}
-        />
-      ) : null}
-
-      {/* Route Summary Modal */}
-      {summaryModalOpen ? (
-        <RouteSummaryModal
-          dateStr="Sun 27 Sep"
-          onClose={() => setSummaryModalOpen(false)}
-          route={routeName}
-          vehicleId={vehicleId}
-        />
-      ) : null}
+      {remarksOpen ? <RemarksModal driver={crew.driver} onChanged={load} onClose={() => setRemarksOpen(false)} recipients={monitor.recipients} remarks={remarks} tripId={trip.id} vehicleId={trip.vehicleId} /> : null}
+      {summaryOpen ? <RouteSummaryModal monitor={monitor} onClose={() => setSummaryOpen(false)} route={title} /> : null}
     </section>
   )
-}
-
-/**
- * `/monitor/<tripId>` shows the real trip (route label, driver, stops), fetched per route so changing
- * route never shows the previous route's data. Any other id keeps the old sample view.
- */
-export default function MonitorPage(props: {
-  remarks: Remark[]
-  setRemarks: React.Dispatch<React.SetStateAction<Remark[]>>
-  onApprove: (message: string) => void
-  drivers: DriverReference[]
-}) {
-  const routeId = window.location.pathname.split("/")[2] ?? ""
-  if (/^[0-9a-f]{24}$/i.test(routeId)) return <MonitorLive drivers={props.drivers} key={routeId} tripId={routeId} />
-  const { drivers: _drivers, ...mock } = props
-  return <MockMonitorPage {...mock} />
 }

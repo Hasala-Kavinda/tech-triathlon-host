@@ -111,4 +111,8 @@ export const driverApi = {
     const asset = await apiRequest<{ _id: string }>("/files/complete", { method: "POST", body: JSON.stringify({ publicId: metadata.public_id, providerVersion: metadata.version, providerSignature: metadata.signature, kind, tripId, mimeType: file.type, format: metadata.format, bytes: metadata.bytes, capturedAt: new Date().toISOString() }) })
     return asset._id
   },
+  /** Notices a dispatcher sent to this driver when reviewing a remark. */
+  notices: () => apiRequest<Array<{ id: string; tripId: string | null; remarkText: string; text: string; sentAt: string }>>("/notices"),
+  /** Raises a remark for the dispatcher to review (whole trip, or one stop when an outlet id is given). */
+  raiseRemark: (tripId: string, text: string, outletId?: string) => apiRequest<{ _id: string }>("/remarks", { method: "POST", body: JSON.stringify({ entityType: "trip", id: tripId, ...(outletId ? { stopId: outletId } : {}), text, audienceRoles: ["dispatcher"] }) }),
 }

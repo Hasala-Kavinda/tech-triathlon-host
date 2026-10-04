@@ -29,15 +29,19 @@ export function PersonBadge({
           <span>
             {person.role} {person.shop ? `· ${person.shop}` : ""}
           </span>
-          <UnstyledButton
-            className="person-card__phone"
-            onClick={() => {
-              window.location.href = `tel:${person.phone.replace(/ /g, "")}`
-            }}
-          >
-            <Phone aria-hidden="true" size={14} />
-            {person.phone}
-          </UnstyledButton>
+          {person.phone ? (
+            <UnstyledButton
+              className="person-card__phone"
+              onClick={() => {
+                window.location.href = `tel:${person.phone.replace(/ /g, "")}`
+              }}
+            >
+              <Phone aria-hidden="true" size={14} />
+              {person.phone}
+            </UnstyledButton>
+          ) : (
+            <span className="mute" style={{ fontSize: 12 }}>No phone on file</span>
+          )}
         </span>
       </div>
     </div>

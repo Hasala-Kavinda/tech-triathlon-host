@@ -19,6 +19,7 @@ if (has("help") || !flag("stage")) {
   --vehicle VEH037         force a vehicle   --driver DRV-3001   force a Driver   --loader LDR-2001
   --as-of <ISO time>       pretend the order is submitted at this instant (the real cutoff rule evaluates against it)
   --service-date YYYY-MM-DD   delivery day  --departure HH:mm   Style/Tech departure
+  --loader-exception       the Loader flags one damaged unit (raises a Loader remark for the Dispatcher)
   --arrived-at <ISO>  --completed-at <ISO>   device times at the stops (decide on_time / late)
   --api http://localhost:3000   --dispatcher DSP-1001 --password Dispatch@123 --email nuwan.perera@waypoint.lk`)
   process.exit(has("help") ? 0 : 1)
@@ -43,7 +44,7 @@ if (!exchange.ok) { console.error(`Token exchange failed (${exchange.status}): $
 const payload = {
   stage: flag("stage"), outletId: flag("outlet"), orderType: flag("order-type"), productSku: flag("sku"), quantity: flag("quantity") ? Number(flag("quantity")) : undefined,
   vehicleId: flag("vehicle"), driverEmployeeId: flag("driver"), loaderEmployeeId: flag("loader"), asOf: flag("as-of"), serviceDate: flag("service-date"),
-  departureTime: flag("departure"), arrivedAt: flag("arrived-at"), completedAt: flag("completed-at"),
+  departureTime: flag("departure"), loaderException: has("loader-exception") || undefined, arrivedAt: flag("arrived-at"), completedAt: flag("completed-at"),
 }
 const res = await fetch(`${base}/dev/seed-scenario`, {
   method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${exchangeBody.data.accessToken}` },

@@ -37,6 +37,8 @@ export interface ScenarioInput {
   departureTime?: string | undefined
   arrivedAt?: string | undefined
   completedAt?: string | undefined
+  /** The Loader flags the first load item as damaged (one unit), so a Loader remark reaches the Dispatcher's review queue. */
+  loaderException?: boolean | undefined
 }
 
 export class StepError extends Error {
@@ -150,7 +152,13 @@ export async function runScenario(app: FastifyInstance, input: ScenarioInput) {
     const loadStep = async (step: string, path: string) => { const r = must(step, await call(loader, "POST", `/load-jobs/${draft._id}/${path}`, { expectedVersion: record.version }, versioned(record.version))) as { record?: typeof record } & typeof record; record = (r.record ?? r) as typeof record }
     await loadStep("loader_claim", "claim")
     await loadStep("loader_start_loading", "start-loading")
-    for (const item of record.items) record = must("loader_item", await call(loader, "PATCH", `/load-jobs/${draft._id}/items/${item.itemId}`, { status: "loaded", loadedQuantity: item.expectedQuantity, expectedVersion: record.version }, versioned(record.version))) as typeof record
+    for (const [index, item] of record.items.entries()) {
+      if (input.loaderException && index === 0) {
+        record = must("loader_exception", await call(loader, "PUT", `/load-jobs/${draft._id}/items/${item.itemId}/exception`, { type: "damaged", quantity: 1, reasonCode: "damaged_in_handling", note: "Dev scenario: one unit damaged while loading", expectedVersion: record.version }, versioned(record.version))) as typeof record
+        continue
+      }
+      record = must("loader_item", await call(loader, "PATCH", `/load-jobs/${draft._id}/items/${item.itemId}`, { status: "loaded", loadedQuantity: item.expectedQuantity, expectedVersion: record.version }, versioned(record.version))) as typeof record
+    }
     await loadStep("loader_reconcile", "reconcile")
     await loadStep("loader_confirm", "confirm")
     notes.push(`Loader ${loader.employeeId} confirmed the load; the trip is now load_confirmed.`)

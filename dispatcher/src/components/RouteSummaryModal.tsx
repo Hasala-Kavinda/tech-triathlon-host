@@ -1,152 +1,101 @@
 import { Check, Download, X } from "lucide-react"
 import { Button, Heading, IconButton } from "./ui"
+import type { TripMonitor } from "../api/monitor"
 
 type RouteSummaryModalProps = {
-  vehicleId: string
+  monitor: TripMonitor
   route: string
-  dateStr: string
   onClose: () => void
 }
 
-const SUMMARY_STOPS = [
-  { stop: "1 · Sunrise Mart", planned: "07:05", arrived: "07:10", diff: "+5 min", orders: 2 },
-  { stop: "2 · Lanka Super Stores", planned: "07:50", arrived: "07:55", diff: "+5 min", orders: 1 },
-  { stop: "3 · Coastal Traders", planned: "08:40", arrived: "08:40", diff: "on time", orders: 2 },
-  { stop: "4 · Matara City Mart", planned: "09:45", arrived: "09:50", diff: "+5 min", orders: 1 },
-]
+const clock = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Asia/Colombo", hour: "2-digit", minute: "2-digit" }) : "–")
 
-export function RouteSummaryModal({
-  vehicleId,
-  route,
-  dateStr,
-  onClose,
-}: RouteSummaryModalProps) {
-  const handleDownloadPdf = () => {
-    window.print()
-  }
+function difference(planned: string | null, actual: string | null) {
+  if (!planned || !actual) return { text: "–", onTime: true }
+  const minutes = Math.round((new Date(actual).getTime() - new Date(planned).getTime()) / 60_000)
+  if (Math.abs(minutes) < 1) return { text: "on time", onTime: true }
+  return { text: `${minutes > 0 ? "+" : ""}${minutes} min`, onTime: minutes <= 0 }
+}
+
+/** Summary of a finished route, built from the trip's real stops, delivery records and remarks. */
+export function RouteSummaryModal({ monitor, route, onClose }: RouteSummaryModalProps) {
+  const { trip, stops, remarks, load, crew } = monitor
+  const covered = stops.filter((stop) => stop.state === "delivered" || stop.state === "failed").length
+  const reviewed = remarks.filter((remark) => remark.status === "reviewed").length
+  const notices = remarks.filter((remark) => remark.notice).length
+  const end = difference(trip.plannedEndAt, trip.completedAt)
 
   return (
-    <div
-      className="modal-layer"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <section
-        aria-labelledby="summary-title"
-        aria-modal="true"
-        className="modal route-summary-modal"
-        role="dialog"
-      >
+    <div className="modal-layer" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section aria-labelledby="summary-title" aria-modal="true" className="modal route-summary-modal" role="dialog">
         <div className="modal__heading">
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <Heading id="summary-title">Route summary</Heading>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "4px 10px",
-                  borderRadius: "999px",
-                  background: "var(--emerald-500)",
-                  color: "var(--navy-900)",
-                  fontWeight: 700,
-                  fontSize: "12px",
-                }}
-              >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 10px", borderRadius: "999px", background: "var(--emerald-500)", color: "var(--navy-900)", fontWeight: 700, fontSize: "12px" }}>
                 <Check size={14} /> Done
               </span>
             </div>
-            <p>
-              {vehicleId} · {route} · {dateStr}
-            </p>
+            <p>{trip.vehicleId} · {route} · {trip.serviceDate}</p>
           </div>
           <IconButton icon={X} label="Close modal" onClick={onClose} />
         </div>
 
-        {/* 5 KPI Cards */}
         <div className="summary-kpi-grid">
           <div className="summary-kpi-card">
             <small>Time</small>
-            <strong>06:32 – 10:05</strong>
-            <span>Plan 06:30 – 10:00 · +5 min</span>
+            <strong>{clock(trip.startedAt)} – {clock(trip.completedAt)}</strong>
+            <span>Plan {clock(trip.departureAt)} – {clock(trip.plannedEndAt)}{trip.plannedEndAt && trip.completedAt ? ` · ${end.text}` : ""}</span>
           </div>
           <div className="summary-kpi-card">
             <small>Shops</small>
-            <strong style={{ color: "var(--emerald-700)" }}>4 / 4</strong>
-            <span className="success-text">all covered</span>
+            <strong style={{ color: covered === stops.length ? "var(--emerald-700)" : undefined }}>{covered} / {stops.length}</strong>
+            <span className={covered === stops.length ? "success-text" : ""}>{covered === stops.length ? "all covered" : "not all covered"}</span>
           </div>
           <div className="summary-kpi-card">
-            <small>Orders</small>
-            <strong>6 delivered</strong>
-            <span>1,180 kg</span>
-          </div>
-          <div className="summary-kpi-card">
-            <small>Distance</small>
-            <strong>86 km</strong>
-            <span>fuel used 18%</span>
+            <small>Load</small>
+            <strong>{load ? `${load.loadedItems} / ${load.totalItems}` : "–"}</strong>
+            <span>{load ? `${load.flaggedItems} flagged` : "no load record"}</span>
           </div>
           <div className="summary-kpi-card">
             <small>Remarks</small>
-            <strong>3 reviewed</strong>
-            <span>3 notices sent</span>
+            <strong>{reviewed} / {remarks.length} reviewed</strong>
+            <span>{notices} notice{notices === 1 ? "" : "s"} sent</span>
+          </div>
+          <div className="summary-kpi-card">
+            <small>Accepted</small>
+            <strong>{trip.acceptedAt ? clock(trip.acceptedAt) : "Not yet"}</strong>
+            <span>{trip.acceptedAt ? "by dispatcher" : "awaiting acceptance"}</span>
           </div>
         </div>
 
-        {/* Stops Table */}
         <table className="summary-stops-table">
           <thead>
-            <tr>
-              <th>Stop</th>
-              <th>Planned</th>
-              <th>Arrived</th>
-              <th>Difference</th>
-              <th>Orders</th>
-            </tr>
+            <tr><th>Stop</th><th>Planned</th><th>Arrived</th><th>Difference</th><th>Outcome</th></tr>
           </thead>
           <tbody>
-            {SUMMARY_STOPS.map((s) => (
-              <tr key={s.stop}>
-                <td>
-                  <strong>{s.stop}</strong>
-                </td>
-                <td className="data-text">{s.planned}</td>
-                <td className="data-text" style={{ fontWeight: 700 }}>
-                  {s.arrived}
-                </td>
-                <td>
-                  <strong
-                    style={{
-                      color:
-                        s.diff === "on time"
-                          ? "var(--emerald-700)"
-                          : "var(--sunburst-900)",
-                    }}
-                  >
-                    {s.diff}
-                  </strong>
-                </td>
-                <td className="data-text">{s.orders}</td>
-              </tr>
-            ))}
+            {stops.map((stop) => {
+              const diff = difference(stop.plannedArrivalAt, stop.arrivedAt)
+              return (
+                <tr key={stop.tripStopId}>
+                  <td><strong>{stop.sequence} · {stop.outletName}</strong></td>
+                  <td className="data-text">{clock(stop.plannedArrivalAt)}</td>
+                  <td className="data-text" style={{ fontWeight: 700 }}>{clock(stop.arrivedAt)}</td>
+                  <td><strong style={{ color: diff.onTime ? "var(--emerald-700)" : "var(--sunburst-900)" }}>{diff.text}</strong></td>
+                  <td className="data-text">{stop.outcome ?? stop.state}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
 
-        {/* Footer */}
         <div className="summary-footer">
           <div className="summary-footer-crew">
-            Crew: Driver, Loader, Loader · Accepted by dispatcher at 10:20
+            Crew: {[crew.driver ? `${crew.driver.name} (driver)` : null, ...crew.loaders.map((loader) => `${loader.name} (loader)`)].filter(Boolean).join(", ") || "not recorded"}
           </div>
           <div className="summary-footer-actions">
-            <Button
-              icon={Download}
-              onClick={handleDownloadPdf}
-              variant="secondary"
-            >
-              Download PDF
-            </Button>
-            <Button onClick={onClose} variant="primary">
-              Close
-            </Button>
+            <Button icon={Download} onClick={() => window.print()} variant="secondary">Download PDF</Button>
+            <Button onClick={onClose} variant="primary">Close</Button>
           </div>
         </div>
       </section>

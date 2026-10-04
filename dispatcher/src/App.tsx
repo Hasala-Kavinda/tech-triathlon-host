@@ -6,7 +6,7 @@ import { ManageVehiclesModal } from "./components/ManageVehiclesModal"
 import { OrderDetailsModal } from "./components/OrderDetailsModal"
 import { OrderLogPage } from "./components/OrderLogPage"
 import { openOrderDetails, vehicleDay } from "./components/planning/helpers"
-import { DAILY_TURN_LIMIT, initialOrders, initialRemarks, initialRoutes, initialVehicles, OPEN_ORDER_EVENT } from "./lib/constants"
+import { DAILY_TURN_LIMIT, initialOrders, initialRoutes, initialVehicles, OPEN_ORDER_EVENT } from "./lib/constants"
 import { addDays, colomboDate, isIsoDate } from "./lib/dates"
 import { useServerClock } from "./lib/useServerClock"
 import type { PlanningService } from "./lib/usePlanningCheck"
@@ -16,7 +16,7 @@ import DueSchedulePage from "./pages/DueSchedulePage"
 import HomePage from "./pages/HomePage"
 import MonitorPage from "./pages/MonitorPage"
 import SchedulePage from "./pages/SchedulePage"
-import type { Order, Remark, RouteRecord, ShopType, Vehicle } from "./types/dispatcher"
+import type { Order, RouteRecord, ShopType, Vehicle } from "./types/dispatcher"
 
 function getInitialPath() {
   if (window.location.pathname.startsWith("/monitor/")) {
@@ -114,7 +114,6 @@ function App() {
   const [ordersDate, setOrdersDate] = useState<string | null>(null)
   const [routes, setRoutes] = useState<RouteRecord[]>(PROTOTYPE_MODE ? initialRoutes : [])
   const [completedRoutes, setCompletedRoutes] = useState<RouteRecord[]>([])
-  const [remarks, setRemarks] = useState<Remark[]>(initialRemarks)
 
   // "Today" and the date being planned. Today comes from the server's clock (Asia/Colombo), the
   // same clock that decides each order's cutoff bucket; the Dispatcher can plan another day.
@@ -428,12 +427,7 @@ function App() {
           orders={orders}
         />
       ) : path.startsWith("/monitor/") ? (
-        <MonitorPage
-          drivers={drivers}
-          onApprove={completeApproval}
-          remarks={remarks}
-          setRemarks={setRemarks}
-        />
+        <MonitorPage key={path} onApprove={completeApproval} />
       ) : (
         <HomePage
           approved={approved}

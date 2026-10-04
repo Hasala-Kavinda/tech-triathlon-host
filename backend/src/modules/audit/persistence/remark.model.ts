@@ -38,6 +38,14 @@ export interface IRemark {
   reviewResponse?: string
   /** Roles to notify after review. */
   notifyRoles?: string[]
+  /** Trip this remark belongs to (set for every field-role remark). */
+  tripId?: Types.ObjectId
+  /** Trip stop (trips.stops[].tripStopId) the remark is about, when stop-scoped. */
+  stopId?: Types.ObjectId
+  /** Load item (load_records.items[].itemId) for loader-exception remarks. */
+  itemId?: string
+  /** Outbound notice created when the dispatcher reviews with "Send notice". */
+  notice?: { text: string; sentAt: Date; recipientIds: Types.ObjectId[] }
   /** Fastify requestId of the create request, for idempotency audit trails. */
   requestId?: string
   createdAt: Date
@@ -59,6 +67,12 @@ const remarkSchema = new Schema<IRemarkDocument>(
     reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
     reviewResponse: String,
     notifyRoles: [String],
+    tripId: { type: Schema.Types.ObjectId, ref: "Trip" },
+    stopId: { type: Schema.Types.ObjectId },
+    itemId: String,
+    notice: {
+      type: new Schema({ text: String, sentAt: Date, recipientIds: [{ type: Schema.Types.ObjectId, ref: "User" }] }, { _id: false }),
+    },
     requestId: String,
   },
   { timestamps: true, versionKey: false, collection: "remarks" },
@@ -71,5 +85,8 @@ remarkSchema.index({ status: 1, createdAt: -1 }, { background: true })
 // - entityType + entityId for "all remarks about this trip/order" queries
 // - actorId for "remarks by this user" queries
 remarkSchema.index({ entityType: 1, entityId: 1, createdAt: -1 }, { background: true })
+
+remarkSchema.index({ tripId: 1, createdAt: -1 }, { background: true, sparse: true })
+remarkSchema.index({ "notice.recipientIds": 1, reviewedAt: -1 }, { background: true, sparse: true })
 
 export const Remark = mongoose.model<IRemarkDocument>("Remark", remarkSchema)
